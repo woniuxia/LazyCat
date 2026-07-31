@@ -226,13 +226,13 @@ describe("dataDictionary utils", () => {
   });
 
   it("can omit the title field from visible summary parts", () => {
-    expect(buildResultSummary({ ...item, titleFieldPath: "user.name" }, fields, "user.name")).toEqual([
-      { fieldPath: "id", label: "编号", value: "1001" },
-    ]);
+    expect(
+      buildResultSummary({ ...item, titleFieldPath: "user.name" }, fields, "user.name"),
+    ).toEqual([{ fieldPath: "id", label: "编号", value: "1001" }]);
   });
 
   it("formats nested json values compactly", () => {
-    expect(formatJsonValue(["A", "B"])).toBe("[\"A\",\"B\"]");
+    expect(formatJsonValue(["A", "B"])).toBe('["A","B"]');
     expect(formatJsonValue(null)).toBe("null");
   });
 
@@ -325,18 +325,16 @@ describe("dataDictionary utils", () => {
   });
 
   it("keeps popular records first and removes duplicate search items", () => {
-    const result = mergePopularAndSearchItems([popularItem(1, "Alice")], [
-      searchItem(1, "Alice"),
-      searchItem(2, "Bob"),
-    ]);
+    const result = mergePopularAndSearchItems(
+      [popularItem(1, "Alice")],
+      [searchItem(1, "Alice"), searchItem(2, "Bob")],
+    );
 
     expect(result.map((entry) => entry.id)).toEqual([1, 2]);
   });
 
   it("picks first popular record before default search result", () => {
-    const picked = pickInitialRecordItem([popularItem(1, "Alice")], [
-      searchItem(2, "Bob"),
-    ]);
+    const picked = pickInitialRecordItem([popularItem(1, "Alice")], [searchItem(2, "Bob")]);
 
     expect(picked?.id).toBe(1);
   });

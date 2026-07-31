@@ -12,9 +12,7 @@ interface RequestForwardPreflightContext {
 
 interface UseRequestForwardPreflightOptions {
   currentContext: () => RequestForwardPreflightContext;
-  execute: (
-    payload: RequestForwardRuleWriteInput,
-  ) => Promise<RequestForwardPreflightResult>;
+  execute: (payload: RequestForwardRuleWriteInput) => Promise<RequestForwardPreflightResult>;
   onError: (error: unknown) => void;
 }
 
@@ -47,10 +45,7 @@ export function useRequestForwardPreflight({
   let acceptedContextSnapshot: string | null = null;
 
   function isRequestCurrent(token: number, contextSnapshot: string): boolean {
-    return (
-      token === requestToken &&
-      contextSnapshot === snapshotContext(currentContext())
-    );
+    return token === requestToken && contextSnapshot === snapshotContext(currentContext());
   }
 
   async function run(): Promise<RequestForwardPreflightResult | null> {
@@ -87,10 +82,7 @@ export function useRequestForwardPreflight({
   }
 
   function isAcceptedCurrent(): boolean {
-    return (
-      result.value != null &&
-      acceptedContextSnapshot === snapshotContext(currentContext())
-    );
+    return result.value != null && acceptedContextSnapshot === snapshotContext(currentContext());
   }
 
   return { result, loading, run, invalidate, isAcceptedCurrent };

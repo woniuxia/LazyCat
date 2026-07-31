@@ -53,7 +53,12 @@
             packageStatusLabel
           }}</span>
           <h1 class="notification-title">{{ packageProjectEnvironmentTitle }}</h1>
-          <el-tag v-if="currentPackage.environment === 'production'" type="danger" effect="plain" size="small">
+          <el-tag
+            v-if="currentPackage.environment === 'production'"
+            type="danger"
+            effect="plain"
+            size="small"
+          >
             生产环境
           </el-tag>
           <el-tag v-else type="info" effect="plain" size="small">测试环境</el-tag>
@@ -65,7 +70,10 @@
         </div>
       </section>
 
-      <section v-else-if="currentActionCombination" class="notification-card action-combination-card">
+      <section
+        v-else-if="currentActionCombination"
+        class="notification-card action-combination-card"
+      >
         <div class="title-row">
           <span class="status-badge" :class="`combination-${currentActionCombination.status}`">
             {{ actionCombinationStatusLabel }}
@@ -235,13 +243,14 @@ const packageStatusLabel = computed(() =>
           ? "命令失败"
           : currentPackage.value?.status === "deployed_health_check_failed"
             ? "验证失败"
-          : currentPackage.value?.status === "cancelled"
-          ? "已终止"
-          : "失败",
+            : currentPackage.value?.status === "cancelled"
+              ? "已终止"
+              : "失败",
 );
 const packageProjectEnvironmentTitle = computed(() => {
   if (!currentPackage.value) return "";
-  const environmentLabel = currentPackage.value.environment === "production" ? "生产环境" : "测试环境";
+  const environmentLabel =
+    currentPackage.value.environment === "production" ? "生产环境" : "测试环境";
   return `${currentPackage.value.projectName} · ${environmentLabel}`;
 });
 const packageError = computed(() => summarizeNotificationError(currentPackage.value?.error));
@@ -262,9 +271,9 @@ const actionCombinationError = computed(() =>
 );
 const canOpenDirectory = computed(() =>
   Boolean(
-    currentPackage.value?.packageType === "local_archive"
-    && currentPackage.value.status !== "failed"
-    && currentPackage.value.archivePath,
+    currentPackage.value?.packageType === "local_archive" &&
+    currentPackage.value.status !== "failed" &&
+    currentPackage.value.archivePath,
   ),
 );
 const headerTitle = computed(() => {
@@ -284,12 +293,13 @@ const headerIcon = computed(() => {
   if (currentActionCombination.value?.status === "failed") return WarningFilled;
   if (currentActionCombination.value) return CircleCheckFilled;
   if (
-    currentPackage.value?.status === "failed"
-    || currentPackage.value?.status === "package_succeeded_upload_failed"
-    || currentPackage.value?.status === "upload_succeeded_command_failed"
-    || currentPackage.value?.status === "deployed_health_check_failed"
-    || currentPackage.value?.status === "cancelled"
-  ) return WarningFilled;
+    currentPackage.value?.status === "failed" ||
+    currentPackage.value?.status === "package_succeeded_upload_failed" ||
+    currentPackage.value?.status === "upload_succeeded_command_failed" ||
+    currentPackage.value?.status === "deployed_health_check_failed" ||
+    currentPackage.value?.status === "cancelled"
+  )
+    return WarningFilled;
   return CircleCheckFilled;
 });
 const headerTone = computed(() =>

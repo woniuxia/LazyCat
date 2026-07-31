@@ -42,11 +42,10 @@ describe("useReleasePackageCommandRetry", () => {
     const retry = useReleasePackageCommandRetry();
 
     await retry.prepare(41, "command-retry-1");
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      1,
-      "tool:release-package:command-retry-prepare",
-      { environmentId: 41, retryToken: "command-retry-1" },
-    );
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "tool:release-package:command-retry-prepare", {
+      environmentId: 41,
+      retryToken: "command-retry-1",
+    });
 
     await retry.trustHost(true);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "tool:release-package:host-trust", {
@@ -57,37 +56,27 @@ describe("useReleasePackageCommandRetry", () => {
 
     retry.privateKeyPassphrase.value = "key-passphrase";
     await retry.preflight();
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      3,
-      "tool:release-package:command-retry-preflight",
-      {
-        environmentId: 41,
-        retryToken: "command-retry-1",
-        probeToken: "probe-2",
-        privateKeyPassphrase: "key-passphrase",
-      },
-    );
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:command-retry-preflight", {
+      environmentId: 41,
+      retryToken: "command-retry-1",
+      probeToken: "probe-2",
+      privateKeyPassphrase: "key-passphrase",
+    });
     expect(retry.privateKeyPassphrase.value).toBe("");
 
     retry.privateKeyPassphrase.value = "must-not-survive-start";
     await expect(retry.start()).resolves.toEqual({ runId: "run-2" });
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      4,
-      "tool:release-package:command-retry-start",
-      {
-        environmentId: 41,
-        retryToken: "command-retry-1",
-        authToken: "auth-1",
-      },
-    );
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "tool:release-package:command-retry-start", {
+      environmentId: 41,
+      retryToken: "command-retry-1",
+      authToken: "auth-1",
+    });
     expect(retry.privateKeyPassphrase.value).toBe("");
     expect(retry.authToken.value).toBe("");
   });
 
   it("clears the private key passphrase when preflight fails", async () => {
-    invokeMock
-      .mockResolvedValueOnce(prepareResult)
-      .mockRejectedValueOnce(new Error("认证失败"));
+    invokeMock.mockResolvedValueOnce(prepareResult).mockRejectedValueOnce(new Error("认证失败"));
     const retry = useReleasePackageCommandRetry();
     await retry.prepare(41, "command-retry-1");
     retry.privateKeyPassphrase.value = "wrong-passphrase";
@@ -126,7 +115,6 @@ describe("useReleasePackageCommandRetry", () => {
     expect(retry.authToken.value).toBe("");
   });
 
-
   it("clears one-time authentication state when start fails", async () => {
     invokeMock
       .mockResolvedValueOnce(prepareResult)
@@ -157,13 +145,10 @@ describe("useReleasePackageCommandRetry", () => {
     expect(retry.authToken.value).toBe("");
   });
 
-
   it.each(["discard", "reset"] as const)(
     "exposes remote discard failures from %s after clearing local state",
     async (method) => {
-      invokeMock
-        .mockResolvedValueOnce(prepareResult)
-        .mockRejectedValueOnce(new Error("撤销失败"));
+      invokeMock.mockResolvedValueOnce(prepareResult).mockRejectedValueOnce(new Error("撤销失败"));
       const retry = useReleasePackageCommandRetry();
       await retry.prepare(41, "command-retry-1");
       retry.authToken.value = "auth-1";

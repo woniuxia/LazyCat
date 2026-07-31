@@ -25,10 +25,12 @@
 ### Task 1: Inspector Width And Log Selection Helpers
 
 **Files:**
+
 - Modify: apps/desktop/src/utils/requestForward.ts
 - Test: apps/desktop/src/utils/requestForward.test.ts
 
 **Interfaces:**
+
 - Produces: DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH = 420
 - Produces: MIN_REQUEST_FORWARD_INSPECTOR_WIDTH = 320
 - Produces: clampRequestForwardInspectorWidth(preferred: unknown, availableWidth: number): number
@@ -38,7 +40,7 @@
 
 Add imports and these cases to requestForward.test.ts:
 
-~~~typescript
+```typescript
 expect(clampRequestForwardInspectorWidth(undefined, 1200)).toBe(420);
 expect(clampRequestForwardInspectorWidth("oops", 1200)).toBe(420);
 expect(clampRequestForwardInspectorWidth(200, 1200)).toBe(320);
@@ -48,7 +50,7 @@ expect(clampRequestForwardInspectorWidth(480, 800)).toBe(400);
 expect(retainRequestForwardSelectedLogId(7, [{ id: 9 }, { id: 7 }])).toBe(7);
 expect(retainRequestForwardSelectedLogId(7, [{ id: 9 }])).toBeNull();
 expect(retainRequestForwardSelectedLogId(null, [{ id: 9 }])).toBeNull();
-~~~
+```
 
 - [ ] **Step 2: Run the tests and verify RED**
 
@@ -62,7 +64,7 @@ Expected: FAIL because clampRequestForwardInspectorWidth and retainRequestForwar
 
 Add to requestForward.ts:
 
-~~~typescript
+```typescript
 export const DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH = 420;
 export const MIN_REQUEST_FORWARD_INSPECTOR_WIDTH = 320;
 
@@ -71,20 +73,12 @@ export function clampRequestForwardInspectorWidth(
   availableWidth: number,
 ): number {
   const parsed = typeof preferred === "number" ? preferred : Number(preferred);
-  const width = Number.isFinite(parsed)
-    ? parsed
-    : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH;
+  const width = Number.isFinite(parsed) ? parsed : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH;
   const safeAvailable = Number.isFinite(availableWidth)
     ? Math.max(0, availableWidth)
     : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH * 2;
-  const maximum = Math.max(
-    MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
-    Math.floor(safeAvailable * 0.5),
-  );
-  return Math.min(
-    maximum,
-    Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.round(width)),
-  );
+  const maximum = Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.floor(safeAvailable * 0.5));
+  return Math.min(maximum, Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.round(width)));
 }
 
 export function retainRequestForwardSelectedLogId(
@@ -94,7 +88,7 @@ export function retainRequestForwardSelectedLogId(
   if (selectedId == null) return null;
   return items.some((item) => item.id === selectedId) ? selectedId : null;
 }
-~~~
+```
 
 - [ ] **Step 4: Run the tests and verify GREEN**
 
@@ -106,18 +100,20 @@ Expected: all requestForward utility tests pass.
 
 - [ ] **Step 5: Commit**
 
-    git add apps/desktop/src/utils/requestForward.ts apps/desktop/src/utils/requestForward.test.ts
-    git commit -m "test(request-forward): 覆盖详情栏宽度边界"
+  git add apps/desktop/src/utils/requestForward.ts apps/desktop/src/utils/requestForward.test.ts
+  git commit -m "test(request-forward): 覆盖详情栏宽度边界"
 
 ---
 
 ### Task 2: Compact Rule Navigation And Context Menu
 
 **Files:**
+
 - Modify: apps/desktop/src/components/request-forward/RequestForwardRuleList.vue
 - Test: apps/desktop/src/components/RequestForwardPanel.test.ts
 
 **Interfaces:**
+
 - Consumes: RequestForwardRule and RequestForwardRuntimeStatus
 - Produces events: add, select(id), start(id), stop(id), edit(id), delete(id), start-all, stop-all
 - Produces behavior: right-clicking a rule opens an Element Plus context menu without selecting that rule
@@ -126,7 +122,7 @@ Expected: all requestForward utility tests pass.
 
 Extend RequestForwardPanel.test.ts:
 
-~~~typescript
+```typescript
 it("uses a compact rule navigation with context editing", () => {
   expect(listSource).toContain('trigger="contextmenu"');
   expect(listSource).toMatch(/edit: \[id: number\]/);
@@ -142,7 +138,7 @@ it("keeps inline start and stop controls in the rule navigation", () => {
   expect(listSource).toMatch(/emit\("start", rule\.id\)/);
   expect(listSource).toMatch(/emit\("stop", rule\.id\)/);
 });
-~~~
+```
 
 - [ ] **Step 2: Run the component test and verify RED**
 
@@ -156,7 +152,7 @@ Expected: FAIL because edit/delete events, context menu, and compact rule rows d
 
 In RequestForwardRuleList.vue:
 
-~~~typescript
+```typescript
 import { Delete, Edit, MoreFilled, Plus } from "@element-plus/icons-vue";
 import type { DropdownInstance } from "element-plus";
 
@@ -170,7 +166,7 @@ function setMenuRef(ruleId: number, value: unknown) {
 function handleCommand(command: "edit" | "delete", ruleId: number) {
   emit(command, ruleId);
 }
-~~~
+```
 
 Wrap each compact rule row in el-dropdown with trigger=contextmenu, bind command to the current rule id, provide Edit/Delete dropdown items, and use a MoreFilled icon button calling menuRefs.get(rule.id)?.handleOpen() for keyboard-accessible access. Keep the selection button separate from inline start/stop and menu buttons.
 
@@ -178,8 +174,12 @@ Wrap each compact rule row in el-dropdown with trigger=contextmenu, bind command
 
 Use stable row dimensions:
 
-~~~css
-.rule-list { width: 220px; gap: 8px; padding: 12px 10px; }
+```css
+.rule-list {
+  width: 220px;
+  gap: 8px;
+  padding: 12px 10px;
+}
 .rule-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -191,7 +191,7 @@ Use stable row dimensions:
   background: #eaf2f7;
   box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff);
 }
-~~~
+```
 
 Keep visible focus, hover, running/failed status text, search, batch actions, counts, and empty states.
 
@@ -205,19 +205,21 @@ Expected: the new navigation tests pass; unrelated existing tests may still fail
 
 - [ ] **Step 6: Commit**
 
-    git add apps/desktop/src/components/request-forward/RequestForwardRuleList.vue apps/desktop/src/components/RequestForwardPanel.test.ts
-    git commit -m "feat(request-forward): 改造紧凑规则导航"
+  git add apps/desktop/src/components/request-forward/RequestForwardRuleList.vue apps/desktop/src/components/RequestForwardPanel.test.ts
+  git commit -m "feat(request-forward): 改造紧凑规则导航"
 
 ---
 
 ### Task 3: Shared Rule Configuration Dialog
 
 **Files:**
+
 - Create: apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue
 - Modify: apps/desktop/src/components/RequestForwardPanel.vue
 - Test: apps/desktop/src/components/RequestForwardPanel.test.ts
 
 **Interfaces:**
+
 - RequestForwardRuleDialog props: visible, form, errors, readonly, persisted, disabled, saving, operating
 - RequestForwardRuleDialog events: update:form, request-close, save, save-and-start, stop-and-edit, delete
 - RequestForwardPanel state: editorMode: "create" | "edit" | null, editorRuleId: number | null, editorIntentToken: number
@@ -226,7 +228,7 @@ Expected: the new navigation tests pass; unrelated existing tests may still fail
 
 Add dialog source loading to RequestForwardPanel.test.ts and assert:
 
-~~~typescript
+```typescript
 it("moves create and edit into one controlled rule dialog", () => {
   expect(source).toContain("RequestForwardRuleDialog");
   expect(source).toContain('editorMode = ref<"create" | "edit" | null>');
@@ -248,7 +250,7 @@ it("does not replace the selected log context when editing another rule", () => 
   expect(source).toMatch(/function openEditDialog\(id: number\)[\s\S]*?editorRuleId\.value = id/);
   expect(source).not.toMatch(/function openEditDialog\(id: number\)[\s\S]*?selectedId\.value = id/);
 });
-~~~
+```
 
 - [ ] **Step 2: Run the component test and verify RED**
 
@@ -266,7 +268,7 @@ RequestForwardRuleDialog.vue owns only layout. It renders RequestForwardRuleForm
 
 In RequestForwardPanel.vue:
 
-~~~typescript
+```typescript
 const editorMode = ref<"create" | "edit" | null>(null);
 const editorRuleId = ref<number | null>(null);
 let editorIntentToken = 0;
@@ -278,9 +280,7 @@ const editorStatus = computed(
   () => statuses.value.find((status) => status.ruleId === editorRuleId.value) ?? null,
 );
 const editorReadonly = computed(() =>
-  editorRule.value
-    ? isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped")
-    : false,
+  editorRule.value ? isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped") : false,
 );
 
 function openCreateDialog() {
@@ -304,7 +304,7 @@ function openEditDialog(id: number) {
   formDirty.value = false;
   fieldErrors.value = {};
 }
-~~~
+```
 
 Use a separate currentEditorIntent for save/delete/stop-and-edit. Opening or closing a dialog must not set selectedId, clear logs, stop polling, or invalidate log-query context. After a successful create, select the new rule; after edit, retain the existing selected rule.
 
@@ -322,20 +322,22 @@ Expected: dialog/editor tests and all mutation intent tests pass after updating 
 
 - [ ] **Step 7: Commit**
 
-    git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue apps/desktop/src/components/RequestForwardPanel.test.ts
-    git commit -m "feat(request-forward): 使用弹窗维护转发规则"
+  git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue apps/desktop/src/components/RequestForwardPanel.test.ts
+  git commit -m "feat(request-forward): 使用弹窗维护转发规则"
 
 ---
 
 ### Task 4: Dense Log Table And Detail Inspector
 
 **Files:**
+
 - Modify: apps/desktop/src/components/request-forward/RequestForwardLogList.vue
 - Create: apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue
 - Modify: apps/desktop/src/components/RequestForwardPanel.vue
 - Test: apps/desktop/src/components/RequestForwardPanel.test.ts
 
 **Interfaces:**
+
 - RequestForwardLogList props add selectedId: number | null
 - RequestForwardLogList events add select(id: number)
 - RequestForwardLogInspector props: log: RequestForwardLogRow | null
@@ -346,7 +348,7 @@ Expected: dialog/editor tests and all mutation intent tests pass after updating 
 
 Add inspector source loading and assert:
 
-~~~typescript
+```typescript
 it("renders selectable dense log rows and a separate inspector", () => {
   expect(logListSource).toContain("selectedId: number | null");
   expect(logListSource).toMatch(/select: \[id: number\]/);
@@ -360,7 +362,7 @@ it("renders selectable dense log rows and a separate inspector", () => {
   expect(inspectorSource).toContain("请求体预览");
   expect(inspectorSource).toContain("响应体预览");
 });
-~~~
+```
 
 - [ ] **Step 2: Run the test and verify RED**
 
@@ -396,7 +398,7 @@ RequestForwardLogInspector.vue:
 
 In RequestForwardPanel.vue:
 
-~~~typescript
+```typescript
 const selectedLogId = ref<number | null>(null);
 const selectedLog = computed(
   () => logItems.value.find((item) => item.id === selectedLogId.value) ?? null,
@@ -405,7 +407,7 @@ const selectedLog = computed(
 function selectLog(id: number) {
   selectedLogId.value = id;
 }
-~~~
+```
 
 Clear selectedLogId on rule change, manual filter changes, and successful clear. After every initial load or background refresh assignment, call retainRequestForwardSelectedLogId against the new items so selection survives by id only while the row remains present.
 
@@ -419,18 +421,20 @@ Expected: log table, inspector, selection retention, and existing refresh tests 
 
 - [ ] **Step 7: Commit**
 
-    git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/request-forward/RequestForwardLogList.vue apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue apps/desktop/src/components/RequestForwardPanel.test.ts
-    git commit -m "feat(request-forward): 添加高密度日志检查器"
+  git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/request-forward/RequestForwardLogList.vue apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue apps/desktop/src/components/RequestForwardPanel.test.ts
+  git commit -m "feat(request-forward): 添加高密度日志检查器"
 
 ---
 
 ### Task 5: Three-Pane Layout And Persistent Resizer
 
 **Files:**
+
 - Modify: apps/desktop/src/components/RequestForwardPanel.vue
 - Modify: apps/desktop/src/components/RequestForwardPanel.test.ts
 
 **Interfaces:**
+
 - Consumes: getSetting and setSetting from useSettings
 - Consumes: clampRequestForwardInspectorWidth and width constants from requestForward.ts
 - Persists: request-forward:inspector-width
@@ -440,13 +444,13 @@ Expected: log table, inspector, selection retention, and existing refresh tests 
 
 Add:
 
-~~~typescript
+```typescript
 it("uses a three-pane workspace with a persistent resizer", () => {
   expect(source).toContain('class="request-forward-workspace"');
   expect(source).toContain('class="inspector-resizer"');
   expect(source).toContain('role="separator"');
   expect(source).toContain('aria-orientation="vertical"');
-  expect(source).toContain('request-forward:inspector-width');
+  expect(source).toContain("request-forward:inspector-width");
   expect(source).toContain("getSetting");
   expect(source).toContain("setSetting");
   expect(source).toContain("@pointerdown");
@@ -460,7 +464,7 @@ it("keeps the inspector as an overlay on narrow layouts", () => {
   expect(source).toMatch(/@media \(max-width: 1100px\)/);
   expect(source).toContain("position: absolute");
 });
-~~~
+```
 
 - [ ] **Step 2: Run the test and verify RED**
 
@@ -480,21 +484,17 @@ When no rule is selected, keep the navigation visible and show the existing empt
 
 Use:
 
-~~~typescript
+```typescript
 const INSPECTOR_WIDTH_SETTING = "request-forward:inspector-width";
 const workspaceRef = ref<HTMLElement | null>(null);
 const workspaceWidth = ref(0);
 const preferredInspectorWidth = ref(
-  Number(getSetting(INSPECTOR_WIDTH_SETTING)) ||
-    DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
+  Number(getSetting(INSPECTOR_WIDTH_SETTING)) || DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
 );
 const inspectorWidth = computed(() =>
-  clampRequestForwardInspectorWidth(
-    preferredInspectorWidth.value,
-    workspaceWidth.value,
-  ),
+  clampRequestForwardInspectorWidth(preferredInspectorWidth.value, workspaceWidth.value),
 );
-~~~
+```
 
 Observe workspaceRef with ResizeObserver. The computed width clamps rendering only and never writes during window resize.
 
@@ -527,14 +527,15 @@ Expected: all targeted tests pass and typecheck exits 0.
 
 - [ ] **Step 8: Commit**
 
-    git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/RequestForwardPanel.test.ts
-    git commit -m "feat(request-forward): 完成可调三栏观测布局"
+  git add apps/desktop/src/components/RequestForwardPanel.vue apps/desktop/src/components/RequestForwardPanel.test.ts
+  git commit -m "feat(request-forward): 完成可调三栏观测布局"
 
 ---
 
 ### Task 6: Regression Verification And Process Record
 
 **Files:**
+
 - Modify: process.md
 - Verify: apps/desktop/src/components/RequestForwardPanel.vue
 - Verify: apps/desktop/src/components/request-forward/RequestForwardRuleList.vue
@@ -543,6 +544,7 @@ Expected: all targeted tests pass and typecheck exits 0.
 - Verify: apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue
 
 **Interfaces:**
+
 - No new runtime interface
 - Produces: repository experience record and final verification evidence
 
@@ -591,5 +593,5 @@ Confirm there is no whitespace error, no unrelated file change, no Element Plus 
 
 - [ ] **Step 6: Commit the process record and any final test-only correction**
 
-    git add process.md
-    git commit -m "docs(process): 记录三栏日志工作台实践"
+  git add process.md
+  git commit -m "docs(process): 记录三栏日志工作台实践"

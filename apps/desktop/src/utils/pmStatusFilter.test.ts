@@ -61,8 +61,15 @@ describe("pmStatusFilter", () => {
   });
 
   it("切换状态时保持稳定顺序", () => {
-    expect(togglePmSelectedStatus(["todo", "testing"], "done")).toEqual(["todo", "testing", "done"]);
-    expect(togglePmSelectedStatus(["todo", "in_progress", "testing"], "in_progress")).toEqual(["todo", "testing"]);
+    expect(togglePmSelectedStatus(["todo", "testing"], "done")).toEqual([
+      "todo",
+      "testing",
+      "done",
+    ]);
+    expect(togglePmSelectedStatus(["todo", "in_progress", "testing"], "in_progress")).toEqual([
+      "todo",
+      "testing",
+    ]);
   });
 
   it("清空后保持空数组，不自动恢复默认值", () => {
@@ -77,36 +84,28 @@ describe("pmStatusFilter", () => {
   });
 
   it("仅选 todo 时未知状态可见", () => {
-    const items = [
-      createItem(1, "todo"),
-      createItem(2, "blocked"),
-      createItem(3, "done"),
-    ];
+    const items = [createItem(1, "todo"), createItem(2, "blocked"), createItem(3, "done")];
 
     expect(filterPmItemsBySelectedStatuses(items, ["todo"]).map((item) => item.id)).toEqual([1, 2]);
   });
 
   it("取消 todo 后未知状态随之不可见", () => {
-    const items = [
-      createItem(1, "todo"),
-      createItem(2, "blocked"),
-      createItem(3, "done"),
-    ];
+    const items = [createItem(1, "todo"), createItem(2, "blocked"), createItem(3, "done")];
 
     expect(filterPmItemsBySelectedStatuses(items, ["done"]).map((item) => item.id)).toEqual([3]);
   });
 
   it("未选任何状态时直接返回空结果", () => {
-    const items = [
-      createItem(1, "todo"),
-      createItem(2, "done"),
-    ];
+    const items = [createItem(1, "todo"), createItem(2, "done")];
 
     expect(filterPmItemsBySelectedStatuses(items, [])).toEqual([]);
   });
 
   it("可见状态列只返回当前选中的列且保持正式顺序", () => {
-    expect(getVisiblePmStatusColumns(["testing", "todo"]).map((column) => column.key)).toEqual(["todo", "testing"]);
+    expect(getVisiblePmStatusColumns(["testing", "todo"]).map((column) => column.key)).toEqual([
+      "todo",
+      "testing",
+    ]);
     expect(getVisiblePmStatusColumns([])).toEqual([]);
   });
 

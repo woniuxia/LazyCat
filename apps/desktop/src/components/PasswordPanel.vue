@@ -27,7 +27,12 @@
     <el-card shadow="never">
       <template #header><span>密码强度分析</span></template>
       <div class="analyze-input">
-        <el-input v-model="manualPassword" placeholder="输入密码进行强度分析" clearable @keyup.enter="analyzeManual">
+        <el-input
+          v-model="manualPassword"
+          placeholder="输入密码进行强度分析"
+          clearable
+          @keyup.enter="analyzeManual"
+        >
           <template #append>
             <el-button @click="analyzeManual">分析</el-button>
           </template>
@@ -35,12 +40,23 @@
       </div>
       <div v-if="strengthResult" class="strength-result">
         <div class="strength-bar">
-          <span class="strength-text" :style="{ color: strengthColor }">{{ strengthLevelText }}</span>
-          <el-progress :percentage="strengthResult.score" :color="strengthColor" :show-text="false" />
+          <span class="strength-text" :style="{ color: strengthColor }">{{
+            strengthLevelText
+          }}</span>
+          <el-progress
+            :percentage="strengthResult.score"
+            :color="strengthColor"
+            :show-text="false"
+          />
           <span class="strength-score">{{ strengthResult.score }} / 100</span>
         </div>
         <div class="strength-details">
-          <div v-for="d in strengthResult.details" :key="d.rule" class="detail-item" :class="d.passed ? 'pass' : 'fail'">
+          <div
+            v-for="d in strengthResult.details"
+            :key="d.rule"
+            class="detail-item"
+            :class="d.passed ? 'pass' : 'fail'"
+          >
             <span class="detail-icon">{{ d.passed ? "\u2713" : "\u2717" }}</span>
             <span>{{ d.message }}</span>
           </div>
@@ -115,7 +131,7 @@ async function generatePassword() {
         numbers: passwordNumbers.value,
         uppercase: passwordUppercase.value,
         lowercase: passwordLowercase.value,
-      })
+      }),
     );
     generatedPassword.value = pw;
     manualPassword.value = pw;

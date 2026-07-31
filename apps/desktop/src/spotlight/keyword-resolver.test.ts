@@ -103,9 +103,7 @@ describe("resolveKeywordInvocation - show-value producers", () => {
     });
     expect(first.providerId).toBe("__keyword__");
     expect((first.payload as { __keyword?: boolean }).__keyword).toBe(true);
-    expect((first.payload as { keywordItemKind?: string }).keywordItemKind).toBe(
-      "show-value",
-    );
+    expect((first.payload as { keywordItemKind?: string }).keywordItemKind).toBe("show-value");
   });
 
   it("timestamp producer returns 5 representations", async () => {
@@ -134,9 +132,7 @@ describe("resolveKeywordInvocation - open-tool", () => {
     expect(items).toHaveLength(1);
     expect(items[0].title).toContain("JWT");
     expect((items[0].payload as { toolId?: string }).toolId).toBe("jwt");
-    expect((items[0].payload as { text?: string }).text).toBe(
-      "eyJhbGciOiJIUzI1NiJ9.payload.sig",
-    );
+    expect((items[0].payload as { text?: string }).text).toBe("eyJhbGciOiJIUzI1NiJ9.payload.sig");
   });
 
   it("forwards empty args when no args provided", async () => {

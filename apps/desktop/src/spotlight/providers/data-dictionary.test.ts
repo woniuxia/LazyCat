@@ -141,13 +141,10 @@ describe("data dictionary actions", () => {
       {} as never,
     );
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:data-dictionary:record-detail",
-      { recordId: 12 },
-    );
-    expect(writeText).toHaveBeenCalledWith(
-      JSON.stringify({ id: 1001, name: "张三" }, null, 2),
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:data-dictionary:record-detail", {
+      recordId: 12,
+    });
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify({ id: 1001, name: "张三" }, null, 2));
     expect(result?.closeSpotlight).toBe(true);
   });
 });

@@ -51,7 +51,10 @@ async function onKeydown(e: KeyboardEvent) {
     if (!text) return;
 
     try {
-      await invokeToolByChannel("tool:todo:item-create", { title: text, reminderPresets: ["none"] });
+      await invokeToolByChannel("tool:todo:item-create", {
+        title: text,
+        reminderPresets: ["none"],
+      });
       title.value = "";
       await closeWindow();
     } catch (err) {

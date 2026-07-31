@@ -97,10 +97,12 @@ describe("release package runtime state", () => {
   });
 
   it("registers singleton listeners, filters stale events, and retains terminal state", async () => {
-    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      listeners.set(name, handler);
-      return vi.fn();
-    });
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
     await runtime.ensureListeners();
@@ -125,10 +127,12 @@ describe("release package runtime state", () => {
   });
 
   it("keeps runtimes isolated by environment within the same project and log column", async () => {
-    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      listeners.set(name, handler);
-      return vi.fn();
-    });
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
 
@@ -158,10 +162,12 @@ describe("release package runtime state", () => {
   });
 
   it("clears previous archive paths immediately before a new upload run", async () => {
-    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      listeners.set(name, handler);
-      return vi.fn();
-    });
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
     runtime.beginStart(41);
@@ -185,10 +191,12 @@ describe("release package runtime state", () => {
   });
 
   it("tracks upload logs, progress, failure retry token, and terminal running state", async () => {
-    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      listeners.set(name, handler);
-      return vi.fn();
-    });
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
     runtime.beginStart(41, ["frontend", "backend"]);
@@ -223,10 +231,12 @@ describe("release package runtime state", () => {
   });
 
   it("tracks failed post-upload commands without overwriting the upload retry token", async () => {
-    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      listeners.set(name, handler);
-      return vi.fn();
-    });
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
     runtime.beginStart(41, ["frontend", "backend"]);
@@ -237,7 +247,6 @@ describe("release package runtime state", () => {
       totalBytes: 1_024,
       currentPath: "assets/app.js",
     });
-
 
     emit("release-package://status", {
       ...status("run-1", 41, "failed", "upload"),

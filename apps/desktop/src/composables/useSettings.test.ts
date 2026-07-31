@@ -57,16 +57,18 @@ describe("setSettingAndWait", () => {
     await setSettingAndWait("release_package.output_root", "D:\\old");
     invokeMock.mockRejectedValueOnce(new Error("write failed"));
 
-    await expect(setSettingAndWait("release_package.output_root", "D:\\new"))
-      .rejects.toThrow("write failed");
+    await expect(setSettingAndWait("release_package.output_root", "D:\\new")).rejects.toThrow(
+      "write failed",
+    );
     expect(getSetting("release_package.output_root")).toBe("D:\\old");
   });
 
   it("removes a new in-memory value when its first persistence fails", async () => {
     invokeMock.mockRejectedValueOnce(new Error("write failed"));
 
-    await expect(setSettingAndWait("release_package.new_key", "value"))
-      .rejects.toThrow("write failed");
+    await expect(setSettingAndWait("release_package.new_key", "value")).rejects.toThrow(
+      "write failed",
+    );
     expect(getSetting("release_package.new_key")).toBeUndefined();
   });
 
@@ -115,7 +117,9 @@ describe("setSettingAndWait", () => {
   });
 
   it("restores the latest committed value when the newest write fails", async () => {
-    invokeMock.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error("second failed"));
+    invokeMock
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error("second failed"));
 
     const firstWrite = setSettingAndWait("release_package.committed", "first");
     const secondWrite = setSettingAndWait("release_package.committed", "second");
@@ -166,8 +170,9 @@ describe("setSettingAndWait", () => {
     const unsubscribe = subscribeVaultLockSettings(listener);
     invokeMock.mockRejectedValueOnce(new Error("write failed"));
 
-    await expect(setVaultLockSettingAndWait("activityLockEnabled", false))
-      .rejects.toThrow("write failed");
+    await expect(setVaultLockSettingAndWait("activityLockEnabled", false)).rejects.toThrow(
+      "write failed",
+    );
 
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
@@ -182,10 +187,12 @@ describe("setSettingAndWait", () => {
     const pendingWrite = setVaultLockSettingAndWait("activityLockMinutes", 5);
     await setVaultLockSettingAndWait("systemIdleLockEnabled", false);
 
-    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
-      activityLockMinutes: 30,
-      systemIdleLockEnabled: false,
-    }));
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activityLockMinutes: 30,
+        systemIdleLockEnabled: false,
+      }),
+    );
 
     pending.reject(new Error("write failed"));
     await expect(pendingWrite).rejects.toThrow("write failed");

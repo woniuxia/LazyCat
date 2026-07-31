@@ -33,23 +33,23 @@
 
 使用以下独立设置键：
 
-| 设置键 | 含义 | 默认值 |
-| --- | --- | --- |
-| `vault_sensitive_hide_minutes` | 已展示敏感信息的自动隐藏分钟数 | 由旧预设迁移，默认 2 |
-| `vault_activity_lock_enabled` | 是否启用 Vault 无活动硬锁 | `true` |
-| `vault_activity_lock_minutes` | Vault 无活动硬锁分钟数 | 由旧预设迁移，默认 30 |
-| `vault_system_idle_lock_enabled` | 是否启用电脑无操作硬锁 | `true` |
-| `vault_system_idle_lock_minutes` | 电脑无操作硬锁分钟数 | 15 |
+| 设置键                           | 含义                           | 默认值                |
+| -------------------------------- | ------------------------------ | --------------------- |
+| `vault_sensitive_hide_minutes`   | 已展示敏感信息的自动隐藏分钟数 | 由旧预设迁移，默认 2  |
+| `vault_activity_lock_enabled`    | 是否启用 Vault 无活动硬锁      | `true`                |
+| `vault_activity_lock_minutes`    | Vault 无活动硬锁分钟数         | 由旧预设迁移，默认 30 |
+| `vault_system_idle_lock_enabled` | 是否启用电脑无操作硬锁         | `true`                |
+| `vault_system_idle_lock_minutes` | 电脑无操作硬锁分钟数           | 15                    |
 
 ### 4.1 旧预设迁移
 
 当新设置键不存在时，读取旧 `vault_lock_profile` 并按下表生成前端设置值和后端回退策略：
 
-| 旧预设 | 敏感信息隐藏 | Vault 无活动硬锁 |
-| --- | ---: | ---: |
-| `strict` | 1 分钟 | 10 分钟 |
-| `balanced` 或非法值 | 2 分钟 | 30 分钟 |
-| `convenient` | 5 分钟 | 60 分钟 |
+| 旧预设              | 敏感信息隐藏 | Vault 无活动硬锁 |
+| ------------------- | -----------: | ---------------: |
+| `strict`            |       1 分钟 |          10 分钟 |
+| `balanced` 或非法值 |       2 分钟 |          30 分钟 |
+| `convenient`        |       5 分钟 |          60 分钟 |
 
 迁移不删除旧键，避免回退旧版本时丢失原有偏好。新版本只使用独立设置键进行后续读写。电脑无操作规则在没有新键时始终回退为开启 15 分钟。
 

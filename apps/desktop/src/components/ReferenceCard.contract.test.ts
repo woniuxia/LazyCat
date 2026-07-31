@@ -25,12 +25,8 @@ describe("ReferenceCard window wiring", () => {
   });
 
   it("closes the focused card on Escape before Monaco handles it", () => {
-    expect(component).toContain(
-      'window.addEventListener("keydown", onWindowKeydown, true)',
-    );
-    expect(component).toContain(
-      'window.removeEventListener("keydown", onWindowKeydown, true)',
-    );
+    expect(component).toContain('window.addEventListener("keydown", onWindowKeydown, true)');
+    expect(component).toContain('window.removeEventListener("keydown", onWindowKeydown, true)');
     expect(component).toContain('if (event.key !== "Escape") return;');
     expect(component).toContain("event.preventDefault();");
     expect(component).toContain("event.stopPropagation();");
@@ -61,9 +57,7 @@ describe("ReferenceCard window wiring", () => {
 
   it("auto-sizes only during hidden creation and preserves manual resizing", () => {
     expect(referenceCardBackend).toContain(".visible(false)");
-    expect(referenceCardBackend).toContain(
-      "configure_initial_geometry(&window, &text, ordinal)",
-    );
+    expect(referenceCardBackend).toContain("configure_initial_geometry(&window, &text, ordinal)");
     expect(referenceCardBackend).toContain(".resizable(true)");
     expect(referenceCardBackend.match(/\.set_size\(/g)).toHaveLength(1);
     expect(referenceCardBackend).not.toContain(".max_inner_size(");
@@ -78,15 +72,11 @@ describe("ReferenceCard shortcut settings", () => {
 
   it("loads and registers the default shortcut", () => {
     expect(app).toContain('getSetting("hotkey_reference_card") ?? "Ctrl+Alt+Space"');
-    expect(app).toContain(
-      'registerNamedHotkey("reference-card", savedReferenceCardHotkey)',
-    );
+    expect(app).toContain('registerNamedHotkey("reference-card", savedReferenceCardHotkey)');
   });
 
   it("includes the shortcut in conflict, save and clear flows", () => {
-    expect(settings).toContain(
-      '{ key: "referenceCardHotkeyInput" as const, label: "置顶参考卡" }',
-    );
+    expect(settings).toContain('{ key: "referenceCardHotkeyInput" as const, label: "置顶参考卡" }');
     expect(settings).toContain('registerNamedHotkey("reference-card", referenceCard)');
     expect(settings).toContain('setSetting("hotkey_reference_card", referenceCard)');
     expect(settings).toContain('unregisterNamedHotkey("reference-card")');

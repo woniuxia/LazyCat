@@ -62,10 +62,16 @@ describe("apiMock utils", () => {
     // 空 Origin 会在后端兜底为 *，校验必须同样拦截。
     expect(validateMockCorsConfig({ ...base, allowOrigin: "  ", allowMethods: [] }).ok).toBe(false);
     // 多值列表中混入 * 同样拦截。
-    expect(validateMockCorsConfig({ ...base, allowOrigin: "http://a.com, *", allowMethods: [] }).ok).toBe(false);
+    expect(
+      validateMockCorsConfig({ ...base, allowOrigin: "http://a.com, *", allowMethods: [] }).ok,
+    ).toBe(false);
     // 合法多值列表放行。
     expect(
-      validateMockCorsConfig({ ...base, allowOrigin: "http://a.com, http://b.com", allowMethods: [] }).ok,
+      validateMockCorsConfig({
+        ...base,
+        allowOrigin: "http://a.com, http://b.com",
+        allowMethods: [],
+      }).ok,
     ).toBe(true);
   });
 
@@ -118,19 +124,34 @@ describe("apiMock utils", () => {
     expect(
       deriveMockProjectRuntimeState({
         ...project,
-        runtime: { running: true, restartRequired: false, lastError: null, startedAt: "2026-07-02T00:00:00Z" },
+        runtime: {
+          running: true,
+          restartRequired: false,
+          lastError: null,
+          startedAt: "2026-07-02T00:00:00Z",
+        },
       }),
     ).toBe("running");
     expect(
       deriveMockProjectRuntimeState({
         ...project,
-        runtime: { running: true, restartRequired: true, lastError: null, startedAt: "2026-07-02T00:00:00Z" },
+        runtime: {
+          running: true,
+          restartRequired: true,
+          lastError: null,
+          startedAt: "2026-07-02T00:00:00Z",
+        },
       }),
     ).toBe("restart-required");
     expect(
       deriveMockProjectRuntimeState({
         ...project,
-        runtime: { running: false, restartRequired: false, lastError: "bind failed", startedAt: null },
+        runtime: {
+          running: false,
+          restartRequired: false,
+          lastError: "bind failed",
+          startedAt: null,
+        },
       }),
     ).toBe("error");
   });
@@ -153,13 +174,23 @@ describe("apiMock utils", () => {
     expect(
       getMockProjectRuntimeAction({
         ...project,
-        runtime: { running: true, restartRequired: false, lastError: null, startedAt: "2026-07-02T00:00:00Z" },
+        runtime: {
+          running: true,
+          restartRequired: false,
+          lastError: null,
+          startedAt: "2026-07-02T00:00:00Z",
+        },
       }),
     ).toBe("stop");
     expect(
       getMockProjectRuntimeAction({
         ...project,
-        runtime: { running: true, restartRequired: true, lastError: null, startedAt: "2026-07-02T00:00:00Z" },
+        runtime: {
+          running: true,
+          restartRequired: true,
+          lastError: null,
+          startedAt: "2026-07-02T00:00:00Z",
+        },
       }),
     ).toBe("restart");
   });
@@ -182,8 +213,12 @@ describe("apiMock utils", () => {
   });
 
   it("resolves file response content type from the selected file when the form still uses the default", () => {
-    expect(resolveMockFileContentType("application/json; charset=utf-8", "avatar.png")).toBe("image/png");
-    expect(resolveMockFileContentType("application/vnd.custom", "avatar.png")).toBe("application/vnd.custom");
+    expect(resolveMockFileContentType("application/json; charset=utf-8", "avatar.png")).toBe(
+      "image/png",
+    );
+    expect(resolveMockFileContentType("application/vnd.custom", "avatar.png")).toBe(
+      "application/vnd.custom",
+    );
     expect(resolveMockFileContentType("", "archive.unknown")).toBe("application/octet-stream");
   });
 
@@ -226,12 +261,16 @@ describe("apiMock utils", () => {
   });
 
   it("trims content type before saving", () => {
-    expect(trimMockContentType("  application/json; charset=utf-8  ")).toBe("application/json; charset=utf-8");
+    expect(trimMockContentType("  application/json; charset=utf-8  ")).toBe(
+      "application/json; charset=utf-8",
+    );
   });
 
   it("rejects unsafe or malformed content type values", () => {
     expect(validateMockContentTypeHeader("").ok).toBe(true);
-    expect(validateMockContentTypeHeader(" application/vnd.lazycat.mock+json; version=1 ").ok).toBe(true);
+    expect(validateMockContentTypeHeader(" application/vnd.lazycat.mock+json; version=1 ").ok).toBe(
+      true,
+    );
     expect(validateMockContentTypeHeader("application/json\r\nX-Bad: 1")).toEqual({
       ok: false,
       message: "Content-Type 不能包含换行符",
@@ -295,20 +334,27 @@ describe("apiMock utils", () => {
       }),
     ).toEqual({
       level: "warning",
-      message: "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+      message:
+        "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
     });
   });
 
   it("warns when selected content type and imported file extension disagree", () => {
-    expect(getMockFileContentTypeWarning({ contentType: "application/pdf", fileName: "avatar.png" })).toBe(
-      "上传文件看起来是 image/png，当前 Content-Type 是 application/pdf，请确认是否正确。",
-    );
     expect(
-      getMockFileContentTypeWarning({ contentType: "text/plain; charset=utf-8", fileName: "readme.txt" }),
+      getMockFileContentTypeWarning({ contentType: "application/pdf", fileName: "avatar.png" }),
+    ).toBe("上传文件看起来是 image/png，当前 Content-Type 是 application/pdf，请确认是否正确。");
+    expect(
+      getMockFileContentTypeWarning({
+        contentType: "text/plain; charset=utf-8",
+        fileName: "readme.txt",
+      }),
     ).toBe("");
-    expect(getMockFileContentTypeWarning({ contentType: "application/octet-stream", fileName: "avatar.png" })).toBe(
-      "",
-    );
+    expect(
+      getMockFileContentTypeWarning({
+        contentType: "application/octet-stream",
+        fileName: "avatar.png",
+      }),
+    ).toBe("");
   });
 
   it("formats mock file sizes for compact display", () => {
@@ -330,7 +376,9 @@ describe("apiMock utils", () => {
         { host: "127.0.0.1", port: 18081, routeSignature: "a" },
       ),
     ).toBe(true);
-    expect(isMockProjectRestartRequired(null, { host: "127.0.0.1", port: 18080, routeSignature: "a" })).toBe(false);
+    expect(
+      isMockProjectRestartRequired(null, { host: "127.0.0.1", port: 18080, routeSignature: "a" }),
+    ).toBe(false);
   });
 
   it("labels route specificity", () => {
@@ -379,17 +427,26 @@ describe("apiMock utils", () => {
     };
     const baseline = serializeMockRouteForm(form);
 
-    expect(serializeMockRouteForm({ ...form, headers: [{ enabled: true, key: "X-Trace", value: "abc" }] })).toBe(
-      baseline,
-    );
+    expect(
+      serializeMockRouteForm({
+        ...form,
+        headers: [{ enabled: true, key: "X-Trace", value: "abc" }],
+      }),
+    ).toBe(baseline);
     expect(serializeMockRouteForm({ ...form, delayMs: 300 })).not.toBe(baseline);
     expect(serializeMockRouteForm({ ...form, enabled: false })).not.toBe(baseline);
     expect(serializeMockRouteForm({ ...form, fileId: 3 })).not.toBe(baseline);
     expect(
-      serializeMockRouteForm({ ...form, headers: [{ enabled: false, key: "X-Trace", value: "abc" }] }),
+      serializeMockRouteForm({
+        ...form,
+        headers: [{ enabled: false, key: "X-Trace", value: "abc" }],
+      }),
     ).not.toBe(baseline);
     expect(
-      serializeMockRouteForm({ ...form, cors: { ...form.cors, allowOrigin: "http://localhost:5173" } }),
+      serializeMockRouteForm({
+        ...form,
+        cors: { ...form.cors, allowOrigin: "http://localhost:5173" },
+      }),
     ).not.toBe(baseline);
   });
 
@@ -440,7 +497,9 @@ describe("apiMock utils", () => {
     expect(buildMockRouteUrl({ host: "127.0.0.1", port: 18080 }, "/api/users/:id")).toBe(
       "http://127.0.0.1:18080/api/users/:id",
     );
-    expect(buildMockRouteUrl({ host: "0.0.0.0", port: 8080 }, "/files/*")).toBe("http://127.0.0.1:8080/files/*");
+    expect(buildMockRouteUrl({ host: "0.0.0.0", port: 8080 }, "/files/*")).toBe(
+      "http://127.0.0.1:8080/files/*",
+    );
   });
 
   it("maps HTTP methods to semantic colors with a fallback", () => {

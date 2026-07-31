@@ -114,9 +114,7 @@ describe("validateCustomKeyword", () => {
         enabled: true,
       },
     ];
-    expect(
-      validateCustomKeyword("wifi", { selfId: "c1", existingCustom: existing }).ok,
-    ).toBe(true);
+    expect(validateCustomKeyword("wifi", { selfId: "c1", existingCustom: existing }).ok).toBe(true);
   });
 
   it("normalizes the keyword to lowercase", () => {

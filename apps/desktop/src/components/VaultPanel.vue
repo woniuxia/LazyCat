@@ -50,12 +50,24 @@
               @click="onClickCat(cat.value)"
             >
               <span class="vault-nav-icon">
-                <svg v-if="cat.value === 'app'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  v-if="cat.value === 'app'"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <rect x="2" y="3" width="20" height="14" rx="2" />
                   <path d="M8 21h8" />
                   <path d="M12 17v4" />
                 </svg>
-                <svg v-else-if="cat.value === 'server'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  v-else-if="cat.value === 'server'"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <rect x="2" y="2" width="20" height="8" rx="2" />
                   <rect x="2" y="14" width="20" height="8" rx="2" />
                   <path d="M6 6h.01" />
@@ -75,7 +87,11 @@
             <div class="vault-nav-section-title">标签</div>
             <template v-if="tagStatsLoading && tagStats.length === 0">
               <div class="vault-nav-skeleton">
-                <div v-for="index in 3" :key="`tag-skeleton-${index}`" class="vault-nav-skeleton-item">
+                <div
+                  v-for="index in 3"
+                  :key="`tag-skeleton-${index}`"
+                  class="vault-nav-skeleton-item"
+                >
                   <span class="vault-nav-skeleton-icon" />
                   <span class="vault-nav-skeleton-label" />
                   <span class="vault-nav-skeleton-badge" />
@@ -93,7 +109,9 @@
               >
                 <span class="vault-nav-tag-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                    <path
+                      d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+                    />
                     <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
                 </span>
@@ -127,7 +145,13 @@
         <div class="vault-content">
           <div class="vault-toolbar">
             <div class="vault-search">
-              <svg class="vault-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                class="vault-search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <circle cx="11" cy="11" r="8" />
                 <path d="m21 21-4.3-4.3" />
               </svg>
@@ -183,13 +207,13 @@
             </div>
 
             <div class="vault-list-body">
-              <div
-                v-for="entry in filteredEntries"
-                :key="entry.id"
-                class="vault-list-item"
-              >
+              <div v-for="entry in filteredEntries" :key="entry.id" class="vault-list-item">
                 <div class="vault-list-col env">
-                  <span v-if="entry.environment" class="vault-tag" :class="envClass(entry.environment)">
+                  <span
+                    v-if="entry.environment"
+                    class="vault-tag"
+                    :class="envClass(entry.environment)"
+                  >
                     <span class="vault-tag-dot" />
                     {{ entry.environment }}
                   </span>
@@ -202,9 +226,15 @@
 
                 <div class="vault-list-col name">
                   <div class="vault-entry-title-row">
-                    <span class="vault-entry-title" v-html="highlightKeyword(entry.title || '(未命名)', keyword)" :title="entry.title" />
+                    <span
+                      class="vault-entry-title"
+                      v-html="highlightKeyword(entry.title || '(未命名)', keyword)"
+                      :title="entry.title"
+                    />
                   </div>
-                  <span v-if="entry.summary" class="vault-entry-summary" :title="entry.summary">{{ entry.summary }}</span>
+                  <span v-if="entry.summary" class="vault-entry-summary" :title="entry.summary">{{
+                    entry.summary
+                  }}</span>
                   <div v-if="entryCopyValue(entry)" class="vault-name-actions">
                     <button
                       v-if="entryUrl(entry)"
@@ -239,13 +269,23 @@
                     @click.stop="onCopyAccount(entry)"
                   >
                     <Transition name="vault-check" mode="out-in">
-                      <svg v-if="copyFeedbackAccount === entry.id" key="check"
-                        class="vault-copy-check" viewBox="0 0 16 16" fill="none"
-                        stroke="currentColor" stroke-width="2.5">
+                      <svg
+                        v-if="copyFeedbackAccount === entry.id"
+                        key="check"
+                        class="vault-copy-check"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                      >
                         <polyline points="2,8 6,12 14,4" />
                       </svg>
-                      <span v-else key="text" class="vault-account-text"
-                        v-html="highlightKeyword(entry.account || '—', keyword)" />
+                      <span
+                        v-else
+                        key="text"
+                        class="vault-account-text"
+                        v-html="highlightKeyword(entry.account || '—', keyword)"
+                      />
                     </Transition>
                   </button>
                 </div>
@@ -253,18 +293,19 @@
                 <div class="vault-list-col password">
                   <div
                     class="vault-password-cell"
-                    :class="{ 'is-copying': copyFeedbackRow === entry.id, 'is-revealed': revealedPasswords.has(entry.id) }"
+                    :class="{
+                      'is-copying': copyFeedbackRow === entry.id,
+                      'is-revealed': revealedPasswords.has(entry.id),
+                    }"
                   >
-                    <button
-                      class="vault-password-text-btn"
-                      @click.stop="onTogglePassword(entry)"
-                    >
+                    <button class="vault-password-text-btn" @click.stop="onTogglePassword(entry)">
                       <Transition name="pw-text" mode="out-in">
                         <span
                           v-if="revealedPasswords.has(entry.id)"
                           key="revealed"
                           class="vault-password-text"
-                        >{{ revealedPasswords.get(entry.id) || '(空)' }}</span>
+                          >{{ revealedPasswords.get(entry.id) || "(空)" }}</span
+                        >
                         <span v-else key="masked" class="vault-password-dots">••••••</span>
                       </Transition>
                     </button>
@@ -274,12 +315,24 @@
                       @click.stop="onDirectCopyPassword(entry)"
                     >
                       <Transition name="vault-check" mode="out-in">
-                        <svg v-if="copyFeedbackRow === entry.id" key="check"
-                          viewBox="0 0 16 16" fill="none"
-                          stroke="currentColor" stroke-width="2.5">
+                        <svg
+                          v-if="copyFeedbackRow === entry.id"
+                          key="check"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                        >
                           <polyline points="2,8 6,12 14,4" />
                         </svg>
-                        <svg v-else key="copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg
+                          v-else
+                          key="copy"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
                           <rect width="14" height="14" x="8" y="8" rx="2" />
                           <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
                         </svg>
@@ -295,13 +348,21 @@
                         <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                       </svg>
                     </button>
-                    <button class="vault-action-btn" title="复制为副本" @click="onDuplicateEntry(entry)">
+                    <button
+                      class="vault-action-btn"
+                      title="复制为副本"
+                      @click="onDuplicateEntry(entry)"
+                    >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect width="14" height="14" x="8" y="8" rx="2" />
                         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
                       </svg>
                     </button>
-                    <button class="vault-action-btn danger" title="删除" @click="onDeleteEntry(entry)">
+                    <button
+                      class="vault-action-btn danger"
+                      title="删除"
+                      @click="onDeleteEntry(entry)"
+                    >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M3 6h18" />
                         <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
@@ -358,24 +419,52 @@
       </div>
     </Transition>
 
-    <VaultEntryDialog ref="entryDialog" :existing-tags="allTags" :mask-version="inputMaskVersion" @saved="onEntrySaved" />
+    <VaultEntryDialog
+      ref="entryDialog"
+      :existing-tags="allTags"
+      :mask-version="inputMaskVersion"
+      @saved="onEntrySaved"
+    />
 
-    <el-dialog v-model="showChangePassword" title="修改主密码" width="400px" :close-on-click-modal="false" class="vault-dialog">
+    <el-dialog
+      v-model="showChangePassword"
+      title="修改主密码"
+      width="400px"
+      :close-on-click-modal="false"
+      class="vault-dialog"
+    >
       <el-form label-position="top">
         <el-form-item label="当前密码">
-          <el-input :key="`change-current-${inputMaskVersion}`" v-model="changePw.current" type="password" show-password />
+          <el-input
+            :key="`change-current-${inputMaskVersion}`"
+            v-model="changePw.current"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input :key="`change-next-${inputMaskVersion}`" v-model="changePw.newPw" type="password" show-password />
+          <el-input
+            :key="`change-next-${inputMaskVersion}`"
+            v-model="changePw.newPw"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <el-form-item label="确认新密码">
-          <el-input :key="`change-confirm-${inputMaskVersion}`" v-model="changePw.confirm" type="password" show-password />
+          <el-input
+            :key="`change-confirm-${inputMaskVersion}`"
+            v-model="changePw.confirm"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <p v-if="changePwError" class="vault-error-text">{{ changePwError }}</p>
       </el-form>
       <template #footer>
         <el-button @click="showChangePassword = false">取消</el-button>
-        <el-button type="primary" :loading="changePwLoading" @click="onChangePassword">确认修改</el-button>
+        <el-button type="primary" :loading="changePwLoading" @click="onChangePassword"
+          >确认修改</el-button
+        >
       </template>
     </el-dialog>
 
@@ -410,7 +499,9 @@
       </el-form>
       <template #footer>
         <el-button @click="showRenameTagDialog = false">取消</el-button>
-        <el-button type="primary" :loading="renameTagLoading" @click="confirmRenameTag">确认</el-button>
+        <el-button type="primary" :loading="renameTagLoading" @click="confirmRenameTag"
+          >确认</el-button
+        >
       </template>
     </el-dialog>
   </div>
@@ -426,10 +517,7 @@ import {
   type PendingToolInput,
   type VaultPendingDraft,
 } from "../composables/useClipboardSuggestion";
-import {
-  getVaultLockSettings,
-  subscribeVaultLockSettings,
-} from "../composables/useSettings";
+import { getVaultLockSettings, subscribeVaultLockSettings } from "../composables/useSettings";
 import { toVaultLockRuntimePolicy } from "../utils/vaultLock";
 import VaultLockScreen from "./VaultLockScreen.vue";
 import VaultEntryDialog from "./VaultEntryDialog.vue";
@@ -538,8 +626,12 @@ let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
 const copyFeedbackRow = ref<number | null>(null);
 const copyFeedbackAccount = ref<number | null>(null);
 const unlocked = computed(() => lockState.value === "unlocked");
-const shellVisible = computed(() => displayPhase.value !== "booting" && displayPhase.value !== "locked" && initialized.value);
-const shellInteractive = computed(() => displayPhase.value === "unlocked-loading" || displayPhase.value === "unlocked-ready");
+const shellVisible = computed(
+  () => displayPhase.value !== "booting" && displayPhase.value !== "locked" && initialized.value,
+);
+const shellInteractive = computed(
+  () => displayPhase.value === "unlocked-loading" || displayPhase.value === "unlocked-ready",
+);
 const pendingEntrySeed = ref<VaultEntrySeed | null>(null);
 const { watchPendingToolInput } = useClipboardSuggestion();
 
@@ -556,13 +648,14 @@ const filteredEntries = computed(() => {
   }
   if (keyword.value) {
     const kw = keyword.value.toLowerCase();
-    list = list.filter((e) =>
-      e.title.toLowerCase().includes(kw) ||
-      e.account.toLowerCase().includes(kw) ||
-      e.summary.toLowerCase().includes(kw) ||
-      e.environment.toLowerCase().includes(kw) ||
-      categoryLabel(e.category).toLowerCase().includes(kw) ||
-      (e.tags && e.tags.some(t => t.toLowerCase().includes(kw)))
+    list = list.filter(
+      (e) =>
+        e.title.toLowerCase().includes(kw) ||
+        e.account.toLowerCase().includes(kw) ||
+        e.summary.toLowerCase().includes(kw) ||
+        e.environment.toLowerCase().includes(kw) ||
+        categoryLabel(e.category).toLowerCase().includes(kw) ||
+        (e.tags && e.tags.some((t) => t.toLowerCase().includes(kw))),
     );
   }
   return list;
@@ -570,14 +663,14 @@ const filteredEntries = computed(() => {
 
 function highlightKeyword(text: string, kw: string): string {
   if (!kw || !text) return text;
-  const kwEscaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const kwEscaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return text.replace(
-    new RegExp(`(${kwEscaped})`, 'gi'),
-    '<mark class="vault-highlight">$1</mark>'
+    new RegExp(`(${kwEscaped})`, "gi"),
+    '<mark class="vault-highlight">$1</mark>',
   );
 }
 
-const allTags = computed(() => tagStats.value.map(s => s.tag));
+const allTags = computed(() => tagStats.value.map((s) => s.tag));
 
 function normalizePendingText(text: string): string {
   return text.replace(/\r\n?/g, "\n").trim();
@@ -629,42 +722,42 @@ function buildVaultSeedFromPendingInput(input: PendingToolInput): VaultEntrySeed
       ? explicitFields.notes.trim()
       : "";
 
-  const labeledUrl =
-    findLabeledValue(text, ["url", "uri", "网址", "链接", "地址"]) ||
-    "";
+  const labeledUrl = findLabeledValue(text, ["url", "uri", "网址", "链接", "地址"]) || "";
   const inlineUrl = text.match(/https?:\/\/[^\s]+/i)?.[0] || "";
   const url = labeledUrl || inlineUrl;
 
   const labeledAccount =
     findLabeledValue(text, ["账号", "用户名", "user", "username", "邮箱", "email"]) || "";
-  const password =
-    findLabeledValue(text, ["密码", "password", "passwd", "secret"]) || "";
+  const password = findLabeledValue(text, ["密码", "password", "passwd", "secret"]) || "";
   const address =
     findLabeledValue(text, ["host", "hostname", "主机", "ip", "地址", "server"]) ||
-    (url ? (() => {
-      try {
-        return new URL(url).hostname;
-      } catch {
-        return "";
-      }
-    })() : "") ||
+    (url
+      ? (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return "";
+          }
+        })()
+      : "") ||
     text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] ||
     "";
   const portText =
-    findLabeledValue(text, ["port", "端口"]) ||
-    text.match(/:(\d{2,5})(?:\/|$|\s)/)?.[1] ||
-    "";
+    findLabeledValue(text, ["port", "端口"]) || text.match(/:(\d{2,5})(?:\/|$|\s)/)?.[1] || "";
   const dbType =
     (typeof explicitFields.dbType === "string" ? explicitFields.dbType : "") ||
     inferDatabaseType(text);
   const dbName =
     findLabeledValue(text, ["database", "database name", "db", "库名", "数据库"]) || "";
-  const schema =
-    findLabeledValue(text, ["schema", "模式"]) || "";
+  const schema = findLabeledValue(text, ["schema", "模式"]) || "";
 
   let category: "app" | "server" | "database" = explicitDraft?.category || "app";
   if (!explicitDraft?.category) {
-    if (dbType || dbName || /\b(mysql|postgres|oracle|redis|mongodb|sqlite|kingbase|dameng|tidb)\b/i.test(text)) {
+    if (
+      dbType ||
+      dbName ||
+      /\b(mysql|postgres|oracle|redis|mongodb|sqlite|kingbase|dameng|tidb)\b/i.test(text)
+    ) {
       category = "database";
     } else if (address || /\b(ssh|rdp|server|服务器|主机)\b/i.test(text)) {
       category = "server";
@@ -689,12 +782,9 @@ function buildVaultSeedFromPendingInput(input: PendingToolInput): VaultEntrySeed
     fields: {
       ...explicitFields,
       url: typeof explicitFields.url === "string" ? explicitFields.url : url,
-      account:
-        typeof explicitFields.account === "string" ? explicitFields.account : labeledAccount,
-      password:
-        typeof explicitFields.password === "string" ? explicitFields.password : password,
-      address:
-        typeof explicitFields.address === "string" ? explicitFields.address : address,
+      account: typeof explicitFields.account === "string" ? explicitFields.account : labeledAccount,
+      password: typeof explicitFields.password === "string" ? explicitFields.password : password,
+      address: typeof explicitFields.address === "string" ? explicitFields.address : address,
       port:
         typeof explicitFields.port === "number"
           ? explicitFields.port
@@ -702,10 +792,8 @@ function buildVaultSeedFromPendingInput(input: PendingToolInput): VaultEntrySeed
             ? Number(portText)
             : undefined,
       dbType,
-      dbName:
-        typeof explicitFields.dbName === "string" ? explicitFields.dbName : dbName,
-      schema:
-        typeof explicitFields.schema === "string" ? explicitFields.schema : schema,
+      dbName: typeof explicitFields.dbName === "string" ? explicitFields.dbName : dbName,
+      schema: typeof explicitFields.schema === "string" ? explicitFields.schema : schema,
       notes,
     },
   };
@@ -810,9 +898,7 @@ function isLoadResultCurrent(generation: number, token: number, kind: "list" | "
   if (lockState.value !== "unlocked" || generation !== loadGeneration) {
     return false;
   }
-  return kind === "list"
-    ? latestListRequestToken === token
-    : latestTagStatsRequestToken === token;
+  return kind === "list" ? latestListRequestToken === token : latestTagStatsRequestToken === token;
 }
 
 function beginUnlockedCycle() {
@@ -1141,7 +1227,7 @@ async function onDeleteTag() {
         confirmButtonText: "删除",
         cancelButtonText: "取消",
         type: "warning",
-      }
+      },
     );
   } catch {
     return;
@@ -1212,7 +1298,11 @@ async function onDirectCopyPassword(entry: VaultListEntry) {
         const current = await navigator.clipboard.readText();
         if (current === pw) await navigator.clipboard.writeText("");
       } catch {
-        try { await navigator.clipboard.writeText(""); } catch { /* ignore */ }
+        try {
+          await navigator.clipboard.writeText("");
+        } catch {
+          /* ignore */
+        }
       }
     }, 30_000);
     recordVaultActivity();
@@ -1463,7 +1553,7 @@ function startAutoLockCheck() {
 function hideRevealedPasswords(event: MouseEvent) {
   if (revealedPasswords.size === 0) return;
   const target = event.target as HTMLElement;
-  if (target.closest('.vault-password-cell, .vault-password-copy-btn')) return;
+  if (target.closest(".vault-password-cell, .vault-password-copy-btn")) return;
   revealedPasswords.clear();
 }
 
@@ -1479,25 +1569,31 @@ onMounted(() => {
   document.addEventListener("wheel", recordVaultActivity, { passive: true });
   void listen("tauri://focus", () => {
     void reconcileVaultSessionOnFocus();
-  }).then((unlisten) => {
-    unlistenFocus = unlisten;
-  }).catch(() => {
-    unlistenFocus = null;
-  });
+  })
+    .then((unlisten) => {
+      unlistenFocus = unlisten;
+    })
+    .catch(() => {
+      unlistenFocus = null;
+    });
   void listen("tauri://blur", () => {
     hideSensitiveContent();
-  }).then((unlisten) => {
-    unlistenBlur = unlisten;
-  }).catch(() => {
-    unlistenBlur = null;
-  });
+  })
+    .then((unlisten) => {
+      unlistenBlur = unlisten;
+    })
+    .catch(() => {
+      unlistenBlur = null;
+    });
   void listen("vault://locked", () => {
     setLockState("locked");
-  }).then((unlisten) => {
-    unlistenVaultLocked = unlisten;
-  }).catch(() => {
-    unlistenVaultLocked = null;
-  });
+  })
+    .then((unlisten) => {
+      unlistenVaultLocked = unlisten;
+    })
+    .catch(() => {
+      unlistenVaultLocked = null;
+    });
   unsubscribeVaultLockSettings = subscribeVaultLockSettings((settings) => {
     currentLockPolicy = toVaultLockRuntimePolicy(settings);
     startInactivityTimers();
@@ -1736,7 +1832,8 @@ onBeforeUnmount(() => {
 }
 
 @keyframes vaultSkeletonPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.55;
   }
   50% {
@@ -2042,9 +2139,15 @@ onBeforeUnmount(() => {
 }
 
 @keyframes copyPulse {
-  0%   { box-shadow: 0 0 0 0 rgba(56,189,248, 0.4); }
-  60%  { box-shadow: 0 0 0 6px rgba(56,189,248, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(56,189,248, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4);
+  }
+  60% {
+    box-shadow: 0 0 0 6px rgba(56, 189, 248, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+  }
 }
 
 .vault-list-item.is-copying {
@@ -2109,17 +2212,17 @@ onBeforeUnmount(() => {
 }
 
 .vault-tag.is-prod {
-  background: rgba(220, 38, 38, 0.10);
+  background: rgba(220, 38, 38, 0.1);
   color: #dc2626;
 }
 
 .vault-tag.is-dev {
-  background: rgba(5, 150, 105, 0.10);
+  background: rgba(5, 150, 105, 0.1);
   color: #059669;
 }
 
 .vault-tag.is-local {
-  background: rgba(37, 99, 235, 0.10);
+  background: rgba(37, 99, 235, 0.1);
   color: #2563eb;
 }
 
@@ -2363,10 +2466,18 @@ onBeforeUnmount(() => {
 /* --- Vault Check Transition --- */
 .vault-check-enter-active,
 .vault-check-leave-active {
-  transition: opacity 120ms var(--lc-ease), transform 120ms var(--lc-ease);
+  transition:
+    opacity 120ms var(--lc-ease),
+    transform 120ms var(--lc-ease);
 }
-.vault-check-enter-from { opacity: 0; transform: scale(0.7); }
-.vault-check-leave-to   { opacity: 0; transform: scale(1.2); }
+.vault-check-enter-from {
+  opacity: 0;
+  transform: scale(0.7);
+}
+.vault-check-leave-to {
+  opacity: 0;
+  transform: scale(1.2);
+}
 
 .vault-copy-check {
   width: 14px;
@@ -2377,7 +2488,7 @@ onBeforeUnmount(() => {
 
 /* --- Search Highlight --- */
 .vault-highlight {
-  background: rgba(14,165,233, 0.18);
+  background: rgba(14, 165, 233, 0.18);
   color: #0369a1;
   border-radius: 2px;
   padding: 0 1px;
@@ -2508,7 +2619,6 @@ onBeforeUnmount(() => {
 .fade-leave-to {
   opacity: 0;
 }
-
 </style>
 
 <style>

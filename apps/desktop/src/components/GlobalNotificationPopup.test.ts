@@ -52,7 +52,9 @@ describe("GlobalNotificationPopup", () => {
   });
 
   it("uses the package type when rendering the delivery result", () => {
-    expect(source).toContain("releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)");
+    expect(source).toContain(
+      "releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)",
+    );
   });
 
   it("renders the release environment without replacing the terminal status style", () => {

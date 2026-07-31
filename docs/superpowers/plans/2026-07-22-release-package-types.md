@@ -28,6 +28,7 @@
 ### Task 1: 项目打包类型与数据库迁移
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
 - [ ] **Step 1: 写失败测试，锁定迁移和类型校验**
@@ -160,6 +161,7 @@ git commit -m "refactor(release-package): 增加打包类型配置"
 ### Task 2: 前端类型与按类型校验
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.test.ts`
@@ -187,8 +189,9 @@ it("validates only fields required by the selected package type", () => {
 });
 
 it("labels upload failure as build succeeded and upload failed", () => {
-  expect(releasePackageRunStatusLabel("package_succeeded_upload_failed"))
-    .toBe("构建完成，上传失败");
+  expect(releasePackageRunStatusLabel("package_succeeded_upload_failed")).toBe(
+    "构建完成，上传失败",
+  );
 });
 ```
 
@@ -222,7 +225,12 @@ export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
 }
 
 export type ReleasePackagePrepareResult =
-  | { packageType: "local_archive"; defaultFolderName: string; outputRoot: string; archivePath: string }
+  | {
+      packageType: "local_archive";
+      defaultFolderName: string;
+      outputRoot: string;
+      archivePath: string;
+    }
   | { packageType: "server_upload" };
 ```
 
@@ -248,6 +256,7 @@ git commit -m "refactor(release-package): 按打包类型校验项目"
 ### Task 3: 面板类型控件与专属启动流程
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 
@@ -260,8 +269,8 @@ it("renders mutually exclusive package types and type-specific fields", () => {
   expect(source).toContain('v-model="draft.packageType"');
   expect(source).toContain('value="local_archive"');
   expect(source).toContain('value="server_upload"');
-  expect(source).toContain('v-if="draft.packageType === \'local_archive\'"');
-  expect(source).toContain('v-if="draft.packageType === \'server_upload\'"');
+  expect(source).toContain("v-if=\"draft.packageType === 'local_archive'\"");
+  expect(source).toContain("v-if=\"draft.packageType === 'server_upload'\"");
   expect(source).not.toContain("draft.uploadEnabled");
   expect(source).not.toContain("startMode");
 });
@@ -336,6 +345,7 @@ git commit -m "refactor(release-package): 分离两种打包交互"
 ### Task 4: Rust 类型专属 IPC 门禁
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
 - [ ] **Step 1: 写失败测试覆盖 prepare/start/action 门禁**
@@ -401,6 +411,7 @@ git commit -m "refactor(release-package): 按类型解析启动参数"
 ### Task 5: 共用构建与本地归档分支
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 
 - [ ] **Step 1: 写失败测试锁定 BuiltTarget 和本地归档回归**
@@ -473,6 +484,7 @@ git commit -m "refactor(release-package): 拆分构建与本地归档"
 ### Task 6: 直接产物上传与无归档重试
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 
@@ -557,6 +569,7 @@ git commit -m "refactor(release-package): 直接上传构建产物"
 ### Task 7: 终态通知、经验和完整验证
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/global_notification.rs`
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.ts`
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.test.ts`
@@ -585,12 +598,15 @@ assert!(payload.get("archivePath").is_none());
 
 ```ts
 it("uses the delivery type in release notification copy", () => {
-  expect(releasePackageNotificationCopy("succeeded", "local_archive").detail)
-    .toContain("本地归档完成");
-  expect(releasePackageNotificationCopy("succeeded", "server_upload").detail)
-    .toContain("服务器上传完成");
-  expect(releasePackageNotificationCopy("package_succeeded_upload_failed", "server_upload").detail)
-    .toContain("构建成功、上传失败");
+  expect(releasePackageNotificationCopy("succeeded", "local_archive").detail).toContain(
+    "本地归档完成",
+  );
+  expect(releasePackageNotificationCopy("succeeded", "server_upload").detail).toContain(
+    "服务器上传完成",
+  );
+  expect(
+    releasePackageNotificationCopy("package_succeeded_upload_failed", "server_upload").detail,
+  ).toContain("构建成功、上传失败");
 });
 ```
 

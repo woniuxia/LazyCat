@@ -86,9 +86,7 @@ export function isPmGanttItemOverdue(item: PmItem): boolean {
   return isPmItemOverdue(item);
 }
 
-export function clampPmGanttPopupPosition(
-  input: PmGanttPopupPositionInput,
-): PmGanttPopupPosition {
+export function clampPmGanttPopupPosition(input: PmGanttPopupPositionInput): PmGanttPopupPosition {
   const padding = Math.max(0, input.padding ?? 12);
   const gap = Math.max(0, input.gap ?? 10);
   const viewportLeft = input.scrollLeft + padding;
@@ -107,14 +105,18 @@ export function clampPmGanttPopupPosition(
   }
 
   return {
-    left: Math.min(Math.max(left, viewportLeft), Math.max(viewportLeft, viewportRight - input.popupWidth)),
-    top: Math.min(Math.max(top, viewportTop), Math.max(viewportTop, viewportBottom - input.popupHeight)),
+    left: Math.min(
+      Math.max(left, viewportLeft),
+      Math.max(viewportLeft, viewportRight - input.popupWidth),
+    ),
+    top: Math.min(
+      Math.max(top, viewportTop),
+      Math.max(viewportTop, viewportBottom - input.popupHeight),
+    ),
   };
 }
 
-export function computePmGanttInitialScrollLeft(
-  input: PmGanttInitialScrollInput,
-): number {
+export function computePmGanttInitialScrollLeft(input: PmGanttInitialScrollInput): number {
   if (input.viewportWidth <= 0 || input.scrollWidth <= input.viewportWidth) {
     return 0;
   }
@@ -125,10 +127,7 @@ export function computePmGanttInitialScrollLeft(
   return Math.min(Math.max(targetScrollLeft, 0), maxScrollLeft);
 }
 
-export function shouldHighlightPmGanttWeekendLabel(
-  viewMode: string,
-  className: string,
-): boolean {
+export function shouldHighlightPmGanttWeekendLabel(viewMode: string, className: string): boolean {
   if (viewMode !== "Day") {
     return false;
   }
@@ -148,14 +147,16 @@ export function shouldHighlightPmGanttWeekendLabel(
 }
 
 export function buildPmGanttTask(item: PmItem): PmGanttTask {
-  const rawStart = normalizePmDateString(item.startAt)
-    ?? normalizePmDateString(item.endAt)
-    ?? normalizePmDateString(item.createdAt)
-    ?? item.createdAt.slice(0, 10);
-  const rawEnd = normalizePmDateString(item.endAt)
-    ?? normalizePmDateString(item.startAt)
-    ?? normalizePmDateString(item.createdAt)
-    ?? item.createdAt.slice(0, 10);
+  const rawStart =
+    normalizePmDateString(item.startAt) ??
+    normalizePmDateString(item.endAt) ??
+    normalizePmDateString(item.createdAt) ??
+    item.createdAt.slice(0, 10);
+  const rawEnd =
+    normalizePmDateString(item.endAt) ??
+    normalizePmDateString(item.startAt) ??
+    normalizePmDateString(item.createdAt) ??
+    item.createdAt.slice(0, 10);
   const { start, end } = normalizeDateRange(rawStart, rawEnd);
   const overdue = isPmGanttItemOverdue(item);
 
@@ -168,7 +169,8 @@ export function buildPmGanttTask(item: PmItem): PmGanttTask {
     progress: getPmGanttProgress(item.status),
     custom_class: `gantt-${item.priority.toLowerCase()}`,
     status: item.status,
-    statusLabel: PM_STATUS_COLUMNS.find((column) => column.key === item.status)?.label ?? item.status,
+    statusLabel:
+      PM_STATUS_COLUMNS.find((column) => column.key === item.status)?.label ?? item.status,
     priorityLabel: PM_PRIORITY_MAP[item.priority]?.label ?? item.priority,
     projectName: item.projectName ?? null,
     projectColor: item.projectColor ?? null,
@@ -179,26 +181,23 @@ export function buildPmGanttTask(item: PmItem): PmGanttTask {
   };
 }
 
-export function buildPmGanttTasks(
-  items: PmItem[],
-): PmGanttTask[] {
-  return items
-    .filter(hasPmGanttSchedule)
-    .map((item) => buildPmGanttTask(item));
+export function buildPmGanttTasks(items: PmItem[]): PmGanttTask[] {
+  return items.filter(hasPmGanttSchedule).map((item) => buildPmGanttTask(item));
 }
 
 export function buildPmGanttPopupHtml(
   task: PmGanttTask,
   options: { showProjectMeta?: boolean } = {},
 ): string {
-  const projectRow = options.showProjectMeta && task.projectName
-    ? `
+  const projectRow =
+    options.showProjectMeta && task.projectName
+      ? `
       <div class="pm-gantt-popup-project">
         <span class="pm-gantt-popup-project-dot" style="background-color: ${escapeHtml(task.projectColor ?? "#909399")}"></span>
         <span>${escapeHtml(task.projectName)}</span>
       </div>
     `
-    : "";
+      : "";
   const pinnedBadge = task.pinned
     ? '<span class="pm-gantt-popup-badge is-muted">已置顶</span>'
     : "";

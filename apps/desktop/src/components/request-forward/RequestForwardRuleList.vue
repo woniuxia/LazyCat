@@ -55,20 +55,11 @@ const stateFilter = ref<RequestForwardRuleStateFilter>("all");
 const selectedIds = ref<number[]>([]);
 const menuRefs = new Map<number, RuleMenuHandle>();
 
-const statusById = computed(
-  () => new Map(props.statuses.map((status) => [status.ruleId, status])),
-);
+const statusById = computed(() => new Map(props.statuses.map((status) => [status.ruleId, status])));
 const filteredRules = computed(() => {
-  return filterRequestForwardRules(
-    props.rules,
-    props.statuses,
-    keyword.value,
-    stateFilter.value,
-  );
+  return filterRequestForwardRules(props.rules, props.statuses, keyword.value, stateFilter.value);
 });
-const filterActive = computed(
-  () => Boolean(keyword.value.trim()) || stateFilter.value !== "all",
-);
+const filterActive = computed(() => Boolean(keyword.value.trim()) || stateFilter.value !== "all");
 const batchScope = computed(() =>
   getRequestForwardBatchScope(
     props.rules,
@@ -78,10 +69,14 @@ const batchScope = computed(() =>
   ),
 );
 const allFilteredSelected = computed(
-  () => filteredRules.value.length > 0 && filteredRules.value.every((rule) => selectedIds.value.includes(rule.id)),
+  () =>
+    filteredRules.value.length > 0 &&
+    filteredRules.value.every((rule) => selectedIds.value.includes(rule.id)),
 );
 const someFilteredSelected = computed(
-  () => filteredRules.value.some((rule) => selectedIds.value.includes(rule.id)) && !allFilteredSelected.value,
+  () =>
+    filteredRules.value.some((rule) => selectedIds.value.includes(rule.id)) &&
+    !allFilteredSelected.value,
 );
 const runningCount = computed(
   () => props.statuses.filter((status) => status.state === "running").length,
@@ -121,10 +116,7 @@ function openMenu(ruleId: number) {
   menuRefs.get(ruleId)?.handleOpen();
 }
 
-function handleCommand(
-  command: "edit" | "duplicate" | "delete",
-  ruleId: number,
-) {
+function handleCommand(command: "edit" | "duplicate" | "delete", ruleId: number) {
   emit(command, ruleId);
 }
 
@@ -231,17 +223,32 @@ function targetEndpoint(rule: RequestForwardRule): string {
           :indeterminate="someFilteredSelected"
           :disabled="busy || !filteredRules.length"
           @update:model-value="toggleFilteredSelection(Boolean($event))"
-        >全选当前</el-checkbox>
-        <el-button v-if="selectedIds.length" text size="small" :disabled="busy" @click="clearSelection">
+          >全选当前</el-checkbox
+        >
+        <el-button
+          v-if="selectedIds.length"
+          text
+          size="small"
+          :disabled="busy"
+          @click="clearSelection"
+        >
           清除选择
         </el-button>
         <span>{{ batchScope.label }}</span>
       </div>
       <div class="rule-list__batch-actions">
-        <el-button size="small" :disabled="busy || !batchScope.ids.length" @click="runBatch('start')">
+        <el-button
+          size="small"
+          :disabled="busy || !batchScope.ids.length"
+          @click="runBatch('start')"
+        >
           启动{{ batchScope.label }}
         </el-button>
-        <el-button size="small" :disabled="busy || !batchScope.ids.length" @click="runBatch('stop')">
+        <el-button
+          size="small"
+          :disabled="busy || !batchScope.ids.length"
+          @click="runBatch('stop')"
+        >
           停止{{ batchScope.label }}
         </el-button>
       </div>
@@ -285,10 +292,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
                 当前：{{ stateLabel(stateOf(rule.id)) }}
               </span>
             </span>
-            <span
-              class="rule-row__summary"
-              :title="formatRequestForwardRuleSummary(rule)"
-            >
+            <span class="rule-row__summary" :title="formatRequestForwardRuleSummary(rule)">
               <span class="rule-row__summary-line">
                 <b>监听</b>
                 <span>{{ listenEndpoint(rule) }}</span>
@@ -430,16 +434,46 @@ function targetEndpoint(rule: RequestForwardRule): string {
   font-size: 12px;
 }
 
-.rule-list__header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
-.rule-list__header-actions :deep(.el-button) { margin-left: 0; }
+.rule-list__header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.rule-list__header-actions :deep(.el-button) {
+  margin-left: 0;
+}
 
-.rule-list__filters { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 6px; }
-.rule-list__batch { display: grid; gap: 5px; }
+.rule-list__filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 6px;
+}
+.rule-list__batch {
+  display: grid;
+  gap: 5px;
+}
 .rule-list__batch-scope,
-.rule-list__batch-actions { display: flex; align-items: center; gap: 5px; }
-.rule-list__batch-scope span { margin-left: auto; color: #657386; font-size: 12px; white-space: nowrap; }
-.rule-list__batch-scope :deep(.el-button) { margin-left: 0; padding-inline: 3px; }
-.rule-list__batch-actions :deep(.el-button) { min-width: 0; flex: 1; margin-left: 0; }
+.rule-list__batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.rule-list__batch-scope span {
+  margin-left: auto;
+  color: #657386;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.rule-list__batch-scope :deep(.el-button) {
+  margin-left: 0;
+  padding-inline: 3px;
+}
+.rule-list__batch-actions :deep(.el-button) {
+  min-width: 0;
+  flex: 1;
+  margin-left: 0;
+}
 
 .rule-list__scroll {
   display: flex;
@@ -450,7 +484,10 @@ function targetEndpoint(rule: RequestForwardRule): string {
   border-top: 1px solid #e2e7ec;
 }
 
-.rule-menu { display: block; width: 100%; }
+.rule-menu {
+  display: block;
+  width: 100%;
+}
 
 .rule-row {
   position: relative;
@@ -459,11 +496,18 @@ function targetEndpoint(rule: RequestForwardRule): string {
   min-height: 82px;
   border-bottom: 1px solid #e2e7ec;
   background: transparent;
-  transition: background-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
-.rule-row:hover { background: #f0f3f6; }
-.rule-row.is-selected { background: #eaf2f7; box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff); }
+.rule-row:hover {
+  background: #f0f3f6;
+}
+.rule-row.is-selected {
+  background: #eaf2f7;
+  box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff);
+}
 
 .rule-row__select {
   display: grid;
@@ -479,42 +523,149 @@ function targetEndpoint(rule: RequestForwardRule): string {
   text-align: left;
 }
 
-.rule-row__check { position: absolute; z-index: 2; top: 10px; left: 8px; }
+.rule-row__check {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  left: 8px;
+}
 
-.rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
-.rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.rule-row__title { min-width: 0; padding-right: 28px; }
-.rule-row__title strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row__meta { min-width: 0; flex-wrap: wrap; gap: 7px; }
-.protocol-label { color: #45627b; font-size: 12px; }
-.rule-row__summary { display: grid; min-width: 0; gap: 3px; color: #56667a; font-size: 14px; line-height: 1.5; }
-.rule-row__summary-line { min-width: 0; align-items: flex-start; gap: 7px; }
-.rule-row__summary-line b { width: 34px; flex: none; color: #45627b; font-size: 12px; }
-.rule-row__summary-line span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.rule-row__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+.rule-row__select:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: -2px;
+}
+.rule-row__title {
+  min-width: 0;
+  padding-right: 28px;
+}
+.rule-row__title strong {
+  overflow: hidden;
+  color: #273548;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rule-row__meta {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.protocol-label {
+  color: #45627b;
+  font-size: 12px;
+}
+.rule-row__summary {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  color: #56667a;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.rule-row__summary-line {
+  min-width: 0;
+  align-items: flex-start;
+  gap: 7px;
+}
+.rule-row__summary-line b {
+  width: 34px;
+  flex: none;
+  color: #45627b;
+  font-size: 12px;
+}
+.rule-row__summary-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 
-.rule-row__controls { justify-content: space-between; gap: 8px; margin: 0 5px 9px 8px; padding-top: 7px; border-top: 1px solid #e2e7ec; }
-.rule-row__controls :deep(.el-button) { margin: 0; }
-.rule-row__runtime-action { width: 68px; flex: none; }
-.rule-row__runtime-label { display: inline-grid; width: 3em; }
+.rule-row__controls {
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 5px 9px 8px;
+  padding-top: 7px;
+  border-top: 1px solid #e2e7ec;
+}
+.rule-row__controls :deep(.el-button) {
+  margin: 0;
+}
+.rule-row__runtime-action {
+  width: 68px;
+  flex: none;
+}
+.rule-row__runtime-label {
+  display: inline-grid;
+  width: 3em;
+}
 .rule-row__runtime-status,
-.rule-row__runtime-intent { grid-area: 1 / 1; }
-.rule-row__runtime-intent { visibility: hidden; }
+.rule-row__runtime-intent {
+  grid-area: 1 / 1;
+}
+.rule-row__runtime-intent {
+  visibility: hidden;
+}
 .rule-row__runtime-action:not(.is-disabled):hover .rule-row__runtime-status,
-.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-status { visibility: hidden; }
+.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-status {
+  visibility: hidden;
+}
 .rule-row__runtime-action:not(.is-disabled):hover .rule-row__runtime-intent,
-.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-intent { visibility: visible; }
-.rule-row__auto-start { min-width: 0; gap: 6px; color: #526275; font-size: 12px; white-space: nowrap; }
-.rule-row__auto-start :deep(.el-switch) { flex: none; }
-.rule-row__menu { position: absolute; z-index: 2; top: 5px; right: 3px; }
-.rule-row__menu :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
+.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-intent {
+  visibility: visible;
+}
+.rule-row__auto-start {
+  min-width: 0;
+  gap: 6px;
+  color: #526275;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.rule-row__auto-start :deep(.el-switch) {
+  flex: none;
+}
+.rule-row__menu {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  right: 3px;
+}
+.rule-row__menu :deep(.el-button) {
+  width: 26px;
+  height: 26px;
+  margin: 0;
+}
 
-.state-label { flex: none; font-size: 12px; font-weight: 600; }
-.state-label::before { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; content: ""; vertical-align: 1px; }
-.state-label.is-running { color: #168357; }
+.state-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+.state-label::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  vertical-align: 1px;
+}
+.state-label.is-running {
+  color: #168357;
+}
 .state-label.is-starting,
-.state-label.is-stopping { color: #a86608; }
-.state-label.is-failed { color: #c23b35; }
-.state-label.is-stopped { color: #6b7280; }
+.state-label.is-stopping {
+  color: #a86608;
+}
+.state-label.is-failed {
+  color: #c23b35;
+}
+.state-label.is-stopped {
+  color: #6b7280;
+}
 
 .rule-list__empty {
   display: grid;
@@ -526,9 +677,17 @@ function targetEndpoint(rule: RequestForwardRule): string {
   color: var(--text-secondary, #64748b);
   text-align: center;
 }
-.rule-list__empty strong { color: var(--text-primary, #1f2937); font-size: 16px; }
-.rule-list__empty span { font-size: 14px; line-height: 1.5; }
-.rule-list__empty.compact { min-height: 120px; }
+.rule-list__empty strong {
+  color: var(--text-primary, #1f2937);
+  font-size: 16px;
+}
+.rule-list__empty span {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.rule-list__empty.compact {
+  min-height: 120px;
+}
 
 @media (max-width: 780px) {
   .rule-list {

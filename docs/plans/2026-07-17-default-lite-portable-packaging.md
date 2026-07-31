@@ -13,6 +13,7 @@
 ### Task 1: Add mode-aware release behavior
 
 **Files:**
+
 - Modify: `scripts/release-all-win.ps1`
 
 **Step 1: Add the public switch and selected artifacts**
@@ -48,6 +49,7 @@ Expected: exit code 0 with no parser errors.
 ### Task 2: Expose default and all-package commands
 
 **Files:**
+
 - Modify: `package.json`
 
 **Step 1: Update package scripts**
@@ -67,6 +69,7 @@ Expected: exit code 0.
 ### Task 3: Synchronize documentation and project rules
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
@@ -98,6 +101,7 @@ Expected: the first command has no diff; the second lists both default and full 
 ### Task 4: Final validation
 
 **Files:**
+
 - Verify all modified files
 
 **Step 1: Review the focused diff**

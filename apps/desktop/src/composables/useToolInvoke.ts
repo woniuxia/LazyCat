@@ -50,10 +50,7 @@ export function useToolInvoke() {
     }
   }
 
-  async function invokeString(
-    channel: string,
-    payload: Record<string, unknown>,
-  ): Promise<string> {
+  async function invokeString(channel: string, payload: Record<string, unknown>): Promise<string> {
     const data = await invokeToolByChannel(channel, payload);
     return typeof data === "string" ? data : JSON.stringify(data, null, 2);
   }

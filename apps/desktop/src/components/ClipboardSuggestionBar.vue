@@ -25,7 +25,13 @@
         >
           <span class="cb-chip-label">{{ action.label }}</span>
           <svg class="cb-chip-arrow" viewBox="0 0 16 16" fill="none">
-            <path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M6 3l5 5-5 5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -33,13 +39,21 @@
       <!-- Dismiss -->
       <button class="cb-dismiss" @click="dismiss" title="关闭 (Esc)">
         <svg viewBox="0 0 16 16" fill="none">
-          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path
+            d="M4 4l8 8M12 4l-8 8"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
         </svg>
       </button>
 
       <!-- Auto-close progress bar -->
       <div class="cb-progress">
-        <div class="cb-progress-bar" :style="{ transform: 'scaleX(' + progressPercent / 100 + ')' }" />
+        <div
+          class="cb-progress-bar"
+          :style="{ transform: 'scaleX(' + progressPercent / 100 + ')' }"
+        />
       </div>
     </div>
   </Transition>
@@ -198,8 +212,13 @@ onBeforeUnmount(() => {
 }
 
 @keyframes accentPulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* ---- Type badge ---- */
@@ -276,7 +295,9 @@ onBeforeUnmount(() => {
   height: 12px;
   opacity: 0.42;
   transform: translateX(0);
-  transition: opacity 180ms var(--lc-ease), transform 180ms var(--lc-ease);
+  transition:
+    opacity 180ms var(--lc-ease),
+    transform 180ms var(--lc-ease);
 }
 
 .cb-action-chip:hover .cb-chip-arrow {
@@ -298,7 +319,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;
-  transition: color 180ms var(--lc-ease), background 180ms var(--lc-ease);
+  transition:
+    color 180ms var(--lc-ease),
+    background 180ms var(--lc-ease);
 }
 
 .cb-dismiss svg {

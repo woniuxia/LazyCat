@@ -215,10 +215,7 @@ export function collectExpandableKeys(root: JsonTreeNode): Set<string> {
   return keys;
 }
 
-export function collectExpandedKeysByDepth(
-  root: JsonTreeNode,
-  depth: number | "all",
-): Set<string> {
+export function collectExpandedKeysByDepth(root: JsonTreeNode, depth: number | "all"): Set<string> {
   if (depth === "all") return collectExpandableKeys(root);
 
   const keys = new Set<string>();

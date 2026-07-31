@@ -15,6 +15,7 @@
 ### Task 0: 代码现实校验
 
 **Files:**
+
 - Read: `apps/desktop/src/types/pm.ts`
 - Read: `apps/desktop/src/utils/pmDate.ts`
 - Read: `apps/desktop/src/utils/pmGantt.ts`
@@ -40,6 +41,7 @@
 ### Task 1: 提取甘特状态筛选纯函数
 
 **Files:**
+
 - Add: `apps/desktop/src/utils/pmGanttFilter.ts`
 - Add: `apps/desktop/src/utils/pmGanttFilter.test.ts`
 
@@ -77,6 +79,7 @@
 ### Task 2: 改造 `PmPanel.vue` 的过滤链路
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/PmPanel.vue`
 
 **步骤：**
@@ -125,6 +128,7 @@
 ### Task 3: 改造 `PmGanttView.vue` 的工具栏与接口
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/PmGanttView.vue`
 
 **Step 1: 扩展 props / emits**
@@ -197,6 +201,7 @@
 ### Task 4: 完成测试与回归验证
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/pmGantt.test.ts`
 - Add: `apps/desktop/src/utils/pmGanttFilter.test.ts`
 

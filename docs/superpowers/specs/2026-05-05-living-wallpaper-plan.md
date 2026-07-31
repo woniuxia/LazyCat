@@ -8,14 +8,14 @@
 
 ## 总览
 
-| Phase | 目标 | 预估 | 关键依赖 |
-|-------|------|------|---------|
-| Phase 0 | 设置存储 / 通道骨架 / PoC 收尾 | 0.5 天 | 已完成 PoC |
-| Phase 1 | Rust 渲染管线（数据 → 信息层 → 合成 → 设壁纸） | 3-4 天 | Phase 0 |
-| Phase 2 | 前端信息层 canvas + hidden WebView 接入 | 2-3 天 | Phase 1 截图通道 |
-| Phase 3 | 调度 / 老板键 / 自动切净 / 退出恢复 | 2-3 天 | Phase 1+2 |
-| Phase 4 | 配置面板 + 工具入口 | 1.5 天 | Phase 3 |
-| Phase 5 | 联调 / 兼容性测试 / 文档 | 1.5 天 | 全部 |
+| Phase   | 目标                                           | 预估   | 关键依赖         |
+| ------- | ---------------------------------------------- | ------ | ---------------- |
+| Phase 0 | 设置存储 / 通道骨架 / PoC 收尾                 | 0.5 天 | 已完成 PoC       |
+| Phase 1 | Rust 渲染管线（数据 → 信息层 → 合成 → 设壁纸） | 3-4 天 | Phase 0          |
+| Phase 2 | 前端信息层 canvas + hidden WebView 接入        | 2-3 天 | Phase 1 截图通道 |
+| Phase 3 | 调度 / 老板键 / 自动切净 / 退出恢复            | 2-3 天 | Phase 1+2        |
+| Phase 4 | 配置面板 + 工具入口                            | 1.5 天 | Phase 3          |
+| Phase 5 | 联调 / 兼容性测试 / 文档                       | 1.5 天 | 全部             |
 
 **Phase 1 / Phase 2 一旦截图通道（Phase 1.4）就绪即可并行。**
 PoC 代码（`wallpaper_poc.rs` + `WallpaperPocCanvas.vue` + `WallpaperPocPanel.vue`）在 Phase 1.4 完成后切到正式实现，PoC 入口保留为开发态调试通道（`wallpaper-poc` 仅 dev）。
@@ -30,21 +30,21 @@ PoC 代码（`wallpaper_poc.rs` + `WallpaperPocCanvas.vue` + `WallpaperPocPanel.
 
 按设计 §12 写入默认值（首次启用时按需设置，未启用时不预置）：
 
-| key | 类型 | 默认 |
-|-----|------|------|
-| `wallpaper.enabled` | boolean | false |
-| `wallpaper.style` | string | `dashboard` |
-| `wallpaper.position` | string | `right` |
-| `wallpaper.refresh_interval_min` | number | 15 |
-| `wallpaper.original_path` | string | -（首次启用写入） |
-| `wallpaper.original_set_method` | string | `com` |
+| key                              | 类型          | 默认                                                            |
+| -------------------------------- | ------------- | --------------------------------------------------------------- |
+| `wallpaper.enabled`              | boolean       | false                                                           |
+| `wallpaper.style`                | string        | `dashboard`                                                     |
+| `wallpaper.position`             | string        | `right`                                                         |
+| `wallpaper.refresh_interval_min` | number        | 15                                                              |
+| `wallpaper.original_path`        | string        | -（首次启用写入）                                               |
+| `wallpaper.original_set_method`  | string        | `com`                                                           |
 | `wallpaper.fullscreen_blacklist` | string (JSON) | `["obs64.exe","obs32.exe","powerpnt.exe","wpp.exe","zoom.exe"]` |
-| `wallpaper.privacy_mask` | boolean | false |
-| `wallpaper.privacy_mask_until` | string | -（null=永久，否则 ISO 时间） |
-| `wallpaper.exit_behavior` | string | `restore_original` |
-| `wallpaper.boss_key` | string | `Ctrl+Alt+W` |
-| `wallpaper.image_format` | string | `jpeg`（jpeg/png） |
-| `wallpaper.keep_history_count` | number | 20 |
+| `wallpaper.privacy_mask`         | boolean       | false                                                           |
+| `wallpaper.privacy_mask_until`   | string        | -（null=永久，否则 ISO 时间）                                   |
+| `wallpaper.exit_behavior`        | string        | `restore_original`                                              |
+| `wallpaper.boss_key`             | string        | `Ctrl+Alt+W`                                                    |
+| `wallpaper.image_format`         | string        | `jpeg`（jpeg/png）                                              |
+| `wallpaper.keep_history_count`   | number        | 20                                                              |
 
 不动 schema，不写迁移；前端读不到时用默认值。
 
@@ -53,10 +53,10 @@ PoC 代码（`wallpaper_poc.rs` + `WallpaperPocCanvas.vue` + `WallpaperPocPanel.
 **新增文件**：`apps/desktop/src/types/wallpaper.ts`
 
 ```typescript
-export type WallpaperPosition = 'right' | 'left' | 'top' | 'bottom' | 'tl' | 'tr' | 'bl' | 'br';
-export type WallpaperStyle = 'dashboard' | 'sticky' | 'banner';
-export type WallpaperExitBehavior = 'keep_last' | 'restore_original';
-export type WallpaperImageFormat = 'jpeg' | 'png';
+export type WallpaperPosition = "right" | "left" | "top" | "bottom" | "tl" | "tr" | "bl" | "br";
+export type WallpaperStyle = "dashboard" | "sticky" | "banner";
+export type WallpaperExitBehavior = "keep_last" | "restore_original";
+export type WallpaperImageFormat = "jpeg" | "png";
 
 export interface WallpaperOverview {
   completedToday: number;
@@ -66,27 +66,27 @@ export interface WallpaperOverview {
 }
 
 export interface WallpaperTodoItem {
-  id: string;            // `pm:<id>` | `todo:<id>`
+  id: string; // `pm:<id>` | `todo:<id>`
   title: string;
-  priority: 'P0' | 'P1' | 'P2' | 'P3';
+  priority: "P0" | "P1" | "P2" | "P3";
   pinned: boolean;
-  endAt: string | null;  // ISO 日期
+  endAt: string | null; // ISO 日期
   status: string;
-  source: 'pm' | 'todo';
+  source: "pm" | "todo";
   recentlyCompleted?: boolean;
 }
 
 export interface WallpaperDashboardData {
   overview: WallpaperOverview;
   todoList: WallpaperTodoItem[];
-  echo?: string | null;  // 阶段 1 始终 null
+  echo?: string | null; // 阶段 1 始终 null
   generatedAt: string;
 }
 
 export interface WallpaperStatus {
   enabled: boolean;
   paused: boolean;
-  pauseReason?: 'boss_key' | 'fullscreen' | 'lock' | 'manual';
+  pauseReason?: "boss_key" | "fullscreen" | "lock" | "manual";
   originalPath: string | null;
   lastRenderedAt: string | null;
   lastRenderedPath: string | null;
@@ -361,25 +361,25 @@ fn enable() -> Result<Value, String> {
 
 ```vue
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { listen } from '@tauri-apps/api/event';
-import { invokeToolByChannel } from '@/bridge/tauri';
-import type { WallpaperDashboardData } from '@/types/wallpaper';
+import { ref, onMounted } from "vue";
+import { listen } from "@tauri-apps/api/event";
+import { invokeToolByChannel } from "@/bridge/tauri";
+import type { WallpaperDashboardData } from "@/types/wallpaper";
 
 const data = ref<WallpaperDashboardData | null>(null);
-const colorMode = ref<'light' | 'dark'>('light'); // 后端通过 IPC 推
+const colorMode = ref<"light" | "dark">("light"); // 后端通过 IPC 推
 const ready = ref(false);
 
 onMounted(async () => {
-  await listen<WallpaperDashboardData>('wallpaper://dashboard-data', (e) => {
+  await listen<WallpaperDashboardData>("wallpaper://dashboard-data", (e) => {
     data.value = e.payload;
   });
-  await listen<'light' | 'dark'>('wallpaper://color-mode', (e) => {
+  await listen<"light" | "dark">("wallpaper://color-mode", (e) => {
     colorMode.value = e.payload;
   });
-  await listen<void>('wallpaper://capture-request', async () => {
+  await listen<void>("wallpaper://capture-request", async () => {
     await waitForFrame();
-    await invokeToolByChannel('tool:wallpaper:render-once', {});
+    await invokeToolByChannel("tool:wallpaper:render-once", {});
     // 实际 PNG 字节通过 Rust 的 CapturePreview 直接抓 webview，
     // 前端只负责通知"已就绪"
   });
@@ -729,13 +729,13 @@ if state::read(|s| s.burnout) >= 3 {
 
 按设计 §13.6：
 
-| 环境 | 单 / 多屏 | 缩放 | 验证点 |
-|------|----------|------|--------|
-| Win 10 22H2 | 单屏 | 100% | 主路径 + 备份/恢复 |
-| Win 10 22H2 | 双屏 | 150%/100% | 多屏只设主屏 + DPI |
-| Win 11 23H2 (Spotlight 关) | 单屏 | 100% | 主路径 |
-| Win 11 23H2 (Spotlight 开) | 单屏 | 100% | 检测 + 提示 |
-| Win 11 24H2 | 双屏 | 200%/100% | 高 DPI + 任务栏居中 |
+| 环境                       | 单 / 多屏 | 缩放      | 验证点              |
+| -------------------------- | --------- | --------- | ------------------- |
+| Win 10 22H2                | 单屏      | 100%      | 主路径 + 备份/恢复  |
+| Win 10 22H2                | 双屏      | 150%/100% | 多屏只设主屏 + DPI  |
+| Win 11 23H2 (Spotlight 关) | 单屏      | 100%      | 主路径              |
+| Win 11 23H2 (Spotlight 开) | 单屏      | 100%      | 检测 + 提示         |
+| Win 11 24H2                | 双屏      | 200%/100% | 高 DPI + 任务栏居中 |
 
 每个环境跑设计 §19.2 的手测清单，记录在 `docs/superpowers/specs/2026-05-05-living-wallpaper-test-log.md`（新增）。
 
@@ -823,18 +823,18 @@ Phase 5 (联调)
 
 ## 风险与缓解（实施层面）
 
-| 风险 | 缓解 |
-|------|------|
+| 风险                                                                                    | 缓解                                                                                                             |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `apply` 链路过长（数据 → emit → 等 canvas → 截图 → 合成 → set），任一环卡住整体 timeout | 每环都有独立 timeout（dashboard_data 1s / canvas ready 2s / capture 5s / compose 1s / set 2s）；任一超时计入熔断 |
-| `IDesktopWallpaper` 在某些 Win10 环境下 COM 初始化失败 | §13.7 已设回退 `SystemParametersInfoW`；首次 `enable` 时跑一次自检并把结果存 `original_set_method` |
-| hidden WebView 内存泄漏 | §7.5 渲染失败 3 次销毁重建；面板"重置"按钮额外手动重建 |
-| 多屏壁纸 API 在双屏 + 不同 DPI 下首次 set 出现黑边 | MVP 仅设主屏；其它屏保持原状不动；阶段 2 再处理 |
-| 事件驱动立刷与心跳同时触发导致重复合成 | 30 s 节流 + `state.last_rendered_at` 检查 |
-| Spotlight 反复覆盖 LazyCat 写入的壁纸 | §13.4 仅提示用户手动关 Spotlight，不强斗 |
-| 老板键 `Ctrl+Alt+W` 与其它软件冲突 | §9 注册失败提示 + 用户改键 |
-| 退出 LazyCat 时 tokio runtime 已 drop 导致恢复失败 | 退出钩子用同步 `restore_sync`，直接 COM 调用 |
-| 数据目录磁盘满 | §18 E7：写盘失败计入熔断 |
-| `pm.rs` / `todo.rs` 调用 `wallpaper::events::notify_data_changed` 引入隐性依赖 | `notify_data_changed` 内自身 try/catch，失败不影响调用方 |
+| `IDesktopWallpaper` 在某些 Win10 环境下 COM 初始化失败                                  | §13.7 已设回退 `SystemParametersInfoW`；首次 `enable` 时跑一次自检并把结果存 `original_set_method`               |
+| hidden WebView 内存泄漏                                                                 | §7.5 渲染失败 3 次销毁重建；面板"重置"按钮额外手动重建                                                           |
+| 多屏壁纸 API 在双屏 + 不同 DPI 下首次 set 出现黑边                                      | MVP 仅设主屏；其它屏保持原状不动；阶段 2 再处理                                                                  |
+| 事件驱动立刷与心跳同时触发导致重复合成                                                  | 30 s 节流 + `state.last_rendered_at` 检查                                                                        |
+| Spotlight 反复覆盖 LazyCat 写入的壁纸                                                   | §13.4 仅提示用户手动关 Spotlight，不强斗                                                                         |
+| 老板键 `Ctrl+Alt+W` 与其它软件冲突                                                      | §9 注册失败提示 + 用户改键                                                                                       |
+| 退出 LazyCat 时 tokio runtime 已 drop 导致恢复失败                                      | 退出钩子用同步 `restore_sync`，直接 COM 调用                                                                     |
+| 数据目录磁盘满                                                                          | §18 E7：写盘失败计入熔断                                                                                         |
+| `pm.rs` / `todo.rs` 调用 `wallpaper::events::notify_data_changed` 引入隐性依赖          | `notify_data_changed` 内自身 try/catch，失败不影响调用方                                                         |
 
 ---
 

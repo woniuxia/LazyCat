@@ -5,8 +5,17 @@
       <el-input :model-value="formatDetectedLabel" readonly style="max-width: 300px" />
     </div>
     <div class="formatter-editors">
-      <MonacoPane :model-value="formatInput" :language="monacoLanguage" @update:model-value="formatInput = $event" />
-      <MonacoPane :model-value="formatOutput" :language="monacoLanguage" :read-only="true" @update:model-value="noop" />
+      <MonacoPane
+        :model-value="formatInput"
+        :language="monacoLanguage"
+        @update:model-value="formatInput = $event"
+      />
+      <MonacoPane
+        :model-value="formatOutput"
+        :language="monacoLanguage"
+        :read-only="true"
+        @update:model-value="noop"
+      />
     </div>
   </div>
 </template>
@@ -28,7 +37,13 @@ const formatOutput = ref(formatterState.output);
 const formatDetected = ref<FormatKind>(formatterState.detected);
 
 const monacoLanguage = computed(() => {
-  const map: Record<string, string> = { json: "json", xml: "xml", html: "html", java: "java", sql: "sql" };
+  const map: Record<string, string> = {
+    json: "json",
+    xml: "xml",
+    html: "html",
+    java: "java",
+    sql: "sql",
+  };
   return map[formatDetected.value] ?? "plaintext";
 });
 
@@ -49,34 +64,47 @@ function detectFormatKind(input: string): FormatKind {
   if (!source) return "plaintext";
   try {
     if (JSON.parse(source) !== undefined) return "json";
-  } catch { /* not json */ }
+  } catch {
+    /* not json */
+  }
   if (source.startsWith("<") && source.endsWith(">")) {
     const lower = source.toLowerCase();
     if (
       lower.includes("<!doctype html") ||
       /<html[\s>]/i.test(source) ||
       /<(head|body|div|span|script|style|main|section|article|nav|footer|header)[\s>]/i.test(source)
-    ) return "html";
+    )
+      return "html";
     return "xml";
   }
   if (
     /\b(select|insert|update|delete|create|alter|drop|truncate|with)\b/i.test(source) &&
     /\b(from|into|table|where|values|set|join)\b/i.test(source)
-  ) return "sql";
+  )
+    return "sql";
   if (
     /\b(class|interface|enum|record)\b/.test(source) &&
     /\b(public|private|protected|static|void|package|import)\b/.test(source)
-  ) return "java";
+  )
+    return "java";
   return "plaintext";
 }
 
-async function formatByKind(input: string, kind: Exclude<FormatKind, "plaintext">): Promise<string> {
+async function formatByKind(
+  input: string,
+  kind: Exclude<FormatKind, "plaintext">,
+): Promise<string> {
   switch (kind) {
-    case "json": return formatJson(input);
-    case "xml": return formatXml(input);
-    case "html": return formatHtml(input);
-    case "java": return formatJava(input);
-    case "sql": return formatSqlCode(input);
+    case "json":
+      return formatJson(input);
+    case "xml":
+      return formatXml(input);
+    case "html":
+      return formatHtml(input);
+    case "java":
+      return formatJava(input);
+    case "sql":
+      return formatSqlCode(input);
   }
 }
 
@@ -116,7 +144,9 @@ onBeforeUnmount(() => {
 });
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("formatter", (text) => { formatInput.value = text; });
+watchPendingInput("formatter", (text) => {
+  formatInput.value = text;
+});
 </script>
 
 <style scoped>

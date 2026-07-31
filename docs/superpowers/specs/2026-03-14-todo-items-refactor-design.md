@@ -9,7 +9,7 @@
 - migration 22 已落库（`apps/desktop/src-tauri/src/tools/helpers.rs:1089-1499`）：
   - 新表：`todo_items`
   - 支撑表：`todo_item_assignees` / `todo_item_reminders` / `todo_item_links`
-  - 迁移后会 DROP 旧表：`todo_tasks` / `todo_templates` 以及对应 *_reminders/_assignees/_links
+  - 迁移后会 DROP 旧表：`todo_tasks` / `todo_templates` 以及对应 \*\_reminders/\_assignees/\_links
 - 迁移过程会导致同一 `series_id` 下可能存在多条 `pending/in_progress` 的事项（旧逻辑会预生成实例，migration 也会把历史实例拷贝进来）。
 - **本次设计决定**：在 migration 22 之后追加 migration 23，将规则字段从 `todo_items` 提取到独立的 `todo_series_rules` 表，并从 `todo_items` 中移除规则列和 `active` 列。
 
@@ -66,6 +66,7 @@ CREATE TABLE todo_series_rules (
 ## 3. 状态模型
 
 ### 3.1 存储层状态值
+
 数据库保留 4 个值（受 migration 22 的 CHECK 约束限制）：
 
 - `pending`
@@ -94,14 +95,14 @@ CREATE TABLE todo_series_rules (
 
 ### 3.5 合法状态转换表
 
-| 当前状态 | 目标状态 | one_off | recurring |
-|----------|----------|---------|-----------|
-| pending | completed | 允许 | 允许 |
-| pending | canceled | 允许 | 允许 |
-| in_progress | completed | 允许 | 允许 |
-| in_progress | canceled | 允许 | 允许 |
-| completed | pending | 允许 | **拒绝** |
-| canceled | pending | 允许 | **拒绝** |
+| 当前状态    | 目标状态  | one_off | recurring |
+| ----------- | --------- | ------- | --------- |
+| pending     | completed | 允许    | 允许      |
+| pending     | canceled  | 允许    | 允许      |
+| in_progress | completed | 允许    | 允许      |
+| in_progress | canceled  | 允许    | 允许      |
+| completed   | pending   | 允许    | **拒绝**  |
+| canceled    | pending   | 允许    | **拒绝**  |
 
 ## 4. 重复事项（recurring）生成模型
 
@@ -123,10 +124,10 @@ CREATE TABLE todo_series_rules (
 
 **步骤 3 — 终止条件检查**（从 `todo_series_rules` 读取）：
 
-| end_mode | 条件 | 结果 |
-|----------|------|------|
-| `never` | — | 继续生成 |
-| `until_date` | `next_event_at > end_value` | 停止生成 |
+| end_mode      | 条件                                    | 结果     |
+| ------------- | --------------------------------------- | -------- |
+| `never`       | —                                       | 继续生成 |
+| `until_date`  | `next_event_at > end_value`             | 停止生成 |
 | `after_count` | `occurrence_index >= end_value`（整数） | 停止生成 |
 
 **步骤 4 — 计算下一次时间**：调用 `compute_next_occurrence(cron_expression, timezone, base_time)`，其中 `base_time = max(当前项.event_at, now)`；若 `event_at` 为 NULL 则以 `now()` 为基准。若 cron 表达式在 `base_time` 之后无有效匹配，则视为终止，不生成。
@@ -224,6 +225,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 - `includeInactive=true` → 同时返回暂停系列的项（用于发现/恢复暂停的系列）。
 
 **行为**：
+
 1. 查询 `todo_items`，对 `kind='recurring'` 的项 LEFT JOIN `todo_series_rules` 获取规则和 `active` 状态。
 2. A1 归一化：返回结果中 `in_progress` 映射为 `pending`。
 3. 对 `kind='recurring'` 的项，从 `todo_series_rules` 组装 `recurrence` 对象。`rule_json` 在数据库中存储为 TEXT，后端返回时**解析为 JSON 对象**。
@@ -237,6 +239,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **通道**：`tool:todo:item-create`
 
 **请求**：
+
 ```json
 {
   "title": "string",
@@ -261,6 +264,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 ```
 
 **行为**：
+
 - `one_off`：INSERT `todo_items`（基础字段），`series_id=NULL`。
 - `recurring`：
   1. INSERT `todo_items`（基础字段 + `series_id=自身id`）。
@@ -268,6 +272,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 - 同时插入 assignees / reminders / links。
 
 **错误**：
+
 - `title` 为空 → `"标题不能为空"`
 - `kind=recurring` 但缺少 `recurrence` → `"重复事项必须提供重复规则"`
 
@@ -276,6 +281,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **通道**：`tool:todo:item-update`
 
 **请求**：
+
 ```json
 {
   "id": "number",
@@ -297,6 +303,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 ```
 
 **行为**：
+
 - `UPDATE todo_items SET ... WHERE id=?`（基础字段）。
 - `kind` 字段创建后不可修改。
 - 若传入 `recurrence`：`UPDATE todo_series_rules SET ... WHERE series_id=?`（整体替换规则字段）。根据新规则重算 `event_at`：`base_time = now()`。若 `ruleMode=simple` 且 `cronExpression` 为 null，后端先计算 cron。
@@ -304,6 +311,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 - 不再有 scope 概念；编辑当前 pending 项的基础字段即影响当前项，编辑 `recurrence` 影响整个系列未来。
 
 **错误**：
+
 - `id` 不存在 → `"事项不存在"`
 - 修改已完成/已取消项的规则字段 → `"已结束的事项不可修改重复规则"`
 
@@ -314,6 +322,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **请求**：`{ "id": number, "status": "pending | completed | canceled" }`
 
 **行为**：
+
 - 状态转换校验（见 §3.5）。`in_progress` 按 §3.2 视同 `pending`。
 - `recurring` + `completed` → 触发 §4.2 完成流程。
 - 返回值包含 `nextItemId`（若生成了下一条）。
@@ -329,6 +338,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **请求**：`{ "id": number, "scope": "this_instance | future_instances" }`
 
 **行为**：
+
 - `scope=this_instance`：执行 §4.3-A 流程。对 `one_off` 项直接删除。对 recurring 且 done 的项直接删除，不触发补生成。
 - `scope=future_instances`：执行 §4.3-B 流程（暂停规则）。仅对 `recurring` 有效。
 - `one_off` + `scope=future_instances` → 忽略 scope，按普通删除处理。
@@ -344,6 +354,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **请求**：`{ "id": number }`
 
 **行为**：
+
 - 读取该项的 `series_id` 和 `kind`。
 - `kind=one_off` → 返回错误。
 - `kind=recurring` → 切换规则表：`UPDATE todo_series_rules SET active=1-active WHERE series_id=?`。
@@ -359,6 +370,7 @@ migration 22 后同一 series 可能存在多条 open 项。收敛策略：
 **删除** `generate_recurring_instances()` 调用——不再有定时批量生成逻辑。
 
 `scheduler_tick()` 简化为仅调度提醒：
+
 ```rust
 pub fn scheduler_tick() -> Result<Vec<ReminderDispatch>, String> {
     let conn = db_conn()?;
@@ -409,11 +421,11 @@ pub fn scheduler_tick() -> Result<Vec<ReminderDispatch>, String> {
 
 后端 `item-list` 返回的 `recurrence` 对象字段映射：
 
-| 旧字段 | 新字段 / 处理 |
-|--------|--------------|
-| `nextOccurrenceAt` | **删除**——前端如需展示可从 `event_at` 推导 |
-| `generatedCount` | 重命名为 `occurrenceIndex`（值 = `occurrence_index`） |
-| `active` | **提升为 recurrence 内的独立字段**（来源为 `todo_series_rules.active`） |
+| 旧字段             | 新字段 / 处理                                                           |
+| ------------------ | ----------------------------------------------------------------------- |
+| `nextOccurrenceAt` | **删除**——前端如需展示可从 `event_at` 推导                              |
+| `generatedCount`   | 重命名为 `occurrenceIndex`（值 = `occurrence_index`）                   |
+| `active`           | **提升为 recurrence 内的独立字段**（来源为 `todo_series_rules.active`） |
 
 ### 7.2 其它受影响文件
 
@@ -437,6 +449,7 @@ pub fn scheduler_tick() -> Result<Vec<ReminderDispatch>, String> {
 ---
 
 确认记录（用户已确认）：
+
 - canceled 不推进、不生成
 - 完成时若 series 已存在其它 open：不生成
 - 删除 this_instance 且删除后无 open：补生成 1 条

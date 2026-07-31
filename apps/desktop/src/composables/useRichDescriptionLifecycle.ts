@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
-import { invokeToolByChannel } from '../bridge/tauri';
+import type { Ref } from "vue";
+import { invokeToolByChannel } from "../bridge/tauri";
 
 /**
  * RichDescriptionEditor 的生命周期协同：
@@ -16,7 +16,7 @@ export interface RichEditorExposed {
   getEffectiveOwnerId: () => string;
 }
 
-export type RichOwnerType = 'pm_project' | 'pm_item' | 'todo';
+export type RichOwnerType = "pm_project" | "pm_item" | "todo";
 
 export interface UseRichDescriptionLifecycleOptions {
   ownerType: RichOwnerType;
@@ -29,8 +29,8 @@ export function useRichDescriptionLifecycle(opts: UseRichDescriptionLifecycleOpt
     const editor = opts.editorRef.value;
     if (!editor) return;
     const tempId = editor.getEffectiveOwnerId();
-    if (!tempId || !tempId.startsWith('tmp-')) return;
-    await invokeToolByChannel('tool:attachments:rebind', {
+    if (!tempId || !tempId.startsWith("tmp-")) return;
+    await invokeToolByChannel("tool:attachments:rebind", {
       ownerType: opts.ownerType,
       fromOwnerId: tempId,
       toOwnerId: String(realId),
@@ -41,8 +41,8 @@ export function useRichDescriptionLifecycle(opts: UseRichDescriptionLifecycleOpt
     const editor = opts.editorRef.value;
     if (!editor) return;
     const ownerId = editor.getEffectiveOwnerId();
-    if (!ownerId || !ownerId.startsWith('tmp-')) return;
-    await invokeToolByChannel('tool:attachments:cleanup-orphans', {
+    if (!ownerId || !ownerId.startsWith("tmp-")) return;
+    await invokeToolByChannel("tool:attachments:cleanup-orphans", {
       ownerType: opts.ownerType,
       ownerId,
       keepIds: [],
@@ -53,8 +53,8 @@ export function useRichDescriptionLifecycle(opts: UseRichDescriptionLifecycleOpt
     const editor = opts.editorRef.value;
     if (!editor) return;
     const realId = opts.getRealId();
-    if (realId == null || realId === '') return;
-    await invokeToolByChannel('tool:attachments:cleanup-orphans', {
+    if (realId == null || realId === "") return;
+    await invokeToolByChannel("tool:attachments:cleanup-orphans", {
       ownerType: opts.ownerType,
       ownerId: String(realId),
       keepIds: editor.getAttachmentIds(),

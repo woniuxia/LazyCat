@@ -40,8 +40,16 @@
       />
       <div class="output-wrap">
         <template v-if="outputMode === 'text' || !outputTreeAvailable">
-          <el-input v-model="output" type="textarea" readonly placeholder="处理结果" resize="none" />
-          <el-button v-show="output" class="copy-btn" size="small" @click="copyOutput">复制</el-button>
+          <el-input
+            v-model="output"
+            type="textarea"
+            readonly
+            placeholder="处理结果"
+            resize="none"
+          />
+          <el-button v-show="output" class="copy-btn" size="small" @click="copyOutput"
+            >复制</el-button
+          >
         </template>
         <JsonTreeViewer
           v-else
@@ -186,9 +194,7 @@ async function callIpc(channel: string) {
   ensureTextMode();
   if (!input.value.trim()) return;
   try {
-    output.value = String(
-      await invokeToolByChannel(channel, { input: input.value })
-    );
+    output.value = String(await invokeToolByChannel(channel, { input: input.value }));
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -232,7 +238,9 @@ async function formatYaml() {
 }
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("json-process", (text) => { input.value = text; });
+watchPendingInput("json-process", (text) => {
+  input.value = text;
+});
 </script>
 
 <style scoped>

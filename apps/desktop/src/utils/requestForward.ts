@@ -156,9 +156,7 @@ export function clampRequestForwardRuleListWidth(
   availableWidth: number,
 ): number {
   const parsed = typeof preferred === "number" ? preferred : Number(preferred);
-  const width = Number.isFinite(parsed)
-    ? parsed
-    : DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH;
+  const width = Number.isFinite(parsed) ? parsed : DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH;
   const safeAvailable = Number.isFinite(availableWidth)
     ? Math.max(0, availableWidth)
     : DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH * 3;
@@ -166,10 +164,7 @@ export function clampRequestForwardRuleListWidth(
     MIN_REQUEST_FORWARD_RULE_LIST_WIDTH,
     Math.min(MAX_REQUEST_FORWARD_RULE_LIST_WIDTH, Math.floor(safeAvailable - 480)),
   );
-  return Math.min(
-    maximum,
-    Math.max(MIN_REQUEST_FORWARD_RULE_LIST_WIDTH, Math.round(width)),
-  );
+  return Math.min(maximum, Math.max(MIN_REQUEST_FORWARD_RULE_LIST_WIDTH, Math.round(width)));
 }
 
 export function clampRequestForwardInspectorWidth(
@@ -177,20 +172,12 @@ export function clampRequestForwardInspectorWidth(
   availableWidth: number,
 ): number {
   const parsed = typeof preferred === "number" ? preferred : Number(preferred);
-  const width = Number.isFinite(parsed)
-    ? parsed
-    : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH;
+  const width = Number.isFinite(parsed) ? parsed : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH;
   const safeAvailable = Number.isFinite(availableWidth)
     ? Math.max(0, availableWidth)
     : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH * 2;
-  const maximum = Math.max(
-    MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
-    Math.floor(safeAvailable * 0.5),
-  );
-  return Math.min(
-    maximum,
-    Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.round(width)),
-  );
+  const maximum = Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.floor(safeAvailable * 0.5));
+  return Math.min(maximum, Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.round(width)));
 }
 
 export function retainRequestForwardSelectedLogId(
@@ -355,10 +342,7 @@ export function isExposedForwardBindHost(bindHost: string): boolean {
   return normalizeIpv6Literal(host) !== "::1";
 }
 
-export function formatRequestForwardEndpoint(
-  host?: string | null,
-  port?: number | null,
-): string {
+export function formatRequestForwardEndpoint(host?: string | null, port?: number | null): string {
   const trimmedHost = host?.trim();
   if (!trimmedHost || port == null || !Number.isInteger(port) || port < 1 || port > 65535) {
     return "—";
@@ -385,22 +369,14 @@ function quoteShell(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-export function getRequestForwardLocalEndpoint(
-  form: RequestForwardRuleForm,
-): string {
+export function getRequestForwardLocalEndpoint(form: RequestForwardRuleForm): string {
   return formatRequestForwardEndpoint(form.bindHost, form.listenPort);
 }
 
-export function getRequestForwardLocalUrl(
-  form: RequestForwardRuleForm,
-): string | null {
+export function getRequestForwardLocalUrl(form: RequestForwardRuleForm): string | null {
   if (form.protocol !== "http") return null;
   const bindHost = form.bindHost.trim();
-  const accessHost = bindHost === "0.0.0.0"
-    ? "127.0.0.1"
-    : bindHost === "::"
-      ? "::1"
-      : bindHost;
+  const accessHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const endpoint = formatRequestForwardEndpoint(accessHost, form.listenPort);
   return endpoint === "—" ? null : `http://${endpoint}`;
 }
@@ -444,9 +420,7 @@ export function buildRequestForwardLogCommandExamples(
     "--url",
     quoteShell(requestUrl),
     ...headers.flatMap(([name, value]) => ["--header", quoteShell(`${name}: ${value}`)]),
-    ...(log.requestBodyPreview == null
-      ? []
-      : ["--data-raw", quoteShell(log.requestBodyPreview)]),
+    ...(log.requestBodyPreview == null ? [] : ["--data-raw", quoteShell(log.requestBodyPreview)]),
   ].join(" ");
 
   const powershell = [
@@ -454,34 +428,33 @@ export function buildRequestForwardLogCommandExamples(
     `-Method ${quotePowerShell(method)}`,
     `-Uri ${quotePowerShell(requestUrl)}`,
     ...(headers.length
-      ? [`-Headers @{ ${headers
-          .map(([name, value]) => `${quotePowerShell(name)} = ${quotePowerShell(value)}`)
-          .join("; ")} }`]
+      ? [
+          `-Headers @{ ${headers
+            .map(([name, value]) => `${quotePowerShell(name)} = ${quotePowerShell(value)}`)
+            .join("; ")} }`,
+        ]
       : []),
-    ...(log.requestBodyPreview == null
-      ? []
-      : [`-Body ${quotePowerShell(log.requestBodyPreview)}`]),
+    ...(log.requestBodyPreview == null ? [] : [`-Body ${quotePowerShell(log.requestBodyPreview)}`]),
   ].join(" ");
 
   return { curl, powershell, warnings };
 }
 
-export function serializeRequestForwardRuleBundle(
-  bundle: RequestForwardRuleBundle,
-): string {
+export function serializeRequestForwardRuleBundle(bundle: RequestForwardRuleBundle): string {
   return JSON.stringify(bundle, null, 2);
 }
 
-export function parseRequestForwardRuleBundleText(
-  content: string,
-): RequestForwardRuleBundle {
+export function parseRequestForwardRuleBundleText(content: string): RequestForwardRuleBundle {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    throw new Error(`请求转发规则包不是有效 JSON：${error instanceof Error ? error.message : String(error)}`, {
-      cause: error,
-    });
+    throw new Error(
+      `请求转发规则包不是有效 JSON：${error instanceof Error ? error.message : String(error)}`,
+      {
+        cause: error,
+      },
+    );
   }
   if (!parsed || typeof parsed !== "object") {
     throw new Error("请求转发规则包格式无效");
@@ -605,9 +578,7 @@ export function getRequestForwardBatchMessage(
 
 export type RequestForwardLogTone = "success" | "danger";
 
-export function getRequestForwardLogTone(
-  status: RequestForwardLogOutcome,
-): RequestForwardLogTone {
+export function getRequestForwardLogTone(status: RequestForwardLogOutcome): RequestForwardLogTone {
   return status === "success" ? "success" : "danger";
 }
 
@@ -660,16 +631,11 @@ function formatRequestForwardLocalDateTime(date: Date): string {
   ].join("");
 }
 
-export function getDefaultRequestForwardLogTimeRange(
-  now = new Date(),
-): [string, string] {
+export function getDefaultRequestForwardLogTimeRange(now = new Date()): [string, string] {
   const startedAt = new Date(now.getTime() - 60 * 60 * 1000);
   const endedAt = new Date(now);
   endedAt.setHours(23, 59, 59, 0);
-  return [
-    formatRequestForwardLocalDateTime(startedAt),
-    formatRequestForwardLocalDateTime(endedAt),
-  ];
+  return [formatRequestForwardLocalDateTime(startedAt), formatRequestForwardLocalDateTime(endedAt)];
 }
 
 function requestForwardHeaderValue(
@@ -686,10 +652,8 @@ export function formatRequestForwardLogBody(
 ): string | null {
   if (body == null) return null;
   const contentType =
-    requestForwardHeaderValue(headers, "content-type")
-      ?.split(";", 1)[0]
-      ?.trim()
-      .toLowerCase() ?? "";
+    requestForwardHeaderValue(headers, "content-type")?.split(";", 1)[0]?.trim().toLowerCase() ??
+    "";
   if (contentType !== "application/json" && !contentType.endsWith("+json")) return body;
   try {
     const parsed: unknown = JSON.parse(body);
@@ -706,11 +670,8 @@ export function formatRequestForwardLogHeaders(
 }
 
 export function parseRequestForwardLogTimestamp(value: string): Date | null {
-  const databaseUtcPattern =
-    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
-  const normalized = databaseUtcPattern.test(value)
-    ? value.replace(" ", "T") + "Z"
-    : value;
+  const databaseUtcPattern = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+  const normalized = databaseUtcPattern.test(value) ? value.replace(" ", "T") + "Z" : value;
   const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -790,7 +751,7 @@ export function exportRequestForwardLogsJson(
 }
 
 function escapeRequestForwardCsvCell(value: unknown): string {
-  let csvValue = typeof value === "string" ? value : JSON.stringify(value) ?? "";
+  let csvValue = typeof value === "string" ? value : (JSON.stringify(value) ?? "");
   if (/^[=+\-@]/.test(csvValue)) csvValue = "'" + csvValue;
   return '"' + csvValue.replaceAll('"', '""') + '"';
 }
@@ -800,10 +761,25 @@ export function exportRequestForwardLogsCsv(
 ): RequestForwardLogExportResult {
   const rows = requestForwardExportRows(input);
   const columns: Array<keyof RequestForwardLogRow> = [
-    "id", "ruleId", "protocol", "clientAddr", "targetAddr", "method", "path", "statusCode",
-    "durationMs", "uploadBytes", "downloadBytes", "requestHeaders", "responseHeaders",
-    "requestBodyPreview", "responseBodyPreview", "requestBodyTruncated", "responseBodyTruncated",
-    "error", "createdAt",
+    "id",
+    "ruleId",
+    "protocol",
+    "clientAddr",
+    "targetAddr",
+    "method",
+    "path",
+    "statusCode",
+    "durationMs",
+    "uploadBytes",
+    "downloadBytes",
+    "requestHeaders",
+    "responseHeaders",
+    "requestBodyPreview",
+    "responseBodyPreview",
+    "requestBodyTruncated",
+    "responseBodyTruncated",
+    "error",
+    "createdAt",
   ];
   const lines = [
     columns.map(escapeRequestForwardCsvCell).join(","),
@@ -825,7 +801,9 @@ export function sanitizeRequestForwardLogFileName(value: string): string {
     .join("")
     .replace(/[. ]+$/g, "")
     .trim();
-  return Array.from(sanitized || "request-forward").slice(0, 80).join("");
+  return Array.from(sanitized || "request-forward")
+    .slice(0, 80)
+    .join("");
 }
 
 export function buildRequestForwardLogExportFileName(

@@ -17,7 +17,10 @@
         </div>
       </div>
       <div class="toolbar-right">
-        <el-checkbox :model-value="hideCompleted" @change="(v: boolean | string | number) => setHideCompleted(Boolean(v))">
+        <el-checkbox
+          :model-value="hideCompleted"
+          @change="(v: boolean | string | number) => setHideCompleted(Boolean(v))"
+        >
           隐藏已完成
         </el-checkbox>
       </div>

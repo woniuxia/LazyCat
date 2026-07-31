@@ -17,12 +17,12 @@
       :class="{ 'is-active': selectedProjectId === 'overview' }"
       @click="emit('select-project', 'overview')"
     >
-        <div class="sidebar-overview-card-head">
-          <div class="sidebar-overview-card-title">
-            <span class="project-color overview-color" />
-            <span class="project-name">总览</span>
-          </div>
+      <div class="sidebar-overview-card-head">
+        <div class="sidebar-overview-card-title">
+          <span class="project-color overview-color" />
+          <span class="project-name">总览</span>
         </div>
+      </div>
       <div class="sidebar-overview-metrics">
         <div class="sidebar-overview-metric">
           <span class="sidebar-overview-metric-label">项目数</span>
@@ -61,15 +61,19 @@
         <div class="project-card-main">
           <span class="project-color" :style="{ backgroundColor: p.color }" />
           <span class="project-name">{{ p.name }}</span>
-          <el-tag v-if="p.status === 'archived'" size="small" effect="plain" class="project-archived-tag">已归档</el-tag>
+          <el-tag
+            v-if="p.status === 'archived'"
+            size="small"
+            effect="plain"
+            class="project-archived-tag"
+            >已归档</el-tag
+          >
           <span class="project-pending-badge">{{ p.pendingCount }}</span>
         </div>
       </div>
     </div>
 
-    <div v-if="projects.length === 0" class="empty-hint">
-      暂无项目，点击 + 创建
-    </div>
+    <div v-if="projects.length === 0" class="empty-hint">暂无项目，点击 + 创建</div>
 
     <div class="sidebar-footer">
       <button class="sidebar-footer-btn" @click="emit('open-settings')">
@@ -109,7 +113,9 @@ const emit = defineEmits<{
   (e: "project-drop", project: PmProject): void;
 }>();
 
-const sidebarProjects = computed(() => sortPmProjectsForSidebar(props.projects, props.projectItemCounts));
+const sidebarProjects = computed(() =>
+  sortPmProjectsForSidebar(props.projects, props.projectItemCounts),
+);
 const overviewUndoneCount = computed(() => {
   let total = 0;
   for (const c of Object.values(props.projectItemCounts)) {
@@ -258,7 +264,11 @@ const overviewUndoneCount = computed(() => {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92));
   box-shadow: var(--pm-shadow-soft);
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease;
 }
 
 .sidebar-today-card:hover,
@@ -455,7 +465,7 @@ const overviewUndoneCount = computed(() => {
   justify-content: center;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(14, 165, 233, 0.10);
+  background: rgba(14, 165, 233, 0.1);
   color: var(--pm-accent);
   font-size: 12px;
   font-weight: 700;

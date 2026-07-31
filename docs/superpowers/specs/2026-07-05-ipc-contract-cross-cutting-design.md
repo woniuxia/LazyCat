@@ -9,12 +9,12 @@
 
 路线图覆盖"热点大文件拆分 + 目录分域 + e2e 恢复"，明确不做横切面改良。本次体检确认路线图之外存在四个高收益点：
 
-| 编号 | 问题 | 证据（2026-07-05 核实） |
-|---|---|---|
-| X1 | 前后端 action 三份手工清单无对账 | CHANNEL_MAP 约 356 条（`src/bridge/tauri.ts:46-403`）；Rust 40 域分发（`src-tauri/src/tools/mod.rs:62-106`）；挂件刷新白名单（`mod.rs:112-147`）。漂移已实际发生：白名单 todo 域含 4 个幽灵词条 `item_reorder` / `item_batch_update` / `item_complete` / `item_undo_complete`，`todo.rs:85-104` 的 match 中不存在 |
-| X2 | 事件名两侧全是散落字符串字面量 | Rust emit：`main.rs` 十余处 + `widget/apply.rs`、`widget/pulse.rs`；前端 emit：`spotlight/providers/hosts.ts:79`（跨窗口）；前端 listen 14 处。盘点时常规 grep 即漏掉 `hotkey-navigate` 的 emit 点（`main.rs:791`，事件名单独成行） |
-| X3 | IPC 错误反馈三套写法并存 | 约 310 处 `ElMessage.error` 各写各的；`useToolInvoke`（55 行）实际仅 PM 域少数组件采用，其余面板裸调 `invokeToolByChannel` + 手写 try/catch |
-| X4 | 搜索防抖多种手写变体并存 | 已核实三种代表形态：SnippetPanel setTimeout 手写防抖（`SnippetPanel.vue:291,394`）、LauncherPanel 300ms watch+timer（`LauncherPanel.vue:236-239`）、HostsPanel 无防抖纯 computed（`HostsPanel.vue:337-339`） |
+| 编号 | 问题                             | 证据（2026-07-05 核实）                                                                                                                                                                                                                                                                                           |
+| ---- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| X1   | 前后端 action 三份手工清单无对账 | CHANNEL_MAP 约 356 条（`src/bridge/tauri.ts:46-403`）；Rust 40 域分发（`src-tauri/src/tools/mod.rs:62-106`）；挂件刷新白名单（`mod.rs:112-147`）。漂移已实际发生：白名单 todo 域含 4 个幽灵词条 `item_reorder` / `item_batch_update` / `item_complete` / `item_undo_complete`，`todo.rs:85-104` 的 match 中不存在 |
+| X2   | 事件名两侧全是散落字符串字面量   | Rust emit：`main.rs` 十余处 + `widget/apply.rs`、`widget/pulse.rs`；前端 emit：`spotlight/providers/hosts.ts:79`（跨窗口）；前端 listen 14 处。盘点时常规 grep 即漏掉 `hotkey-navigate` 的 emit 点（`main.rs:791`，事件名单独成行）                                                                               |
+| X3   | IPC 错误反馈三套写法并存         | 约 310 处 `ElMessage.error` 各写各的；`useToolInvoke`（55 行）实际仅 PM 域少数组件采用，其余面板裸调 `invokeToolByChannel` + 手写 try/catch                                                                                                                                                                       |
+| X4   | 搜索防抖多种手写变体并存         | 已核实三种代表形态：SnippetPanel setTimeout 手写防抖（`SnippetPanel.vue:291,394`）、LauncherPanel 300ms watch+timer（`LauncherPanel.vue:236-239`）、HostsPanel 无防抖纯 computed（`HostsPanel.vue:337-339`）                                                                                                      |
 
 ## 2. 目标与非目标
 
@@ -105,21 +105,22 @@ SnippetPanel、LauncherPanel、HostsPanel、DnsPanel 四面板的全部 IPC 调�
 
 ```ts
 // 基础层：关键字 + 防抖（后端搜索面板直接用它，watch debouncedKeyword 触发重查）
-function useDebouncedKeyword(options?: { debounceMs?: number }): {  // 默认 300
-  keyword: Ref<string>;              // 绑定输入框
-  debouncedKeyword: Readonly<Ref<string>>;  // 已 trim
-}
+function useDebouncedKeyword(options?: { debounceMs?: number }): {
+  // 默认 300
+  keyword: Ref<string>; // 绑定输入框
+  debouncedKeyword: Readonly<Ref<string>>; // 已 trim
+};
 
 // 过滤层：在基础层之上叠加本地过滤（本地过滤面板用）
 function useListSearch<T>(
   source: () => readonly T[],
   matcher: (item: T, keyword: string) => boolean,
-  options?: { debounceMs?: number }
+  options?: { debounceMs?: number },
 ): {
   keyword: Ref<string>;
   debouncedKeyword: Readonly<Ref<string>>;
-  filtered: ComputedRef<T[]>;        // 空关键字返回全量
-}
+  filtered: ComputedRef<T[]>; // 空关键字返回全量
+};
 ```
 
 - 两个 API 同文件导出，`useListSearch` 内部复用 `useDebouncedKeyword`，防抖逻辑只有一份。
@@ -154,13 +155,13 @@ function useListSearch<T>(
 
 ## 9. 决策记录
 
-| 决策 | 结论 | 备选与否决理由 |
-|---|---|---|
-| 推进方式 | 方案 B：四项打包为独立横切面 spec，与路线图并行 | 方案 A（仅对账+事件小批次）覆盖不足；方案 C（只记账）会让路线图批次 2/3 的 Rust 大拆分缺契约保护 |
-| 对账机制 | Rust 侧 supported_actions + 守卫，测试解析 tauri.ts | 备选"vitest 正则解析 Rust match 臂"被否：Rust 侧格式多样（多行、委托调用），解析脆弱；tauri.ts 一行一条目，反向解析稳健，且 is_supported 已有仓内先例 |
-| 对账执行方式 | 纯静态集合比对，不执行 action | 备选"逐 action 空 payload 试执行"被否：有副作用与耗时风险（launcher scan、port usage 等） |
-| 事件对账方向 | Rust 集合 ⊆ 前端集合 | 双向相等不成立：存在纯前端跨窗口事件（hosts-applied） |
-| 试点面板 | Snippet / Launcher / Hosts / Dns | 与路线图批次、候选池、待实施 spec 零交集；VaultPanel（2542 行）体量过大不适合试点 |
-| typeshare / Zod / DAO / 迁移框架 / 外键级联 / 双体系统一 | 均不做 | 单人维护的离线桌面应用，工具链与框架的持续成本大于收益；对账测试 + 手工纪律已覆盖主要风险面；外键级联动用户数据结构，风险大于孤儿记录实际痛感 |
-| 错误反馈改造范围 | 仅 4 试点 + 规范 | 全量 310 处一次性改造会大面积触碰路线图待拆文件，混批风险高 |
-| X4 API 形态 | useDebouncedKeyword + useListSearch 分层双 API（2026-07-05 修订） | 单一 useListSearch 被否：写计划时核实 SnippetPanel 为后端搜索（防抖后重查 IPC），matcher 形态不适配；DnsPanel 无搜索框，仅参与 X3 |
+| 决策                                                     | 结论                                                              | 备选与否决理由                                                                                                                                        |
+| -------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 推进方式                                                 | 方案 B：四项打包为独立横切面 spec，与路线图并行                   | 方案 A（仅对账+事件小批次）覆盖不足；方案 C（只记账）会让路线图批次 2/3 的 Rust 大拆分缺契约保护                                                      |
+| 对账机制                                                 | Rust 侧 supported_actions + 守卫，测试解析 tauri.ts               | 备选"vitest 正则解析 Rust match 臂"被否：Rust 侧格式多样（多行、委托调用），解析脆弱；tauri.ts 一行一条目，反向解析稳健，且 is_supported 已有仓内先例 |
+| 对账执行方式                                             | 纯静态集合比对，不执行 action                                     | 备选"逐 action 空 payload 试执行"被否：有副作用与耗时风险（launcher scan、port usage 等）                                                             |
+| 事件对账方向                                             | Rust 集合 ⊆ 前端集合                                              | 双向相等不成立：存在纯前端跨窗口事件（hosts-applied）                                                                                                 |
+| 试点面板                                                 | Snippet / Launcher / Hosts / Dns                                  | 与路线图批次、候选池、待实施 spec 零交集；VaultPanel（2542 行）体量过大不适合试点                                                                     |
+| typeshare / Zod / DAO / 迁移框架 / 外键级联 / 双体系统一 | 均不做                                                            | 单人维护的离线桌面应用，工具链与框架的持续成本大于收益；对账测试 + 手工纪律已覆盖主要风险面；外键级联动用户数据结构，风险大于孤儿记录实际痛感         |
+| 错误反馈改造范围                                         | 仅 4 试点 + 规范                                                  | 全量 310 处一次性改造会大面积触碰路线图待拆文件，混批风险高                                                                                           |
+| X4 API 形态                                              | useDebouncedKeyword + useListSearch 分层双 API（2026-07-05 修订） | 单一 useListSearch 被否：写计划时核实 SnippetPanel 为后端搜索（防抖后重查 IPC），matcher 形态不适配；DnsPanel 无搜索框，仅参与 X3                     |

@@ -66,7 +66,9 @@ describe("useListSearch", () => {
 
   function matches(row: Row, keyword: string) {
     const normalized = keyword.toLowerCase();
-    return row.name.toLowerCase().includes(normalized) || row.path.toLowerCase().includes(normalized);
+    return (
+      row.name.toLowerCase().includes(normalized) || row.path.toLowerCase().includes(normalized)
+    );
   }
 
   it("returns all items for empty or whitespace-only keywords", () => {

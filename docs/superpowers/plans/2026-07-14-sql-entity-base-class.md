@@ -39,11 +39,13 @@
 ### Task 1: 前端基类模型和纯函数
 
 **Files:**
+
 - Create: `apps/desktop/src/types/sql-entity.ts`
 - Create: `apps/desktop/src/utils/sqlEntityBaseClass.ts`
 - Test: `apps/desktop/src/utils/sqlEntityBaseClass.test.ts`
 
 **Interfaces:**
+
 - Produces: `SqlEntityBaseClass`、`SqlEntityBaseClassDraft`、`parseBaseClassFields()`、`validateJavaQualifiedName()`、`reconcileBaseClassSelection()`。
 - Consumes: 无。
 
@@ -68,7 +70,9 @@ describe("sqlEntityBaseClass", () => {
 
   it("拒绝非法 Java 完整类名和字段名", () => {
     expect(validateJavaQualifiedName("com.example.BaseEntity")).toBe("");
-    expect(validateJavaQualifiedName("com.example.1Base")).toBe("完整类名包含非法 Java 标识符：1Base");
+    expect(validateJavaQualifiedName("com.example.1Base")).toBe(
+      "完整类名包含非法 Java 标识符：1Base",
+    );
     expect(() => parseBaseClassFields("created-at")).toThrow("非法 Java 字段名：created-at");
   });
 
@@ -137,7 +141,10 @@ export function validateJavaQualifiedName(value: string): string {
 export function parseBaseClassFields(input: string): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
-  for (const field of input.split(/[\n,]/).map((item) => item.trim()).filter(Boolean)) {
+  for (const field of input
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)) {
     if (!JAVA_IDENTIFIER.test(field)) throw new Error(`非法 Java 字段名：${field}`);
     if (!seen.has(field)) {
       seen.add(field);
@@ -181,12 +188,14 @@ git commit -m "feat(sql-entity): 添加基类配置规则模型"
 ### Task 2: SQLite schema、Rust CRUD 和 bridge 契约
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/sql_entity.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
 
 **Interfaces:**
+
 - Produces domain: `sql_entity`。
 - Produces actions: `base_class_list`、`base_class_create`、`base_class_update`、`base_class_delete`。
 - Produces channels: `tool:sql-entity:base-class-list/create/update/delete`。
@@ -393,9 +402,11 @@ git commit -m "feat(sql-entity): 添加基类配置持久化"
 ### Task 3: Java 生成器支持基类字段排除与继承
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs`
 
 **Interfaces:**
+
 - Consumes: `options.baseClasses`、`options.parentBaseClassId`。
 - Produces: Java `import`、`extends` 和过滤后的字段集合。
 
@@ -559,10 +570,12 @@ git commit -m "feat(sql-entity): 支持基类继承和字段排除"
 ### Task 4: 基类管理弹窗与 SQL 实体面板接入
 
 **Files:**
+
 - Create: `apps/desktop/src/components/SqlEntityBaseClassDialog.vue`
 - Modify: `apps/desktop/src/components/SqlEntityPanel.vue`
 
 **Interfaces:**
+
 - Consumes CRUD channels and Task 1 types/utilities。
 - Produces `changed` event and exposed `open()` method。
 - Sends selected base-class snapshots to `tool:convert:sql-to-entity`。
@@ -594,7 +607,10 @@ const editingId = ref<number | null>(null);
 const draft = reactive<SqlEntityBaseClassDraft>({ alias: "", qualifiedName: "", fieldsText: "" });
 
 async function loadItems() {
-  const result = await invokeToolByChannel("tool:sql-entity:base-class-list", {}) as SqlEntityBaseClassListResponse;
+  const result = (await invokeToolByChannel(
+    "tool:sql-entity:base-class-list",
+    {},
+  )) as SqlEntityBaseClassListResponse;
   items.value = result.items;
 }
 
@@ -603,11 +619,15 @@ async function save() {
   if (!draft.alias.trim()) return ElMessage.warning("请输入别名");
   if (qualifiedNameError) return ElMessage.warning(qualifiedNameError);
   let fields: string[];
-  try { fields = parseBaseClassFields(draft.fieldsText); }
-  catch (error) { return ElMessage.warning((error as Error).message); }
-  const channel = editingId.value === null
-    ? "tool:sql-entity:base-class-create"
-    : "tool:sql-entity:base-class-update";
+  try {
+    fields = parseBaseClassFields(draft.fieldsText);
+  } catch (error) {
+    return ElMessage.warning((error as Error).message);
+  }
+  const channel =
+    editingId.value === null
+      ? "tool:sql-entity:base-class-create"
+      : "tool:sql-entity:base-class-update";
   await invokeToolByChannel(channel, {
     ...(editingId.value === null ? {} : { id: editingId.value }),
     alias: draft.alias.trim(),
@@ -693,9 +713,11 @@ git commit -m "feat(sql-entity): 添加基类管理和选择界面"
 ### Task 5: 经验沉淀与完整验证
 
 **Files:**
+
 - Modify: `process.md`
 
 **Interfaces:**
+
 - Consumes: 所有前序任务产物。
 - Produces: 可交付、验证完成的功能与经验记录。
 

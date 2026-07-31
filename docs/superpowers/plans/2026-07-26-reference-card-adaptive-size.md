@@ -24,6 +24,7 @@
 ### Task 1: 建立内容尺寸纯函数
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/reference_card/size.rs`
 - Modify: `apps/desktop/src-tauri/src/reference_card/mod.rs:1`
 - Test: `apps/desktop/src-tauri/src/reference_card/size.rs`
@@ -223,6 +224,7 @@ git commit -m "feat(reference-card): 添加首次自适应尺寸计算"
 ### Task 2: 在隐藏窗口创建阶段应用首次尺寸
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReferenceCard.contract.test.ts`
 - Modify: `apps/desktop/src-tauri/src/reference_card/mod.rs:14-23`
 - Modify: `apps/desktop/src-tauri/src/reference_card/mod.rs:266-329`
@@ -242,9 +244,7 @@ const referenceCardBackend = read("../src-tauri/src/reference_card/mod.rs");
 ```typescript
 it("auto-sizes only during hidden creation and preserves manual resizing", () => {
   expect(referenceCardBackend).toContain(".visible(false)");
-  expect(referenceCardBackend).toContain(
-    "configure_initial_geometry(&window, &text, ordinal)",
-  );
+  expect(referenceCardBackend).toContain("configure_initial_geometry(&window, &text, ordinal)");
   expect(referenceCardBackend).toContain(".resizable(true)");
   expect(referenceCardBackend).not.toContain(".max_inner_size(");
   expect(component).not.toContain("setSize(");
@@ -475,6 +475,7 @@ git commit -m "feat(reference-card): 首次打开按内容调整窗口"
 ### Task 3: 完整验证与差异审查
 
 **Files:**
+
 - Verify: `apps/desktop/src-tauri/src/reference_card/size.rs`
 - Verify: `apps/desktop/src-tauri/src/reference_card/mod.rs`
 - Verify: `apps/desktop/src/components/ReferenceCard.contract.test.ts`

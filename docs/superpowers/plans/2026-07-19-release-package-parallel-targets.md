@@ -24,6 +24,7 @@
 ### Task 1: 扩展前端协议和纯函数
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.test.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
@@ -54,17 +55,33 @@ Expected: FAIL，提示新 helper 未导出或 `partially_succeeded` 不属于�
 export type ReleasePackageTarget = "frontend" | "backend";
 export type ReleasePackagePhase = ReleasePackageTarget | "overall";
 export type ReleasePackageRunStatus =
-  | "idle" | "running" | "succeeded" | "partially_succeeded" | "failed" | "cancelled";
+  | "idle"
+  | "running"
+  | "succeeded"
+  | "partially_succeeded"
+  | "failed"
+  | "cancelled";
 export type ReleasePackageTargetStatus =
-  | "idle" | "pending" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
+  | "idle"
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "skipped";
 ```
 
 在纯函数文件中实现：
 
 ```ts
-export const createDefaultReleasePackageTargets = (): ReleasePackageTarget[] => ["frontend", "backend"];
+export const createDefaultReleasePackageTargets = (): ReleasePackageTarget[] => [
+  "frontend",
+  "backend",
+];
 
-export function validateReleasePackageTargets(targets: readonly ReleasePackageTarget[]): string | null {
+export function validateReleasePackageTargets(
+  targets: readonly ReleasePackageTarget[],
+): string | null {
   return targets.length === 0 ? "请至少选择前端包或后端包" : null;
 }
 ```
@@ -87,6 +104,7 @@ git commit -m "feat(release-package): 扩展按目标运行协议"
 ### Task 2: 将前端运行态改为项目级隔离
 
 **Files:**
+
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.test.ts`
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.ts`
 
@@ -150,6 +168,7 @@ git commit -m "feat(release-package): 按项目隔离运行日志"
 ### Task 3: 解析运行目标并按选择校验
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
 - [ ] **Step 1: 写 Rust 失败测试**
@@ -199,6 +218,7 @@ git commit -m "feat(release-package): 校验本次打包目标"
 ### Task 4: 将归档拆为独立目标和统一提交
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 
 - [ ] **Step 1: 写单目标归档失败测试**
@@ -271,6 +291,7 @@ git commit -m "refactor(release-package): 拆分独立产物归档"
 ### Task 5: 实现双工作线程和轻量协调器
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 
 - [ ] **Step 1: 写并发和部分成功失败测试**
@@ -334,6 +355,7 @@ git commit -m "feat(release-package): 并行执行前后端打包"
 ### Task 6: 更新确认弹窗、路径选择和双列日志
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 
@@ -344,12 +366,12 @@ git commit -m "feat(release-package): 并行执行前后端打包"
 ```ts
 expect(source).toContain("chooseFrontendArtifact");
 expect(source).toContain("chooseBackendArtifact");
-expect(source).toContain('open({ directory: true, multiple: false');
-expect(source).toContain('open({ directory: false, multiple: false');
+expect(source).toContain("open({ directory: true, multiple: false");
+expect(source).toContain("open({ directory: false, multiple: false");
 expect(source.indexOf("归档目录名")).toBeLessThan(source.indexOf("本次打包内容"));
 expect(source).toContain('class="release-package-project-log"');
 expect(source).toContain('class="release-package-log-columns"');
-expect(source).toContain('targets: selectedTargets.value');
+expect(source).toContain("targets: selectedTargets.value");
 ```
 
 - [ ] **Step 2: 验证组件测试失败**
@@ -392,6 +414,7 @@ git commit -m "feat(release-package): 添加目标选择和双列日志"
 ### Task 7: 回归验证与经验沉淀
 
 **Files:**
+
 - Modify: `process.md`
 
 - [ ] **Step 1: 运行 Rust 上线包测试**

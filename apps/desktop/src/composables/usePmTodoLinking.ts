@@ -29,7 +29,11 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
   });
 
   const allCompleted = computed(() => {
-    return summary.value != null && summary.value.totalCount > 0 && summary.value.completedCount === summary.value.totalCount;
+    return (
+      summary.value != null &&
+      summary.value.totalCount > 0 &&
+      summary.value.completedCount === summary.value.totalCount
+    );
   });
 
   // ── Debounce helper ──────────────────────────────────────
@@ -50,7 +54,7 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     if (id == null) return;
     loading.value = true;
     try {
-      const result = await invokeToolByChannel("tool:pm:item-todo-list", { pmItemId: id }) as {
+      const result = (await invokeToolByChannel("tool:pm:item-todo-list", { pmItemId: id })) as {
         items: PmTodoLinkItem[];
         totalCount: number;
         completedCount: number;
@@ -87,7 +91,10 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
   async function toggleComplete(todoItem: PmTodoLinkItem) {
     const newStatus = todoItem.status === "completed" ? "pending" : "completed";
     try {
-      await invokeToolByChannel("tool:todo:item-change-status", { id: todoItem.id, status: newStatus });
+      await invokeToolByChannel("tool:todo:item-change-status", {
+        id: todoItem.id,
+        status: newStatus,
+      });
       loadItems();
     } catch (e) {
       ElMessage.error((e as Error).message);
@@ -123,11 +130,11 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     if (id == null) return;
     candidateLoading.value = true;
     try {
-      const result = await invokeToolByChannel("tool:pm:item-todo-candidates", {
+      const result = (await invokeToolByChannel("tool:pm:item-todo-candidates", {
         pmItemId: id,
         keyword: keyword ?? (candidateKeyword.value || undefined),
         limit: 50,
-      }) as {
+      })) as {
         items: PmTodoCandidateItem[];
         total: number;
         eligibleCount: number;

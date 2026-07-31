@@ -1,4 +1,3 @@
-
 # 上线包配置布局稳定性优化实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -22,59 +21,61 @@
 
 在“渲染互斥打包类型和类型字段”测试之后加入：
 
-~~~ts
-  it("keeps conditional configuration inside stable layout sections", () => {
-    expect(source).toMatch(
-      /\.project-basics-grid\s*\{[^}]*grid-template-columns:\s*minmax\(240px,\s*320px\)\s+minmax\(0,\s*1fr\);/su,
-    );
-    expect(source).not.toMatch(/\.project-basics-grid\s*\{[^}]*auto-fit/su);
+```ts
+it("keeps conditional configuration inside stable layout sections", () => {
+  expect(source).toMatch(
+    /\.project-basics-grid\s*\{[^}]*grid-template-columns:\s*minmax\(240px,\s*320px\)\s+minmax\(0,\s*1fr\);/su,
+  );
+  expect(source).not.toMatch(/\.project-basics-grid\s*\{[^}]*auto-fit/su);
 
-    expect(source).toContain('class="server-config-section server-auth-section"');
-    expect(source).toContain('class="server-auth-details"');
-    expect(source).toContain('class="private-key-config-grid"');
-    expect(source).toContain('class="server-config-section server-target-section"');
-    expect(source).toContain('class="server-target-grid"');
+  expect(source).toContain('class="server-config-section server-auth-section"');
+  expect(source).toContain('class="server-auth-details"');
+  expect(source).toContain('class="private-key-config-grid"');
+  expect(source).toContain('class="server-config-section server-target-section"');
+  expect(source).toContain('class="server-target-grid"');
 
-    const authDetailsStart = source.indexOf('class="server-auth-details"');
-    const targetSectionStart = source.indexOf('class="server-config-section server-target-section"');
-    expect(authDetailsStart).toBeGreaterThan(-1);
-    expect(targetSectionStart).toBeGreaterThan(authDetailsStart);
-    expect(source.slice(targetSectionStart)).toContain('label="前端远程目录"');
-    expect(source.slice(targetSectionStart)).toContain('label="后端远程文件"');
+  const authDetailsStart = source.indexOf('class="server-auth-details"');
+  const targetSectionStart = source.indexOf('class="server-config-section server-target-section"');
+  expect(authDetailsStart).toBeGreaterThan(-1);
+  expect(targetSectionStart).toBeGreaterThan(authDetailsStart);
+  expect(source.slice(targetSectionStart)).toContain('label="前端远程目录"');
+  expect(source.slice(targetSectionStart)).toContain('label="后端远程文件"');
 
-    expect(source).toMatch(
-      /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/su,
-    );
-    expect(source).toMatch(
-      /\.server-target-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
-    );
+  expect(source).toMatch(
+    /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/su,
+  );
+  expect(source).toMatch(
+    /\.server-target-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+  );
 
-    const tabletStyles = source.slice(source.indexOf("@media (max-width: 960px)"));
-    expect(tabletStyles).toMatch(
-      /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
-    );
-    const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
-    expect(mobileStyles).toMatch(/\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
-    expect(mobileStyles).toMatch(/\.server-target-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
-  });
-~~~
+  const tabletStyles = source.slice(source.indexOf("@media (max-width: 960px)"));
+  expect(tabletStyles).toMatch(
+    /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+  );
+  const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
+  expect(mobileStyles).toMatch(
+    /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su,
+  );
+  expect(mobileStyles).toMatch(/\.server-target-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
+});
+```
 
 - [ ] **Step 2: 确认 RED**
 
 运行：
 
-~~~powershell
+```powershell
 pnpm test -- apps/desktop/src/components/ReleasePackagePanel.test.ts
-~~~
+```
 
 预期：FAIL，原因是当前项目基础区仍使用 auto-fit，模板也没有新的认证/目标容器。若出现解析错误，先修正测试语法后重跑，不能跳过失败验证。
 
 - [ ] **Step 3: 提交测试变更**
 
-~~~powershell
+```powershell
 git add apps/desktop/src/components/ReleasePackagePanel.test.ts
 git commit -m "test(release-package): 锁定配置布局结构"
-~~~
+```
 
 ### Task 2: 将服务器字段分成固定认证区和远程目标区
 
@@ -86,7 +87,7 @@ git commit -m "test(release-package): 锁定配置布局结构"
 
 保留外层折叠面板，把当前扁平的 server-config-grid 替换为以下结构。下面的密码模式面板包含现有选择器、操作按钮、提示、失效状态和摘要的完整内容：
 
-~~~vue
+```vue
 <div class="server-config-body">
   <section class="server-config-section server-auth-section">
     <div class="server-config-section-heading">
@@ -187,24 +188,24 @@ git commit -m "test(release-package): 锁定配置布局结构"
     </div>
   </section>
 </div>
-~~~
+```
 
 删除旧的 server-config-span-2 类使用；不要保留重复的认证方式、服务器地址、用户名、私钥或远程目标节点。
 
 - [ ] **Step 2: 运行测试检查模板阶段**
 
-~~~powershell
+```powershell
 pnpm test -- apps/desktop/src/components/ReleasePackagePanel.test.ts
-~~~
+```
 
 预期：若仍失败，失败应集中在尚未替换的 CSS 轨道断言，不应出现 Vue 模板解析错误或字段重复。
 
 - [ ] **Step 3: 提交模板结构**
 
-~~~powershell
+```powershell
 git add apps/desktop/src/components/ReleasePackagePanel.vue
 git commit -m "fix(release-package): 拆分认证与远程目标布局"
-~~~
+```
 
 ### Task 3: 添加稳定列轨道和响应式样式
 
@@ -216,7 +217,7 @@ git commit -m "fix(release-package): 拆分认证与远程目标布局"
 
 使用以下规则，删除旧的 server-config-grid 和 server-config-span-2 规则；保留 Vault picker、摘要和认证按钮的既有规则：
 
-~~~css
+```css
 .project-basics-grid {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
@@ -228,65 +229,95 @@ git commit -m "fix(release-package): 拆分认证与远程目标布局"
   padding: 0 16px 2px;
   border-top: 1px solid #ebeef5;
 }
-.server-config-section { display: grid; gap: 10px; min-width: 0; }
+.server-config-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
 .server-config-section-heading {
   display: grid;
   gap: 2px;
   padding-top: 2px;
 }
-.server-config-section-heading strong { color: #303133; font-size: 13px; }
-.server-config-section-heading span { color: #606266; font-size: 12px; line-height: 1.45; }
-.server-auth-type-row { width: min(320px, 100%); }
+.server-config-section-heading strong {
+  color: #303133;
+  font-size: 13px;
+}
+.server-config-section-heading span {
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.server-auth-type-row {
+  width: min(320px, 100%);
+}
 .server-auth-details,
-.server-auth-details-panel { min-width: 0; }
+.server-auth-details-panel {
+  min-width: 0;
+}
 .private-key-config-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 12px;
 }
-.private-key-file-field { grid-column: 1 / -1; }
+.private-key-file-field {
+  grid-column: 1 / -1;
+}
 .server-target-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 12px;
 }
-~~~
+```
 
 - [ ] **Step 2: 按断点降级**
 
 在 960px 断点加入：
 
-~~~css
-  .private-key-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .server-target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-~~~
+```css
+.private-key-config-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.server-target-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+```
 
 在 640px 断点加入：
 
-~~~css
-  .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
-  .server-auth-type-row { width: 100%; }
-  .private-key-config-grid,
-  .server-target-grid { grid-template-columns: 1fr; }
-  .private-key-file-field { grid-column: auto; }
-~~~
+```css
+.project-basics-grid {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.server-auth-type-row {
+  width: 100%;
+}
+.private-key-config-grid,
+.server-target-grid {
+  grid-template-columns: 1fr;
+}
+.private-key-file-field {
+  grid-column: auto;
+}
+```
 
 删除旧 server-config-grid 和相关断点覆盖；保留 vault-credential-picker 的移动端换行规则。
 
 - [ ] **Step 3: 运行定向测试确认 GREEN**
 
-~~~powershell
+```powershell
 pnpm test -- apps/desktop/src/components/ReleasePackagePanel.test.ts
-~~~
+```
 
 预期：ReleasePackagePanel 测试全部通过，无 Vue 模板解析或 CSS 正则断言错误。
 
 - [ ] **Step 4: 提交样式变更**
 
-~~~powershell
+```powershell
 git add apps/desktop/src/components/ReleasePackagePanel.vue apps/desktop/src/components/ReleasePackagePanel.test.ts
 git commit -m "fix(release-package): 稳定配置区响应式列宽"
-~~~
+```
 
 ### Task 4: 完成全量验证和视觉冒烟
 
@@ -297,27 +328,27 @@ git commit -m "fix(release-package): 稳定配置区响应式列宽"
 
 - [ ] **Step 1: 运行前端类型检查**
 
-~~~powershell
+```powershell
 pnpm typecheck
-~~~
+```
 
 预期：exit code 0，无新增 TypeScript 错误。
 
 - [ ] **Step 2: 构建渲染层**
 
-~~~powershell
+```powershell
 pnpm --filter @lazycat/desktop build:web
-~~~
+```
 
 预期：exit code 0，Vue 模板和 CSS 编译成功。
 
 - [ ] **Step 3: 检查差异范围**
 
-~~~powershell
+```powershell
 git diff --check
 git status --short
 git diff --stat HEAD~2..HEAD
-~~~
+```
 
 预期：无空白错误；本次实现只涉及上线包组件及测试，不包含 IPC、Rust、数据库或无关文件。
 

@@ -13,9 +13,7 @@ const props = defineProps<{
 }>();
 
 const visibleHistory = computed(() =>
-  props.history
-    .filter((run) => run.id !== props.activeRun?.id)
-    .slice(0, 20),
+  props.history.filter((run) => run.id !== props.activeRun?.id).slice(0, 20),
 );
 
 function tagType(status: string): "success" | "warning" | "danger" | "info" {
@@ -47,7 +45,9 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
       </p>
       <ol class="run-step-results">
         <li v-for="step in activeRun.steps" :key="step.id">
-          <span class="run-step-results__label">{{ step.actionLabel }} · {{ step.targetLabel }}</span>
+          <span class="run-step-results__label"
+            >{{ step.actionLabel }} · {{ step.targetLabel }}</span
+          >
           <el-tag size="small" effect="plain" :type="tagType(step.status)">
             {{ combinationStepStatusLabel(step.status) }}
           </el-tag>
@@ -57,11 +57,7 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
     </section>
 
     <el-collapse v-if="visibleHistory.length" class="run-history__archive">
-      <el-collapse-item
-        v-for="run in visibleHistory"
-        :key="run.id"
-        :name="run.id"
-      >
+      <el-collapse-item v-for="run in visibleHistory" :key="run.id" :name="run.id">
         <template #title>
           <span class="run-history__archive-title">{{ run.createdAt }}</span>
           <el-tag size="small" effect="plain" :type="tagType(run.status)">
@@ -73,9 +69,12 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
         </p>
         <ol class="run-step-results">
           <li v-for="step in run.steps" :key="step.id">
-            <span class="run-step-results__label">{{ step.actionLabel }} · {{ step.targetLabel }}</span>
+            <span class="run-step-results__label"
+              >{{ step.actionLabel }} · {{ step.targetLabel }}</span
+            >
             <span class="run-step-results__message">
-              {{ combinationStepStatusLabel(step.status) }}{{ step.message ? ` · ${step.message}` : "" }}
+              {{ combinationStepStatusLabel(step.status)
+              }}{{ step.message ? ` · ${step.message}` : "" }}
             </span>
           </li>
         </ol>

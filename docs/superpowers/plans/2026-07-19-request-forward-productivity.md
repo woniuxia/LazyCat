@@ -32,6 +32,7 @@
 ### Task 1: 支持 HTTPS 下游并消除协议误导
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/Cargo.toml`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/http.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/validation.rs`
@@ -49,6 +50,7 @@
 ### Task 2: 增加配置预检、空闲端口建议和“检测并启动”
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/request_forward/preflight.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/mod.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -69,6 +71,7 @@
 ### Task 3: 增加监听端点快捷操作
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/requestForward.ts`
 - Modify: `apps/desktop/src/utils/requestForward.test.ts`
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
@@ -84,6 +87,7 @@
 ### Task 4: 增加复制规则
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/requestForward.ts`
 - Modify: `apps/desktop/src/utils/requestForward.test.ts`
 - Modify: `apps/desktop/src/components/request-forward/RequestForwardRuleList.vue`
@@ -98,6 +102,7 @@
 ### Task 5: 结构化运行错误与可执行恢复入口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/model.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/mod.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/runtime.rs`
@@ -115,6 +120,7 @@
 ### Task 6: 显式控制本次运行与自动恢复
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/mod.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -133,6 +139,7 @@
 ### Task 7: 改进批量范围与逐条结果
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/mod.rs`
 - Modify: `apps/desktop/src/types/request-forward.ts`
 - Modify: `apps/desktop/src/utils/requestForward.ts`
@@ -151,6 +158,7 @@
 ### Task 8: 完善实时日志调试
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/repository.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/request_forward/mod.rs`
 - Modify: `apps/desktop/src/types/request-forward.ts`

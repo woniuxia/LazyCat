@@ -35,6 +35,7 @@
 ### Task 1：冻结迁移输入并建立完整清单
 
 **Files:**
+
 - Modify: `docs/experience/README.md`
 - Read: `process.md`
 
@@ -66,8 +67,8 @@ $entries.Line
 在 `docs/experience/README.md` 中为每个标题建立一行：
 
 ```markdown
-| 原日期 | 原标题 | 处理 | 目标 | 依据 |
-|--------|--------|------|------|------|
+| 原日期     | 原标题                           | 处理 | 目标                     | 依据           |
+| ---------- | -------------------------------- | ---- | ------------------------ | -------------- |
 | 2026-07-21 | 上线包归档终态日志与目录快捷入口 | kept | `release-package.md#...` | 当前功能仍存在 |
 ```
 
@@ -80,6 +81,7 @@ $entries.Line
 ### Task 2：核验过期、冲突与演进链路
 
 **Files:**
+
 - Modify: `docs/experience/README.md`
 - Read: `package.json`
 - Read: `apps/desktop/src/**`
@@ -126,6 +128,7 @@ rg -n "capture|抓包|reminder center|提醒中心|release:win|release:all:win|p
 ### Task 3：创建领域经验文件并迁移有效内容
 
 **Files:**
+
 - Create: `docs/experience/*.md`
 - Modify: `docs/experience/README.md`
 - Read: `process.md`
@@ -164,9 +167,11 @@ rg -n "capture|抓包|reminder center|提醒中心|release:win|release:all:win|p
 **关键点**：...
 
 **涉及文件**：
+
 - `path`
 
 **验证**：
+
 - `command`
 
 **使用次数**：0
@@ -185,6 +190,7 @@ rg -n "capture|抓包|reminder center|提醒中心|release:win|release:all:win|p
 ### Task 4：将 `process.md` 改为总索引
 
 **Files:**
+
 - Modify: `process.md`
 - Read: `docs/experience/README.md`
 - Read: `docs/experience/*.md`
@@ -204,6 +210,7 @@ rg -n "capture|抓包|reminder center|提醒中心|release:win|release:all:win|p
 ### Task 5：精简并同步根规范
 
 **Files:**
+
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 - Read: `docs/experience/*.md`
@@ -217,10 +224,15 @@ rg -n "capture|抓包|reminder center|提醒中心|release:win|release:all:win|p
 # AGENTS.md
 
 ## 1. 核心规则
+
 ## 2. 项目速览
+
 ## 3. 开工闸门
+
 ## 4. 常用命令与打包决策
+
 ## 5. 经验索引
+
 ## 6. 验证与提交
 ```
 
@@ -243,6 +255,7 @@ PM、Todo、数据字典、富文本、Element Plus、离线手册、Windows 发
 ### Task 6：修复当前有效引用
 
 **Files:**
+
 - Modify if applicable: `docs/prompts/2026-07-17-access-path-diagnostics-planning-prompt.md`
 - Read: non-historical repository documentation
 
@@ -261,6 +274,7 @@ rg -n "process\.md|AGENTS\.md|CLAUDE\.md" --glob "!docs/superpowers/specs/**" --
 ### Task 7：执行完整验证
 
 **Files:**
+
 - Verify: `AGENTS.md`
 - Verify: `CLAUDE.md`
 - Verify: `process.md`

@@ -77,9 +77,7 @@ export interface QuickCommandDescriptor {
   id: QuickCommandId;
   name: string;
   description: string;
-  trigger:
-    | { type: "prefix"; value: string }
-    | { type: "keyword"; value: string };
+  trigger: { type: "prefix"; value: string } | { type: "keyword"; value: string };
   defaultEnabled: boolean;
 }
 
@@ -96,10 +94,7 @@ export interface ProviderDescriptor {
   hiddenInSettings?: boolean;
   quickCommands?: QuickCommandDescriptor[];
   prefetch: () => Promise<SpotlightItem[]>;
-  search?: (
-    query: string,
-    ctx: SpotlightSearchContext,
-  ) => Promise<SpotlightItem[]>;
+  search?: (query: string, ctx: SpotlightSearchContext) => Promise<SpotlightItem[]>;
   defaultAction: (
     item: SpotlightItem,
     ctx: SpotlightExecuteContext,
@@ -149,11 +144,7 @@ export interface SpotlightView {
 
 export type KeywordCommandKind = "open-tool" | "show-value" | "vault-tag" | "snippet-tag";
 
-export type KeywordValueProducerId =
-  | "local-ip"
-  | "uuid-v4"
-  | "timestamp-now"
-  | "hash-text";
+export type KeywordValueProducerId = "local-ip" | "uuid-v4" | "timestamp-now" | "hash-text";
 
 export interface KeywordCommandDescriptor {
   id: string;

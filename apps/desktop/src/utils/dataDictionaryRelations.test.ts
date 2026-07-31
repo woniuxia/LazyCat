@@ -51,9 +51,24 @@ const dictionaries: DataDictionarySummary[] = [
 describe("dataDictionaryRelations", () => {
   it("detects duplicate source field and target dictionary pairs", () => {
     const drafts: DataDictionaryRelationDraft[] = [
-      { sourceFieldPath: "deptId", targetDictionaryId: 2, relationName: "所属部门", reverseName: "部门人员" },
-      { sourceFieldPath: "deptId", targetDictionaryId: 2, relationName: "部门", reverseName: "人员" },
-      { sourceFieldPath: "positionId", targetDictionaryId: 2, relationName: "岗位", reverseName: "岗位人员" },
+      {
+        sourceFieldPath: "deptId",
+        targetDictionaryId: 2,
+        relationName: "所属部门",
+        reverseName: "部门人员",
+      },
+      {
+        sourceFieldPath: "deptId",
+        targetDictionaryId: 2,
+        relationName: "部门",
+        reverseName: "人员",
+      },
+      {
+        sourceFieldPath: "positionId",
+        targetDictionaryId: 2,
+        relationName: "岗位",
+        reverseName: "岗位人员",
+      },
     ];
 
     expect(duplicateRelationKeys(drafts)).toEqual(["deptId::2"]);

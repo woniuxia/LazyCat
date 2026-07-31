@@ -108,8 +108,7 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     const dir = e.shiftKey ? -1 : 1;
     if (props.actions.length === 0) return;
-    activeIndex.value =
-      (activeIndex.value + dir + props.actions.length) % props.actions.length;
+    activeIndex.value = (activeIndex.value + dir + props.actions.length) % props.actions.length;
     itemRefs.value[activeIndex.value]?.focus();
   }
 }

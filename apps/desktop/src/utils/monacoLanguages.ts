@@ -3,9 +3,36 @@ import { detectClipboardContent, type ClipboardContentType } from "./clipboard-d
 export const MAX_REFERENCE_CARD_TEXT_BYTES = 8 * 1024 * 1024;
 
 export const MONACO_LANGUAGE_OPTIONS = [
-  "javascript", "typescript", "python", "java", "go", "rust", "sql", "html", "css",
-  "json", "xml", "yaml", "bash", "shell", "markdown", "plaintext", "c", "cpp", "csharp",
-  "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml",
+  "javascript",
+  "typescript",
+  "python",
+  "java",
+  "go",
+  "rust",
+  "sql",
+  "html",
+  "css",
+  "json",
+  "xml",
+  "yaml",
+  "bash",
+  "shell",
+  "markdown",
+  "plaintext",
+  "c",
+  "cpp",
+  "csharp",
+  "php",
+  "ruby",
+  "swift",
+  "kotlin",
+  "scala",
+  "lua",
+  "r",
+  "dart",
+  "dockerfile",
+  "graphql",
+  "toml",
 ] as const;
 
 export type MonacoLanguage = (typeof MONACO_LANGUAGE_OPTIONS)[number];
@@ -59,7 +86,9 @@ export function detectClipboardMonacoLanguage(text: string): string {
   return (type && CLIPBOARD_LANGUAGE_MAP[type]) || "plaintext";
 }
 
-export function validateReferenceCardText(text: string): { ok: true } | { ok: false; message: string } {
+export function validateReferenceCardText(
+  text: string,
+): { ok: true } | { ok: false; message: string } {
   if (!text.trim()) return { ok: false, message: "剪贴板中没有可用文本" };
   if (new TextEncoder().encode(text).byteLength > MAX_REFERENCE_CARD_TEXT_BYTES) {
     return { ok: false, message: "参考文本不能超过 8 MiB" };

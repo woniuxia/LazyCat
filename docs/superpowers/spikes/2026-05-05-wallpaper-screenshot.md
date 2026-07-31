@@ -7,14 +7,14 @@
 
 ## 1. 候选方案对比
 
-| 方案 | 是否可行 | 主要限制 | 备注 |
-|------|---------|----------|------|
-| A. Tauri 内置截图 API | **不可行** | Tauri 2.10.3 没有原生 `Window.screenshot()` / `Webview.capture()`；社区 issue 仍在请求中 | 见 [tauri-apps/tauri#12879 capturePage](https://github.com/tauri-apps/tauri/issues/12879)、[wry#1358](https://github.com/tauri-apps/wry/issues/1358) |
-| B. `tauri-plugin-screenshots` (基于 `xcap`) | **不可行** | `xcap` 显式跳过最小化/隐藏窗口（"最小化的窗口不能截屏"）；要求窗口可见 | 见 [xcap docs](https://docs.rs/xcap/latest/xcap/struct.Window.html) |
-| C. `windows-capture` (WGC) | **不可行** | Windows.Graphics.Capture API 自身要求窗口被 DWM 合成；hidden/minimized 窗口返回黑帧 | 见 [windows-capture crates.io](https://crates.io/crates/windows-capture) |
-| D. `PrintWindow` + `PW_RENDERFULLCONTENT` 抓 hidden HWND | **部分可行** | WebView2 启用 occlusion 检测时，hidden 窗口不渲染 → 黑图。需关闭 occlusion + 把窗口放屏外（不是 hide） | 见 [WebView2Feedback#1485](https://github.com/MicrosoftEdge/WebView2Feedback/issues/1485)、[Mozilla Bug 1559011](https://bugzilla.mozilla.org/show_bug.cgi?id=1559011) |
+| 方案                                                        | 是否可行         | 主要限制                                                                                                              | 备注                                                                                                                                                                                                              |
+| ----------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Tauri 内置截图 API                                       | **不可行**       | Tauri 2.10.3 没有原生 `Window.screenshot()` / `Webview.capture()`；社区 issue 仍在请求中                              | 见 [tauri-apps/tauri#12879 capturePage](https://github.com/tauri-apps/tauri/issues/12879)、[wry#1358](https://github.com/tauri-apps/wry/issues/1358)                                                              |
+| B. `tauri-plugin-screenshots` (基于 `xcap`)                 | **不可行**       | `xcap` 显式跳过最小化/隐藏窗口（"最小化的窗口不能截屏"）；要求窗口可见                                                | 见 [xcap docs](https://docs.rs/xcap/latest/xcap/struct.Window.html)                                                                                                                                               |
+| C. `windows-capture` (WGC)                                  | **不可行**       | Windows.Graphics.Capture API 自身要求窗口被 DWM 合成；hidden/minimized 窗口返回黑帧                                   | 见 [windows-capture crates.io](https://crates.io/crates/windows-capture)                                                                                                                                          |
+| D. `PrintWindow` + `PW_RENDERFULLCONTENT` 抓 hidden HWND    | **部分可行**     | WebView2 启用 occlusion 检测时，hidden 窗口不渲染 → 黑图。需关闭 occlusion + 把窗口放屏外（不是 hide）                | 见 [WebView2Feedback#1485](https://github.com/MicrosoftEdge/WebView2Feedback/issues/1485)、[Mozilla Bug 1559011](https://bugzilla.mozilla.org/show_bug.cgi?id=1559011)                                            |
 | **E. `ICoreWebView2::CapturePreview`（WebView2 原生 API）** | **可行（首选）** | 仅捕捉 viewport 内容；窗口必须完成首次 `ContentLoading`；设计上 360×800 信息层正好等于 viewport，无 viewport 限制问题 | 见 [WebView2Feedback#733](https://github.com/MicrosoftEdge/WebView2Feedback/issues/733)、[Microsoft Learn ICoreWebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2) |
-| F. 兜底：放弃 HTML，回退 Rust 直接画 | 永远可行 | CSS 阴影/圆角/字体度量需手算；阶段 2/3 加新模块时改 Rust | `image` + `imageproc` + `rusttype` 都已成熟 |
+| F. 兜底：放弃 HTML，回退 Rust 直接画                        | 永远可行         | CSS 阴影/圆角/字体度量需手算；阶段 2/3 加新模块时改 Rust                                                              | `image` + `imageproc` + `rusttype` 都已成熟                                                                                                                                                                       |
 
 ## 2. 选定方案：E（CapturePreview）+ F（兜底）
 
@@ -80,21 +80,23 @@ window.with_webview(move |webview| {
 
 2026-05-05 已在主仓 dev command 中完成最小 PoC：Rust 侧通过 `WebviewWindow::with_webview()` 取得 WebView2 controller，调用 `ICoreWebView2::CapturePreview` 输出 PNG；前端用独立 `?view=wallpaper-poc-canvas` 挂载 360×800 仪表盘 mock，控制台入口为 `wallpaper-poc`。用户手动确认功能正常。
 
-| 编号 | 验证项 | 验收标准 | 结果 |
-|------|--------|----------|------|
-| P1 | hidden Tauri 窗口 + CapturePreview 是否输出非黑 PNG | 输出 PNG 与 visible 窗口截图像素 hash 接近 | 通过 |
-| P2 | 首次截图耗时 | < 500 ms（含 WebView2 冷启动） | 通过 |
-| P3 | 后续截图耗时 | < 200 ms | 通过 |
-| P4 | DPI 200% 下尺寸 | 720×1600 PNG 像素正确 | 通过 |
-| P5 | 在 Win10 22H2 + Win11 23H2/24H2 上行为一致 | 三套环境都能输出 | 通过 |
+| 编号 | 验证项                                              | 验收标准                                   | 结果 |
+| ---- | --------------------------------------------------- | ------------------------------------------ | ---- |
+| P1   | hidden Tauri 窗口 + CapturePreview 是否输出非黑 PNG | 输出 PNG 与 visible 窗口截图像素 hash 接近 | 通过 |
+| P2   | 首次截图耗时                                        | < 500 ms（含 WebView2 冷启动）             | 通过 |
+| P3   | 后续截图耗时                                        | < 200 ms                                   | 通过 |
+| P4   | DPI 200% 下尺寸                                     | 720×1600 PNG 像素正确                      | 通过 |
+| P5   | 在 Win10 22H2 + Win11 23H2/24H2 上行为一致          | 三套环境都能输出                           | 通过 |
 
 PoC 实现要点：
+
 - `webview2-com = "0.38"`，与 wry 0.54 间接依赖版本对齐，避免 `ICoreWebView2` 类型重复。
 - `windows = "0.61"` 需启用 `Win32_System_Com`、`Win32_System_Com_StructuredStorage`、`Win32_System_Memory`。
 - `CreateStreamOnHGlobal` 在 `windows 0.61` 下位于 `Win32::System::Com::StructuredStorage`。
 - `CapturePreview` 回调依赖 UI 线程消息泵；PoC 用 `PeekMessageW` / `DispatchMessageW` 在等待期间泵消息。
 
 如果后续实现中 P1 回归失败：
+
 - 备用 1：把窗口设为 visible 但屏外定位（`set_position(LogicalPosition::new(-9999, -9999))`），仍调 CapturePreview
 - 备用 2：触发 §7.2 的 F 方案回退
 
@@ -102,10 +104,10 @@ PoC 实现要点：
 
 基于 CapturePreview 输出 PNG 直接进入 `image` crate（无 GDI 中间层），更新 design §14.1 的预算：
 
-| 阶段 | 旧预算 | 新预算 | 理由 |
-|------|--------|--------|------|
+| 阶段            | 旧预算     | 新预算     | 理由                                         |
+| --------------- | ---------- | ---------- | -------------------------------------------- |
 | 首帧渲染 + 截图 | 200–400 ms | 250–450 ms | CapturePreview 同步等待 WebView2 内部 raster |
-| 后续渲染 + 截图 | 80–150 ms | 100–200 ms | 同上 |
+| 后续渲染 + 截图 | 80–150 ms  | 100–200 ms | 同上                                         |
 
 整体预算（首次 < 1500 ms / 后续 < 600 ms）不变。
 
@@ -128,6 +130,7 @@ PoC 实现要点：
 - [webview2-com crate](https://docs.rs/webview2-com/)
 
 Sources:
+
 - [Tauri capturePage feature request](https://github.com/tauri-apps/tauri/issues/12879)
 - [Microsoft Learn - ICoreWebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2)
 - [WebView2Feedback#733](https://github.com/MicrosoftEdge/WebView2Feedback/issues/733)

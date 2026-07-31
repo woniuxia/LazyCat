@@ -51,13 +51,8 @@ async function prefetchHosts(): Promise<SpotlightItem[]> {
       title: profile.name || "(未命名)",
       subtitle: comment || (enabled ? "当前启用" : "未启用"),
       badge: { short: "主", tone: "info" },
-      status: enabled
-        ? { text: "已启用", tone: "success" }
-        : { text: "未启用", tone: "muted" },
-      searchFields: [
-        makeField(profile.name, 1.2),
-        makeField(comment, 0.85),
-      ],
+      status: enabled ? { text: "已启用", tone: "success" } : { text: "未启用", tone: "muted" },
+      searchFields: [makeField(profile.name, 1.2), makeField(comment, 0.85)],
       ranking: { enabled },
       payload: { profileName: profile.name, content: profile.content, enabled },
     };

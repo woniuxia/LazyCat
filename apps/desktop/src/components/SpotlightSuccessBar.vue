@@ -17,7 +17,7 @@ defineProps<{
   align-items: center;
   gap: 10px;
   padding: 8px 16px;
-  background: rgba(34, 197, 94, 0.10);
+  background: rgba(34, 197, 94, 0.1);
   border-top: 1px solid rgba(34, 197, 94, 0.28);
   color: #15803d;
   font-size: 12px;

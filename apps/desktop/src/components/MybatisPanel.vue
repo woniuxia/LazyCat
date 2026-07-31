@@ -794,7 +794,9 @@ async function copyRenderedSql() {
   background: #fbfdff;
   font-family: var(--lc-font-mono);
   font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   font-size: 13px;
   line-height: 1.65;
   tab-size: 2;
@@ -839,10 +841,18 @@ async function copyRenderedSql() {
   background: var(--lc-surface-1);
 }
 
-.col-name { width: 29%; }
-.col-type { width: 25%; }
-.col-delete { width: 42px; }
-.delete-cell { text-align: center; }
+.col-name {
+  width: 29%;
+}
+.col-type {
+  width: 25%;
+}
+.col-delete {
+  width: 42px;
+}
+.delete-cell {
+  text-align: center;
+}
 
 .empty-hint {
   height: 120px !important;
@@ -917,7 +927,9 @@ async function copyRenderedSql() {
   color: var(--lc-text);
   font-family: var(--lc-font-mono);
   font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -927,7 +939,9 @@ async function copyRenderedSql() {
 .binding-value {
   font-family: var(--lc-font-mono);
   font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   color: var(--lc-text);
   word-break: break-all;
 }

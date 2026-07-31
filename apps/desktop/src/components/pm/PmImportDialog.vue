@@ -11,11 +11,7 @@
     <div class="import-section">
       <div class="import-section-title">Excel 文件</div>
       <div class="import-file-row">
-        <el-input
-          :model-value="fileName"
-          readonly
-          placeholder="选择 .xlsx / .xls 文件"
-        />
+        <el-input :model-value="fileName" readonly placeholder="选择 .xlsx / .xls 文件" />
         <el-button :disabled="importing" @click="pickFile">选择文件</el-button>
       </div>
     </div>
@@ -28,10 +24,18 @@
       </div>
 
       <div class="import-mapping-row">
-        <el-select v-model="templateId" placeholder="使用模板" clearable style="flex: 1" @change="applyTemplate">
+        <el-select
+          v-model="templateId"
+          placeholder="使用模板"
+          clearable
+          style="flex: 1"
+          @change="applyTemplate"
+        >
           <el-option v-for="t in templates" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
-        <el-button size="small" :disabled="!canSaveTemplate" @click="saveTemplate">保存模板</el-button>
+        <el-button size="small" :disabled="!canSaveTemplate" @click="saveTemplate"
+          >保存模板</el-button
+        >
         <el-button size="small" :disabled="!templateId" @click="deleteTemplate">删除</el-button>
       </div>
 
@@ -139,21 +143,18 @@
           <span v-if="result.projectsCreated">，新建项目 {{ result.projectsCreated }} 个</span>
           <span v-if="result.skippedDuplicate"> | 编号重复跳过 {{ result.skippedDuplicate }}</span>
           <span v-if="result.skippedFilter"> | 未匹配跳过 {{ result.skippedFilter }}</span>
-          <span v-if="result.skippedEmptyTitle"> | 标题为空跳过 {{ result.skippedEmptyTitle }}</span>
+          <span v-if="result.skippedEmptyTitle">
+            | 标题为空跳过 {{ result.skippedEmptyTitle }}</span
+          >
           <span v-if="result.skippedNoProject"> | 无项目跳过 {{ result.skippedNoProject }}</span>
         </template>
       </el-alert>
     </div>
 
     <template #footer>
-      <el-button @click="visible = false">{{ result ? '关闭' : '取消' }}</el-button>
-      <el-button
-        type="primary"
-        :loading="importing"
-        :disabled="!canImport"
-        @click="doImport"
-      >
-        {{ importing ? '导入中...' : '开始导入' }}
+      <el-button @click="visible = false">{{ result ? "关闭" : "取消" }}</el-button>
+      <el-button type="primary" :loading="importing" :disabled="!canImport" @click="doImport">
+        {{ importing ? "导入中..." : "开始导入" }}
       </el-button>
     </template>
   </el-dialog>
@@ -211,15 +212,10 @@ function persistTemplates() {
 }
 
 const canImport = computed(
-  () =>
-    filePath.value !== "" &&
-    mapping.value.title !== "" &&
-    !result.value,
+  () => filePath.value !== "" && mapping.value.title !== "" && !result.value,
 );
 
-const canSaveTemplate = computed(
-  () => mapping.value.title !== "" && headers.value.length > 0,
-);
+const canSaveTemplate = computed(() => mapping.value.title !== "" && headers.value.length > 0);
 
 function reset() {
   filePath.value = "";
@@ -245,10 +241,9 @@ async function pickFile() {
     fileName.value = path.split(/[\\/]/).pop() || path;
     result.value = null;
 
-    const preview = await invokeToolByChannel<PmImportPreview>(
-      "tool:pm:item-import-preview",
-      { filePath: path },
-    );
+    const preview = await invokeToolByChannel<PmImportPreview>("tool:pm:item-import-preview", {
+      filePath: path,
+    });
     headers.value = preview.headers;
     sampleRows.value = preview.sampleRows;
     mapping.value = { title: "" };
@@ -267,10 +262,10 @@ function addFilter() {
 
 function applyTemplate(id: string | null) {
   if (!id) return;
-  const tpl = templates.value.find(t => t.id === id);
+  const tpl = templates.value.find((t) => t.id === id);
   if (!tpl) return;
   mapping.value = { ...tpl.mapping };
-  filterRules.value = tpl.filters.map(f => ({ ...f }));
+  filterRules.value = tpl.filters.map((f) => ({ ...f }));
 }
 
 function saveTemplate() {
@@ -281,7 +276,7 @@ function saveTemplate() {
     id,
     name,
     mapping: { ...mapping.value },
-    filters: filterRules.value.map(f => ({ ...f })),
+    filters: filterRules.value.map((f) => ({ ...f })),
   };
   templates.value.push(tpl);
   templateId.value = id;
@@ -291,7 +286,7 @@ function saveTemplate() {
 
 function deleteTemplate() {
   if (!templateId.value) return;
-  templates.value = templates.value.filter(t => t.id !== templateId.value);
+  templates.value = templates.value.filter((t) => t.id !== templateId.value);
   templateId.value = null;
   persistTemplates();
   ElMessage.success("模板已删除");

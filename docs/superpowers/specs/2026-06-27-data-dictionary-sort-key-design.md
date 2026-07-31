@@ -218,11 +218,11 @@ ORDER BY
 
 ## 影响面
 
-| 文件 | 类型 | 说明 |
-|---|---|---|
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | 修改 | schema 增加 `data_dictionary_records.sort_key` |
-| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 修改 | 生成、重算、查询排序键 |
-| `process.md` | 可能修改 | 完成复杂任务后记录经验 |
+| 文件                                                  | 类型     | 说明                                           |
+| ----------------------------------------------------- | -------- | ---------------------------------------------- |
+| `apps/desktop/src-tauri/src/tools/helpers.rs`         | 修改     | schema 增加 `data_dictionary_records.sort_key` |
+| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 修改     | 生成、重算、查询排序键                         |
+| `process.md`                                          | 可能修改 | 完成复杂任务后记录经验                         |
 
 前端文件原则上不需要改动。
 

@@ -17,7 +17,7 @@
           @blur="validateKeyword"
         />
         <div v-if="keywordError" class="kw-editor-error">{{ keywordError }}</div>
-        <div v-else class="kw-editor-hint">触发输入:; {{ form.keyword || "<keyword>" }}</div>
+        <div v-else class="kw-editor-hint">触发输入:; {{ form.keyword || keywordPlaceholder }}</div>
       </el-form-item>
 
       <el-form-item label="显示名" required>
@@ -131,6 +131,7 @@ const emit = defineEmits<{
 
 const visible = ref(false);
 const keywordError = ref<string | null>(null);
+const keywordPlaceholder = "<keyword>";
 
 interface FormState {
   id: string;

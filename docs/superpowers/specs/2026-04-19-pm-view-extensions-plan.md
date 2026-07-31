@@ -7,12 +7,12 @@
 
 ## 总览
 
-| Phase | 目标 | 预估 | 关键依赖 |
-|-------|------|------|---------|
-| Phase 1 | 基础设施（视图注册、切换器、看板抽出、记忆） | 1-2 天 | 无 |
-| Phase 2 | 今日视图 + 列表视图 | 3-4 天 | Phase 1 |
-| Phase 3 | 日历视图 + 四象限视图 | 3-4 天 | Phase 1 |
-| Phase 4 | 响应式 / 性能 / 文档 | 1-2 天 | Phase 2+3 |
+| Phase   | 目标                                         | 预估   | 关键依赖  |
+| ------- | -------------------------------------------- | ------ | --------- |
+| Phase 1 | 基础设施（视图注册、切换器、看板抽出、记忆） | 1-2 天 | 无        |
+| Phase 2 | 今日视图 + 列表视图                          | 3-4 天 | Phase 1   |
+| Phase 3 | 日历视图 + 四象限视图                        | 3-4 天 | Phase 1   |
+| Phase 4 | 响应式 / 性能 / 文档                         | 1-2 天 | Phase 2+3 |
 
 **Phase 2 和 Phase 3 中的前端视图互不依赖，可并行实现。四个视图共享切换器基础设施。**
 
@@ -48,10 +48,10 @@
 **新增文件**：`apps/desktop/src/composables/pmViewRegistry.ts`
 
 ```typescript
-import type { AsyncComponent } from 'vue';
-import { defineAsyncComponent } from 'vue';
+import type { AsyncComponent } from "vue";
+import { defineAsyncComponent } from "vue";
 
-export type ViewId = 'kanban' | 'gantt' | 'today' | 'list' | 'calendar' | 'matrix';
+export type ViewId = "kanban" | "gantt" | "today" | "list" | "calendar" | "matrix";
 
 export interface ViewDefinition {
   id: ViewId;
@@ -61,16 +61,46 @@ export interface ViewDefinition {
 }
 
 export const PM_VIEWS: ViewDefinition[] = [
-  { id: 'kanban',   label: '看板',   icon: '▦', component: defineAsyncComponent(() => import('@/components/PmKanbanView.vue')) },
-  { id: 'gantt',    label: '甘特',   icon: '▤', component: defineAsyncComponent(() => import('@/components/PmGanttViewAdapter.vue')) },
-  { id: 'list',     label: '列表',   icon: '≡', component: defineAsyncComponent(() => import('@/components/PmListView.vue')) },
-  { id: 'calendar', label: '日历',   icon: '▥', component: defineAsyncComponent(() => import('@/components/PmCalendarView.vue')) },
-  { id: 'matrix',   label: '四象限', icon: '⊞', component: defineAsyncComponent(() => import('@/components/PmMatrixView.vue')) },
-  { id: 'today',    label: '今日',   icon: '◷', component: defineAsyncComponent(() => import('@/components/PmTodayView.vue')) },
+  {
+    id: "kanban",
+    label: "看板",
+    icon: "▦",
+    component: defineAsyncComponent(() => import("@/components/PmKanbanView.vue")),
+  },
+  {
+    id: "gantt",
+    label: "甘特",
+    icon: "▤",
+    component: defineAsyncComponent(() => import("@/components/PmGanttViewAdapter.vue")),
+  },
+  {
+    id: "list",
+    label: "列表",
+    icon: "≡",
+    component: defineAsyncComponent(() => import("@/components/PmListView.vue")),
+  },
+  {
+    id: "calendar",
+    label: "日历",
+    icon: "▥",
+    component: defineAsyncComponent(() => import("@/components/PmCalendarView.vue")),
+  },
+  {
+    id: "matrix",
+    label: "四象限",
+    icon: "⊞",
+    component: defineAsyncComponent(() => import("@/components/PmMatrixView.vue")),
+  },
+  {
+    id: "today",
+    label: "今日",
+    icon: "◷",
+    component: defineAsyncComponent(() => import("@/components/PmTodayView.vue")),
+  },
 ];
 
 export function getViewById(id: ViewId): ViewDefinition {
-  return PM_VIEWS.find(v => v.id === id) ?? PM_VIEWS[0];
+  return PM_VIEWS.find((v) => v.id === id) ?? PM_VIEWS[0];
 }
 ```
 
@@ -90,28 +120,32 @@ export const PM_VIEWS: ViewDefinition[] = [
 **新增文件**：`apps/desktop/src/composables/usePmViewMemory.ts`
 
 ```typescript
-import { ref, watch } from 'vue';
-import { invokeToolByChannel } from '@/bridge/tauri';
-import type { ViewId } from './pmViewRegistry';
+import { ref, watch } from "vue";
+import { invokeToolByChannel } from "@/bridge/tauri";
+import type { ViewId } from "./pmViewRegistry";
 
-type ContextId = number | 'overview';
+type ContextId = number | "overview";
 
 function settingsKey(ctx: ContextId): string {
-  return `pm:view:${ctx === 'overview' ? 'overview' : `project-${ctx}`}`;
+  return `pm:view:${ctx === "overview" ? "overview" : `project-${ctx}`}`;
 }
 
 function defaultView(ctx: ContextId): ViewId {
-  return ctx === 'overview' ? 'list' : 'kanban';
+  return ctx === "overview" ? "list" : "kanban";
 }
 
 export function usePmViewMemory(contextRef: Ref<ContextId | null>) {
-  const currentView = ref<ViewId>('kanban');
+  const currentView = ref<ViewId>("kanban");
 
-  watch(contextRef, async (ctx) => {
-    if (ctx === null) return;
-    const saved = await readSetting<ViewId>(settingsKey(ctx));
-    currentView.value = saved ?? defaultView(ctx);
-  }, { immediate: true });
+  watch(
+    contextRef,
+    async (ctx) => {
+      if (ctx === null) return;
+      const saved = await readSetting<ViewId>(settingsKey(ctx));
+      currentView.value = saved ?? defaultView(ctx);
+    },
+    { immediate: true },
+  );
 
   async function setView(viewId: ViewId) {
     const ctx = contextRef.value;
@@ -134,7 +168,7 @@ export function usePmViewMemory(contextRef: Ref<ContextId | null>) {
 
 ```typescript
 defineProps<{ modelValue: ViewId }>();
-defineEmits<{ 'update:modelValue': [ViewId] }>();
+defineEmits<{ "update:modelValue": [ViewId] }>();
 ```
 
 **模板结构**：
@@ -178,13 +212,13 @@ useResizeObserver(containerRef, (entries) => {
 defineProps<{
   items: PmItem[];
   projects: PmProject[];
-  selectedProjectId: number | 'overview' | null;
+  selectedProjectId: number | "overview" | null;
   // 现有看板需要的 props 全部列出，参考当前 PmPanel 中看板区域使用的变量
 }>();
 defineEmits<{
-  'item-click': [PmItem];
-  'item-status-change': [PmItem, string];
-  'create-item-in-column': [columnKey: string];
+  "item-click": [PmItem];
+  "item-status-change": [PmItem, string];
+  "create-item-in-column": [columnKey: string];
   // ... 等
 }>();
 ```
@@ -197,6 +231,7 @@ defineEmits<{
 - 相关样式块（搜索 `.kanban-column`, `.kanban-card`, `.kanban-board`）
 
 **PmPanel.vue 改动**：
+
 - 模板对应区域替换为 `<PmKanbanView v-if="viewId === 'kanban'" ... />`
 - 相关状态通过 props 传递
 
@@ -218,13 +253,13 @@ defineEmits<{
 
 **关键修改点**：
 
-| 位置 | 改动 |
-|------|------|
-| `PmPanel.vue:433` | `const viewMode = ref<"kanban" \| "gantt">("kanban")` → 删除，改用 `usePmViewMemory` |
-| `PmPanel.vue:95` 附近 | `<el-switch v-model="viewMode" ...>` → `<PmViewSwitcher v-model="viewId" />` |
-| `PmPanel.vue:157, 257, 262` | `viewMode === 'kanban'/'gantt'` → `viewId === 'kanban'/'gantt'` |
-| `PmPanel.vue:1077, 1152, 1160` | watch 依赖 `viewMode.value` → `viewId.value` |
-| 主内容区 | `v-if/v-else-if` 改为 `<component :is="currentView.component" v-bind="viewProps" @... />` |
+| 位置                           | 改动                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `PmPanel.vue:433`              | `const viewMode = ref<"kanban" \| "gantt">("kanban")` → 删除，改用 `usePmViewMemory`      |
+| `PmPanel.vue:95` 附近          | `<el-switch v-model="viewMode" ...>` → `<PmViewSwitcher v-model="viewId" />`              |
+| `PmPanel.vue:157, 257, 262`    | `viewMode === 'kanban'/'gantt'` → `viewId === 'kanban'/'gantt'`                           |
+| `PmPanel.vue:1077, 1152, 1160` | watch 依赖 `viewMode.value` → `viewId.value`                                              |
+| 主内容区                       | `v-if/v-else-if` 改为 `<component :is="currentView.component" v-bind="viewProps" @... />` |
 
 **向后兼容**：usePmViewMemory 首次读取时如果 key 不存在，fallback 查旧 key `pm:viewMode`（如曾用过），再 fallback 到默认。
 
@@ -332,7 +367,7 @@ CHANNEL_MAP: {
 
 ```typescript
 defineProps<{
-  selectedProjectId: number | 'overview' | null;
+  selectedProjectId: number | "overview" | null;
 }>();
 ```
 
@@ -342,8 +377,8 @@ defineProps<{
 const data = ref<TodayListResponse | null>(null);
 
 async function load() {
-  const projectId = props.selectedProjectId === 'overview' ? null : props.selectedProjectId;
-  data.value = await invokeToolByChannel('tool:pm:item_today_list', {
+  const projectId = props.selectedProjectId === "overview" ? null : props.selectedProjectId;
+  data.value = await invokeToolByChannel("tool:pm:item_today_list", {
     project_id: projectId,
     today_date: formatLocalDate(new Date()),
   });
@@ -359,6 +394,7 @@ watchEffect(load);
 - 任务卡片：复用与列表视图相同的卡片样式（建议抽到 `PmTaskMiniCard.vue` 共享，但可以 Phase 2 末尾再抽）
 
 **快捷操作**：
+
 - 「开始做」：调 `item_change_status`，status → 'doing' or 'testing'
 - 「推到明天」：调 `item_update`，end_at += 1 day
 - 「标记完成」：调 `item_change_status`，status → 'completed'
@@ -375,9 +411,9 @@ watchEffect(load);
 const todayBadgeCount = ref(0);
 
 watchEffect(async () => {
-  const projectId = selectedProjectId.value === 'overview' ? null : selectedProjectId.value;
-  if (projectId === null && selectedProjectId.value !== 'overview') return;
-  const counts = await invokeToolByChannel('tool:pm:item_today_counts', { project_id: projectId });
+  const projectId = selectedProjectId.value === "overview" ? null : selectedProjectId.value;
+  if (projectId === null && selectedProjectId.value !== "overview") return;
+  const counts = await invokeToolByChannel("tool:pm:item_today_counts", { project_id: projectId });
   todayBadgeCount.value = counts.overdue + counts.due_today + counts.in_progress;
 });
 ```
@@ -414,7 +450,7 @@ defineProps<{
   items: PmItem[];
   projects: PmProject[];
   tags: PmTag[];
-  selectedProjectId: number | 'overview' | null;
+  selectedProjectId: number | "overview" | null;
 }>();
 ```
 
@@ -422,21 +458,31 @@ defineProps<{
 
 ```typescript
 const selectedIds = ref<Set<number>>(new Set());
-const groupBy = ref<'none' | 'project' | 'status' | 'priority' | 'tag'>('none');
-const sortBy = ref<{ col: string; dir: 'asc' | 'desc' | null }>({ col: 'default', dir: null });
+const groupBy = ref<"none" | "project" | "status" | "priority" | "tag">("none");
+const sortBy = ref<{ col: string; dir: "asc" | "desc" | null }>({ col: "default", dir: null });
 const filters = ref<Record<string, unknown>>({});
-const visibleCols = ref<ColId[]>(['title', 'project', 'status', 'priority', 'end_at', 'tags', 'updated_at']);
+const visibleCols = ref<ColId[]>([
+  "title",
+  "project",
+  "status",
+  "priority",
+  "end_at",
+  "tags",
+  "updated_at",
+]);
 const expandedRows = ref<Set<number>>(new Set());
 ```
 
 **记忆**：`groupBy / visibleCols` 持久化到 `pm:view:list:*:<contextId>`。
 
 **行内编辑**：
+
 - 单元格点击 → 切换为编辑态（el-select / el-date-picker / el-input / el-cascader）
 - Enter 提交，Esc 取消
 - 提交 → 调 `item_update`，乐观更新
 
 **批量操作**：
+
 - 选中 ≥ 1 行 → 底部浮条出现
 - 「改状态」等按钮 → 弹出下拉，调 `item_batch_update`
 
@@ -452,8 +498,8 @@ const expandedRows = ref<Set<number>>(new Set());
 **新增文件**（可选，可选择内联在 PmPanel）：`apps/desktop/src/composables/pmDetailKey.ts`
 
 ```typescript
-import type { InjectionKey, Ref } from 'vue';
-import type { PmItem } from '@/types';
+import type { InjectionKey, Ref } from "vue";
+import type { PmItem } from "@/types";
 
 export interface PmDetailController {
   show: (item: PmItem) => void;
@@ -461,15 +507,19 @@ export interface PmDetailController {
   current: Ref<PmItem | null>;
 }
 
-export const PM_DETAIL_KEY: InjectionKey<PmDetailController> = Symbol('pm-detail');
+export const PM_DETAIL_KEY: InjectionKey<PmDetailController> = Symbol("pm-detail");
 ```
 
 PmPanel.vue 提供：
 
 ```typescript
 provide(PM_DETAIL_KEY, {
-  show: (item) => { selectedItemId.value = item.id; },
-  hide: () => { selectedItemId.value = null; },
+  show: (item) => {
+    selectedItemId.value = item.id;
+  },
+  hide: () => {
+    selectedItemId.value = null;
+  },
   current: computed(() => selectedItem.value),
 });
 ```
@@ -503,6 +553,7 @@ fn item_calendar_range(payload: &Value) -> Result<Value, String>;
 ```
 
 SQL：
+
 ```sql
 SELECT * FROM pm_items
 WHERE (project_id = ?1 OR ?1 IS NULL)
@@ -535,15 +586,15 @@ function buildCalendarGrid(year: number, month: number): CalendarCell[] {
   // 生成 5-6 周 cells
 }
 
-function classifyTaskColor(item: PmItem, colorBy: 'project' | 'priority' | 'status'): string {
+function classifyTaskColor(item: PmItem, colorBy: "project" | "priority" | "status"): string {
   // 返回 CSS class
 }
 
 function computeOverflow(tasks: PmItem[]): { visible: PmItem[]; overflow: string } {
-  if (tasks.length <= 4) return { visible: tasks, overflow: '' };
+  if (tasks.length <= 4) return { visible: tasks, overflow: "" };
   const visible = tasks.slice(0, 3);
-  const hiddenProjects = [...new Set(tasks.slice(3).map(t => projectName(t.project_id)))];
-  const label = hiddenProjects.slice(0, 2).join('、');
+  const hiddenProjects = [...new Set(tasks.slice(3).map((t) => projectName(t.project_id)))];
+  const label = hiddenProjects.slice(0, 2).join("、");
   return { visible, overflow: `${label} 等项目还有 ${tasks.length - 3} 条` };
 }
 ```
@@ -565,6 +616,7 @@ fn item_matrix_bucket(payload: &Value) -> Result<Value, String>;
 ```
 
 分类：
+
 ```rust
 fn classify(item: &Item, urgent_threshold: u32, today: NaiveDate) -> Quadrant {
   let important = matches!(item.priority.as_str(), "P0" | "P1");
@@ -601,6 +653,7 @@ fn classify(item: &Item, urgent_threshold: u32, today: NaiveDate) -> Quadrant {
 **不支持拖拽**：仅 `cursor: pointer`，点击卡片 → 快速预览 Popover → 「详情」。
 
 **顶栏设置持久化**：
+
 - `pm:view:matrix:urgentThreshold` (数字)
 - `pm:view:matrix:hideCompleted` (bool)
 
@@ -695,14 +748,14 @@ Phase 4 (打磨)
 
 ## 风险与缓解（实施层面）
 
-| 风险 | 缓解 |
-|------|------|
-| 看板从 PmPanel 抽出后 props 爆炸 | 先列出所有用到的变量（~20 个），能通过 inject 拿到的（如 pmTodoLinking）不走 props |
-| 视图组件里各自重新实现 detail 触发 | Phase 2 早期就定义 `PM_DETAIL_KEY`，所有视图统一用 inject |
-| 列表视图行内编辑与详情面板同步 | 所有改动走同一条 `item_update` 路径，事件总线广播 `item-updated` 刷新各视图 |
-| 日历拖拽误操作 | 必须有确认 dialog，不静默改日期 |
-| 索引未建导致跨项目查询卡顿 | Phase 2 开始前先建好所有索引，避免后期返工 |
-| 向后兼容旧 viewMode 设置 | usePmViewMemory 首次读取时 fallback 旧 key，一次性迁移到新 key |
+| 风险                               | 缓解                                                                               |
+| ---------------------------------- | ---------------------------------------------------------------------------------- |
+| 看板从 PmPanel 抽出后 props 爆炸   | 先列出所有用到的变量（~20 个），能通过 inject 拿到的（如 pmTodoLinking）不走 props |
+| 视图组件里各自重新实现 detail 触发 | Phase 2 早期就定义 `PM_DETAIL_KEY`，所有视图统一用 inject                          |
+| 列表视图行内编辑与详情面板同步     | 所有改动走同一条 `item_update` 路径，事件总线广播 `item-updated` 刷新各视图        |
+| 日历拖拽误操作                     | 必须有确认 dialog，不静默改日期                                                    |
+| 索引未建导致跨项目查询卡顿         | Phase 2 开始前先建好所有索引，避免后期返工                                         |
+| 向后兼容旧 viewMode 设置           | usePmViewMemory 首次读取时 fallback 旧 key，一次性迁移到新 key                     |
 
 ---
 

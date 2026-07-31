@@ -21,11 +21,9 @@
       <button type="button" class="quick-add-chip" :class="{ 'is-set': dateChoice !== null }">
         <el-icon><Calendar /></el-icon>
         <span>{{ dateLabel }}</span>
-        <el-icon
-          v-if="dateChoice !== null"
-          class="chip-clear"
-          @click.stop="clearDate"
-        ><Close /></el-icon>
+        <el-icon v-if="dateChoice !== null" class="chip-clear" @click.stop="clearDate"
+          ><Close
+        /></el-icon>
       </button>
       <template #dropdown>
         <el-dropdown-menu>
@@ -50,18 +48,24 @@
       <button
         type="button"
         class="quick-add-chip"
-        :class="['is-priority-' + effectivePriority.toLowerCase(), { 'is-set': priorityOverride !== null }]"
+        :class="[
+          'is-priority-' + effectivePriority.toLowerCase(),
+          { 'is-set': priorityOverride !== null },
+        ]"
       >
         <span>{{ effectivePriority }}</span>
         <el-icon
           v-if="priorityOverride !== null"
           class="chip-clear"
           @click.stop="priorityOverride = null"
-        ><Close /></el-icon>
+          ><Close
+        /></el-icon>
       </button>
       <template #dropdown>
         <el-dropdown-menu>
-          <el-dropdown-item v-for="p in PRIORITY_OPTIONS" :key="p" :command="p">{{ p }}</el-dropdown-item>
+          <el-dropdown-item v-for="p in PRIORITY_OPTIONS" :key="p" :command="p">{{
+            p
+          }}</el-dropdown-item>
           <el-dropdown-item command="clear" divided>清除</el-dropdown-item>
         </el-dropdown-menu>
       </template>

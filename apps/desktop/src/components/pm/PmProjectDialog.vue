@@ -38,7 +38,9 @@
             }}
           </div>
           <div v-if="form.useSiyuanOverride" class="pm-siyuan-inline-actions">
-            <el-button size="small" @click="siyuan.openLocationPicker('project')">选择位置</el-button>
+            <el-button size="small" @click="siyuan.openLocationPicker('project')"
+              >选择位置</el-button
+            >
             <el-button size="small" @click="siyuan.clearProjectSiyuanOverride()">清空</el-button>
           </div>
         </div>
@@ -46,12 +48,9 @@
     </el-form>
     <template #footer>
       <el-button :disabled="submitting" @click="handleCancel">取消</el-button>
-      <el-button
-        type="primary"
-        :loading="submitting"
-        :disabled="submitting"
-        @click="submit"
-      >确定</el-button>
+      <el-button type="primary" :loading="submitting" :disabled="submitting" @click="submit"
+        >确定</el-button
+      >
     </template>
   </el-dialog>
 </template>
@@ -97,9 +96,18 @@ const lifecycle = useRichDescriptionLifecycle({
 });
 
 const presetColors = [
-  "#0ea5e9", "#67c23a", "#e6a23c", "#f56c6c",
-  "#909399", "#409eff", "#19be6b", "#ff9900",
-  "#ed4014", "#2b85e4", "#5cad2f", "#ff6900",
+  "#0ea5e9",
+  "#67c23a",
+  "#e6a23c",
+  "#f56c6c",
+  "#909399",
+  "#409eff",
+  "#19be6b",
+  "#ff9900",
+  "#ed4014",
+  "#2b85e4",
+  "#5cad2f",
+  "#ff6900",
 ];
 
 const form = ref<ProjectForm>(createEmptyForm());
@@ -135,9 +143,7 @@ function showEdit(p: PmProject) {
   };
   submittedThisRound.value = false;
   dialogVisible.value = true;
-  queueMicrotask(() =>
-    editorRef.value && (editorRef.value as any).reset?.(p.description ?? "")
-  );
+  queueMicrotask(() => editorRef.value && (editorRef.value as any).reset?.(p.description ?? ""));
 }
 
 function resetForm() {
@@ -164,15 +170,11 @@ function isDirty(): boolean {
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!isDirty()) return true;
   try {
-    await ElMessageBox.confirm(
-      "有未保存的修改，确定关闭？已编辑的内容将丢失。",
-      "未保存的修改",
-      {
-        confirmButtonText: "放弃修改",
-        cancelButtonText: "继续编辑",
-        type: "warning",
-      },
-    );
+    await ElMessageBox.confirm("有未保存的修改，确定关闭？已编辑的内容将丢失。", "未保存的修改", {
+      confirmButtonText: "放弃修改",
+      cancelButtonText: "继续编辑",
+      type: "warning",
+    });
     return true;
   } catch {
     return false;
@@ -276,9 +278,13 @@ async function restoreProject(p: PmProject) {
 
 async function deleteProject(p: PmProject) {
   try {
-    await ElMessageBox.confirm(`确定删除项目「${p.name}」？此操作会同时删除所有工作项。`, "删除确认", {
-      type: "warning",
-    });
+    await ElMessageBox.confirm(
+      `确定删除项目「${p.name}」？此操作会同时删除所有工作项。`,
+      "删除确认",
+      {
+        type: "warning",
+      },
+    );
     await invoke("tool:pm:project-delete", { id: p.id });
     emit("projects-changed", { deletedProjectId: p.id } as any);
   } catch (e) {
@@ -291,20 +297,25 @@ async function deleteProject(p: PmProject) {
 defineExpose({
   showCreate,
   showEdit,
-  handleContext(event: MouseEvent, p: PmProject, openCtxMenu: (event: MouseEvent, actions: any[]) => void) {
-    const actions = p.status === "active"
-      ? [
-          { label: "编辑", action: () => showEdit(p) },
-          { label: "归档", action: () => archiveProject(p) },
-          { divider: true, label: "", action: () => {} },
-          { label: "删除", action: () => deleteProject(p), danger: true },
-        ]
-      : [
-          { label: "编辑", action: () => showEdit(p) },
-          { label: "恢复", action: () => restoreProject(p) },
-          { divider: true, label: "", action: () => {} },
-          { label: "删除", action: () => deleteProject(p), danger: true },
-        ];
+  handleContext(
+    event: MouseEvent,
+    p: PmProject,
+    openCtxMenu: (event: MouseEvent, actions: any[]) => void,
+  ) {
+    const actions =
+      p.status === "active"
+        ? [
+            { label: "编辑", action: () => showEdit(p) },
+            { label: "归档", action: () => archiveProject(p) },
+            { divider: true, label: "", action: () => {} },
+            { label: "删除", action: () => deleteProject(p), danger: true },
+          ]
+        : [
+            { label: "编辑", action: () => showEdit(p) },
+            { label: "恢复", action: () => restoreProject(p) },
+            { divider: true, label: "", action: () => {} },
+            { label: "删除", action: () => deleteProject(p), danger: true },
+          ];
     openCtxMenu(event, actions);
   },
   getSiyuanOverride: () => form.value.siyuanLocationOverride,

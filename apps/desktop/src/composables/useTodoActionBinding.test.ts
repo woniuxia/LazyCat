@@ -58,12 +58,14 @@ describe("useTodoActionBinding", () => {
 
   it("keeps an unconfigured release environment unavailable with its reason", async () => {
     invokeMock.mockResolvedValueOnce({
-      targets: [{
-        id: "41",
-        label: "客户门户 · 测试环境",
-        available: false,
-        unavailableReason: "环境配置不完整",
-      }],
+      targets: [
+        {
+          id: "41",
+          label: "客户门户 · 测试环境",
+          available: false,
+          unavailableReason: "环境配置不完整",
+        },
+      ],
     });
     const draft = createDraft();
     const binding = useTodoActionBinding(draft);
@@ -71,12 +73,14 @@ describe("useTodoActionBinding", () => {
     await binding.onActionTypeChange("release_package.run");
     draft.actionTargetId = "41";
 
-    expect(binding.actionTargets.value).toEqual([{
-      id: "41",
-      label: "客户门户 · 测试环境",
-      available: false,
-      unavailableReason: "环境配置不完整",
-    }]);
+    expect(binding.actionTargets.value).toEqual([
+      {
+        id: "41",
+        label: "客户门户 · 测试环境",
+        available: false,
+        unavailableReason: "环境配置不完整",
+      },
+    ]);
     expect(binding.isAvailableTarget("release_package.run", "41")).toBe(false);
   });
 

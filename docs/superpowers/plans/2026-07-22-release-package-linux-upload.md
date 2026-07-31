@@ -34,6 +34,7 @@
 ### Task 1: 验证 ssh2 在 Windows Tauri 构建中可用
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/Cargo.toml`
 - Modify: `apps/desktop/src-tauri/Cargo.lock`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
@@ -103,6 +104,7 @@ git commit -m "chore(release-package): 接入 ssh2 依赖"
 ### Task 2: 扩展上传项目配置与数据库迁移
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src/types/release-package.ts`
@@ -310,6 +312,7 @@ git commit -m "feat(release-package): 保存服务器上传配置"
 ### Task 3: 实现主机探测、指纹信任与远程路径校验
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -425,6 +428,7 @@ git commit -m "feat(release-package): 校验 SSH 主机指纹"
 ### Task 4: 实现认证、真实预检与一次性凭据
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -556,6 +560,7 @@ git commit -m "feat(release-package): 增加 SSH 认证预检"
 ### Task 5: 建立可验证的部署清单和 ZIP 重试源
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
@@ -647,6 +652,7 @@ git commit -m "feat(release-package): 生成部署产物清单"
 ### Task 6: 实现 SFTP 递归上传和远端完整替换事务
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 
@@ -752,6 +758,7 @@ git commit -m "feat(release-package): 实现 SFTP 安全部署事务"
 ### Task 7: 将上传、重试和取消接入现有运行时
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/global_notification.rs`
@@ -852,6 +859,7 @@ git commit -m "feat(release-package): 串联打包与服务器上传"
 ### Task 8: 扩展前端契约、运行态和预检编排
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.test.ts`
@@ -868,15 +876,29 @@ git commit -m "feat(release-package): 串联打包与服务器上传"
 runtime.beginStart(7, ["frontend", "backend"]);
 runtime.bindStartedRun("run-1", 7);
 emit("release-package://log", {
-  runId: "run-1", projectId: 7, phase: "upload", stream: "system",
-  line: "上传中", uploadedBytes: 50, totalBytes: 100, currentPath: "assets/app.js",
+  runId: "run-1",
+  projectId: 7,
+  phase: "upload",
+  stream: "system",
+  line: "上传中",
+  uploadedBytes: 50,
+  totalBytes: 100,
+  currentPath: "assets/app.js",
 });
 emit("release-package://status", {
-  runId: "run-1", projectId: 7, phase: "overall",
-  status: "package_succeeded_upload_failed", archivePath: "D:\\release\\portal",
-  retryToken: "retry-1", error: "服务器上传失败",
+  runId: "run-1",
+  projectId: 7,
+  phase: "overall",
+  status: "package_succeeded_upload_failed",
+  archivePath: "D:\\release\\portal",
+  retryToken: "retry-1",
+  error: "服务器上传失败",
 });
-expect(runtime.getProjectRuntime(7).uploadProgress).toEqual({ uploadedBytes: 50, totalBytes: 100, currentPath: "assets/app.js" });
+expect(runtime.getProjectRuntime(7).uploadProgress).toEqual({
+  uploadedBytes: 50,
+  totalBytes: 100,
+  currentPath: "assets/app.js",
+});
 expect(runtime.getProjectRuntime(7).retryToken).toBe("retry-1");
 expect(runtime.isRunning.value).toBe(false);
 ```
@@ -955,6 +977,7 @@ git commit -m "feat(release-package): 管理上传预检与运行状态"
 ### Task 9: 完成服务器配置、启动预检和上传日志 UI
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 
@@ -965,15 +988,23 @@ git commit -m "feat(release-package): 管理上传预检与运行状态"
 ```ts
 it("configures upload separately and preflights before runtime start", () => {
   for (const model of [
-    "draft.uploadEnabled", "draft.sshHost", "draft.sshPort", "draft.sshUsername",
-    "draft.sshAuthType", "draft.sshPrivateKeyPath", "draft.frontendRemoteDir",
+    "draft.uploadEnabled",
+    "draft.sshHost",
+    "draft.sshPort",
+    "draft.sshUsername",
+    "draft.sshAuthType",
+    "draft.sshPrivateKeyPath",
+    "draft.frontendRemoteDir",
     "draft.backendRemotePath",
-  ]) expect(source).toContain(`v-model="${model}"`);
+  ])
+    expect(source).toContain(`v-model="${model}"`);
   expect(source).toContain("useReleasePackageUploadPreflight");
   expect(source).toContain("tool:release-package:upload-retry");
-  expect(source.indexOf("await uploadPreflight.check")).toBeLessThan(source.indexOf("runtime.beginStart"));
+  expect(source.indexOf("await uploadPreflight.check")).toBeLessThan(
+    source.indexOf("runtime.beginStart"),
+  );
   expect(source).toContain('type="password"');
-  expect(source).toContain("credentialSecret.value = \"\"");
+  expect(source).toContain('credentialSecret.value = ""');
   expect(source).not.toContain("draft.password");
 });
 
@@ -1052,6 +1083,7 @@ git commit -m "feat(release-package): 增加服务器上传工作流"
 ### Task 10: 更新通知、经验并完成真实协议验证
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/global-notification.ts`
 - Modify: `apps/desktop/src/utils/globalNotification.ts`
 - Modify: `apps/desktop/src/utils/globalNotification.test.ts`

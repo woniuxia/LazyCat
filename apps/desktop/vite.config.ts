@@ -15,12 +15,15 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "frappe-gantt/dist/frappe-gantt.css": resolve(__dirname, "node_modules/frappe-gantt/dist/frappe-gantt.css"),
+      "frappe-gantt/dist/frappe-gantt.css": resolve(
+        __dirname,
+        "node_modules/frappe-gantt/dist/frappe-gantt.css",
+      ),
     },
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
   },
   build: {
     outDir: "dist-renderer",
@@ -35,5 +38,5 @@ export default defineConfig({
         },
       },
     },
-  }
+  },
 });

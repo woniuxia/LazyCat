@@ -13,6 +13,7 @@
 ### Task 1: Browser Profile Change Event Wrapper
 
 **Files:**
+
 - Create: `apps/desktop/src/spotlight/browser-profiles-events.ts`
 - Create: `apps/desktop/src/spotlight/browser-profiles-events.test.ts`
 
@@ -61,10 +62,7 @@ describe("browser profile change events", () => {
 
     const got = await listenBrowserProfilesChanged(handler);
 
-    expect(listen).toHaveBeenCalledWith(
-      BROWSER_PROFILES_CHANGED_EVENT,
-      expect.any(Function),
-    );
+    expect(listen).toHaveBeenCalledWith(BROWSER_PROFILES_CHANGED_EVENT, expect.any(Function));
     expect(handler).toHaveBeenCalledWith({ reason: "hidden" });
     expect(got).toBe(unlisten);
   });
@@ -84,11 +82,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export const BROWSER_PROFILES_CHANGED_EVENT = "browser-profiles-changed";
 
-export type BrowserProfilesChangedReason =
-  | "alias"
-  | "hidden"
-  | "edge-path"
-  | "launch";
+export type BrowserProfilesChangedReason = "alias" | "hidden" | "edge-path" | "launch";
 
 export interface BrowserProfilesChangedPayload {
   reason: BrowserProfilesChangedReason;
@@ -130,6 +124,7 @@ git commit -m "feat(spotlight): 添加浏览器身份变更事件"
 ### Task 2: Browser Profiles Spotlight Cache Guard
 
 **Files:**
+
 - Create: `apps/desktop/src/spotlight/browser-profiles-refresh.ts`
 - Create: `apps/desktop/src/spotlight/browser-profiles-refresh.test.ts`
 
@@ -215,16 +210,12 @@ export function createBrowserProfilesRefreshGuard(): BrowserProfilesRefreshGuard
   return { writeVersion: 0 };
 }
 
-export function beginBrowserProfilesLocalRefresh(
-  guard: BrowserProfilesRefreshGuard,
-): number {
+export function beginBrowserProfilesLocalRefresh(guard: BrowserProfilesRefreshGuard): number {
   guard.writeVersion += 1;
   return guard.writeVersion;
 }
 
-export function captureBrowserProfilesPrefetchVersion(
-  guard: BrowserProfilesRefreshGuard,
-): number {
+export function captureBrowserProfilesPrefetchVersion(guard: BrowserProfilesRefreshGuard): number {
   return guard.writeVersion;
 }
 
@@ -263,6 +254,7 @@ git commit -m "test(spotlight): 覆盖浏览器身份缓存刷新守卫"
 ### Task 3: Notify Successful Browser Profile Mutations
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/BrowserProfilesPanel.vue`
 - Modify: `apps/desktop/src/spotlight/providers/browser-profiles.ts`
 - Modify: `apps/desktop/src/spotlight/providers/browser-profiles.test.ts`
@@ -277,8 +269,7 @@ Add near the existing mocks:
 const notifyBrowserProfilesChanged = vi.fn();
 
 vi.mock("../browser-profiles-events", () => ({
-  notifyBrowserProfilesChanged: (...args: unknown[]) =>
-    notifyBrowserProfilesChanged(...args),
+  notifyBrowserProfilesChanged: (...args: unknown[]) => notifyBrowserProfilesChanged(...args),
 }));
 ```
 
@@ -400,6 +391,7 @@ git commit -m "feat(browser-profiles): 通知 Spotlight 刷新身份缓存"
 ### Task 4: Listen And Refresh Browser Profiles In Spotlight
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/SpotlightPanel.vue`
 - Test: `apps/desktop/src/spotlight/browser-profiles-refresh.test.ts`
 
@@ -573,6 +565,7 @@ git commit -m "feat(spotlight): 局部刷新浏览器身份结果"
 ### Task 5: Full Frontend Verification
 
 **Files:**
+
 - No code changes expected.
 
 **Step 1: Run the browser profile and Spotlight tests**
@@ -626,6 +619,7 @@ If no fixes are needed, do not create an empty commit.
 ### Task 6: Record Process Note If Implementation Touches 3+ Files
 
 **Files:**
+
 - Modify: `process.md`
 
 **Step 1: Add a short process note**
@@ -640,11 +634,13 @@ Suggested entry:
 **场景**: 浏览器身份别名保存后，Spotlight 驻留窗口仍显示旧别名。
 
 **经验**:
+
 1. provider item 的搜索字段正确，不代表 Spotlight 驻留缓存会自动更新；跨窗口状态变更要有显式事件。
 2. 局部刷新和全量 `prefetchAll()` 共享同一 provider 缓存时，要用统一版本号防止旧全量请求回写。
 3. 会更新排序权重的默认动作也要触发刷新，否则从 Spotlight 启动后的使用统计不会反映到空输入结果。
 
 **相关文件**:
+
 - `apps/desktop/src/spotlight/browser-profiles-events.ts`
 - `apps/desktop/src/spotlight/browser-profiles-refresh.ts`
 - `apps/desktop/src/components/SpotlightPanel.vue`

@@ -10,10 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }));
 
-import {
-  actionCenterProvider,
-  buildActionCombinationSpotlightItem,
-} from "./action-center";
+import { actionCenterProvider, buildActionCombinationSpotlightItem } from "./action-center";
 
 beforeEach(() => {
   invoke.mockReset();
@@ -40,22 +37,21 @@ describe("actionCenterProvider", () => {
 
   it("prefetches saved combinations", async () => {
     invokeToolByChannel.mockResolvedValue({
-      combinations: [{
-        id: 7,
-        name: "开发环境",
-        executionMode: "parallel",
-        stepCount: 3,
-        latestRunStatus: "succeeded",
-        updatedAt: "2026-07-30T10:00:00+08:00",
-      }],
+      combinations: [
+        {
+          id: 7,
+          name: "开发环境",
+          executionMode: "parallel",
+          stepCount: 3,
+          latestRunStatus: "succeeded",
+          updatedAt: "2026-07-30T10:00:00+08:00",
+        },
+      ],
     });
 
     const items = await actionCenterProvider.prefetch();
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:action-center:combination-list",
-      {},
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:action-center:combination-list", {});
     expect(items[0].subtitle).toBe("并行 · 3 个步骤");
   });
 
@@ -70,10 +66,10 @@ describe("actionCenterProvider", () => {
 
     const result = await actionCenterProvider.defaultAction(item, {} as never);
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:action-center:combination-run",
-      { combinationId: 7, notifyOnCompletion: true },
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:action-center:combination-run", {
+      combinationId: 7,
+      notifyOnCompletion: true,
+    });
     expect(result).toEqual({
       closeSpotlight: true,
       toast: { message: "已开始运行 开发环境", type: "success" },
@@ -112,12 +108,17 @@ describe("actionCenterProvider", () => {
     await expect(actionCenterProvider.defaultAction(item, {} as never)).resolves.toEqual({
       errorMessage: "已有组合动作正在运行",
     });
-    await expect(actionCenterProvider.defaultAction({
-      providerId: "action-center",
-      itemId: "bad",
-      title: "bad",
-      searchFields: [],
-      payload: {},
-    }, {} as never)).resolves.toEqual({ errorMessage: "动作组合数据无效" });
+    await expect(
+      actionCenterProvider.defaultAction(
+        {
+          providerId: "action-center",
+          itemId: "bad",
+          title: "bad",
+          searchFields: [],
+          payload: {},
+        },
+        {} as never,
+      ),
+    ).resolves.toEqual({ errorMessage: "动作组合数据无效" });
   });
 });

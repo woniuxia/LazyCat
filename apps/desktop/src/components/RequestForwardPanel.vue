@@ -138,10 +138,7 @@ const defaultLogTimeRange = getDefaultRequestForwardLogTimeRange();
 const logStartedAt = ref(defaultLogTimeRange[0]);
 const logEndedAt = ref(defaultLogTimeRange[1]);
 const logTimeRange = computed<[string, string] | []>({
-  get: () =>
-    logStartedAt.value && logEndedAt.value
-      ? [logStartedAt.value, logEndedAt.value]
-      : [],
+  get: () => (logStartedAt.value && logEndedAt.value ? [logStartedAt.value, logEndedAt.value] : []),
   set: (value) => {
     logStartedAt.value = value[0] ?? "";
     logEndedAt.value = value[1] ?? "";
@@ -201,7 +198,8 @@ const selectedSuggestedListenPort = computed(() => {
   if (
     selectedRuntimeError.value?.code !== "listener_in_use" ||
     recoveryPreflightRuleId.value !== selectedId.value
-  ) return null;
+  )
+    return null;
   return recoveryPreflightResult.value?.suggestedListenPort ?? null;
 });
 const selectedRecoveryActions = computed(() =>
@@ -219,7 +217,8 @@ const editorStatus = computed<RequestForwardRuntimeStatus | null>(
   () => statuses.value.find((status) => status.ruleId === editorRuleId.value) ?? null,
 );
 const readonly = computed(
-  () => Boolean(editorRule.value) &&
+  () =>
+    Boolean(editorRule.value) &&
     isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped"),
 );
 const interactionBusy = computed(
@@ -249,10 +248,7 @@ const hasLogFilters = computed(
     Boolean(logEndedAt.value),
 );
 const ruleListWidth = computed(() =>
-  clampRequestForwardRuleListWidth(
-    preferredRuleListWidth.value,
-    workspaceWidth.value,
-  ),
+  clampRequestForwardRuleListWidth(preferredRuleListWidth.value, workspaceWidth.value),
 );
 const ruleListMaximum = computed(() =>
   clampRequestForwardRuleListWidth(Number.MAX_SAFE_INTEGER, workspaceWidth.value),
@@ -261,16 +257,10 @@ const inspectorAvailableWidth = computed(() =>
   Math.max(0, workspaceWidth.value - ruleListWidth.value - RESIZER_WIDTH),
 );
 const inspectorWidth = computed(() =>
-  clampRequestForwardInspectorWidth(
-    preferredInspectorWidth.value,
-    inspectorAvailableWidth.value,
-  ),
+  clampRequestForwardInspectorWidth(preferredInspectorWidth.value, inspectorAvailableWidth.value),
 );
 const inspectorMaximum = computed(() =>
-  Math.max(
-    MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
-    Math.floor(inspectorAvailableWidth.value * 0.5),
-  ),
+  Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.floor(inspectorAvailableWidth.value * 0.5)),
 );
 const workspaceStyle = computed(() => ({
   "--request-forward-rule-list-width": `${ruleListWidth.value}px`,
@@ -315,9 +305,10 @@ function copyListenEndpoint() {
 function copyTargetEndpoint() {
   const rule = selectedRule.value;
   if (!rule) return;
-  const target = rule.protocol === "http"
-    ? rule.targetUrl?.trim() ?? ""
-    : formatRequestForwardEndpoint(rule.targetHost, rule.targetPort);
+  const target =
+    rule.protocol === "http"
+      ? (rule.targetUrl?.trim() ?? "")
+      : formatRequestForwardEndpoint(rule.targetHost, rule.targetPort);
   void copyEndpointValue(target, "目标地址");
 }
 
@@ -425,10 +416,7 @@ function queryLogs(
     offset,
     limit,
   });
-  return invoke<RequestForwardLogPage>(
-    "tool:request-forward:log-list",
-    { ...payload },
-  );
+  return invoke<RequestForwardLogPage>("tool:request-forward:log-list", { ...payload });
 }
 
 function resetObservabilityState() {
@@ -449,10 +437,7 @@ function resetObservabilityState() {
   pendingLogRefresh = null;
 }
 
-async function loadStats(
-  ruleId = selectedId.value,
-  intentToken = selectionIntentToken,
-) {
+async function loadStats(ruleId = selectedId.value, intentToken = selectionIntentToken) {
   if (ruleId == null || observabilityMutating.value) return;
   const requestToken = ++statsRequestToken;
   statsLoading.value = true;
@@ -463,7 +448,8 @@ async function loadStats(
       requestToken !== statsRequestToken ||
       selectionIntentToken !== intentToken ||
       selectedId.value !== ruleId
-    ) return;
+    )
+      return;
     stats.value = result.item;
   } catch (error) {
     if (requestToken === statsRequestToken && selectedId.value === ruleId) {
@@ -500,10 +486,7 @@ async function loadLogs(
     logItems.value = append
       ? [...logItems.value, ...result.items.filter((item) => !knownIds.has(item.id))]
       : result.items;
-    selectedLogId.value = retainRequestForwardSelectedLogId(
-      selectedLogId.value,
-      logItems.value,
-    );
+    selectedLogId.value = retainRequestForwardSelectedLogId(selectedLogId.value, logItems.value);
     logTotal.value = result.total;
     logRefreshError.value = "";
   } catch (error) {
@@ -520,13 +503,8 @@ async function loadLogs(
   }
 }
 
-async function refreshLogsInBackground(
-  context = captureLogQueryContext(),
-): Promise<void> {
-  if (
-    !context ||
-    !isLogQueryContextCurrent(context)
-  ) return;
+async function refreshLogsInBackground(context = captureLogQueryContext()): Promise<void> {
+  if (!context || !isLogQueryContextCurrent(context)) return;
   if (!logLive.value) return;
   if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) {
     pendingLogRefresh = context;
@@ -539,11 +517,7 @@ async function refreshLogsInBackground(
   const previousTotal = logTotal.value;
   logInFlight = true;
   try {
-    const probe = await queryLogs(
-      context,
-      0,
-      getRequestForwardLogProbeLimit(loadedCount),
-    );
+    const probe = await queryLogs(context, 0, getRequestForwardLogProbeLimit(loadedCount));
     if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
 
     const targetCount = getRequestForwardLogTargetCount({
@@ -551,16 +525,14 @@ async function refreshLogsInBackground(
       previousTotal,
       nextTotal: probe.total,
     });
-    const page = probe.items.length >= targetCount
-      ? { ...probe, items: probe.items.slice(0, targetCount) }
-      : await queryLogs(context, 0, targetCount);
+    const page =
+      probe.items.length >= targetCount
+        ? { ...probe, items: probe.items.slice(0, targetCount) }
+        : await queryLogs(context, 0, targetCount);
     if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
 
     logItems.value = page.items;
-    selectedLogId.value = retainRequestForwardSelectedLogId(
-      selectedLogId.value,
-      logItems.value,
-    );
+    selectedLogId.value = retainRequestForwardSelectedLogId(selectedLogId.value, logItems.value);
     logTotal.value = page.total;
     logRefreshError.value = "";
   } catch (error) {
@@ -576,9 +548,7 @@ async function refreshLogsInBackground(
 function flushPendingLogRefresh() {
   const pending = pendingLogRefresh;
   if (!pending) return;
-  if (
-    !isLogQueryContextCurrent(pending)
-  ) {
+  if (!isLogQueryContextCurrent(pending)) {
     pendingLogRefresh = null;
     return;
   }
@@ -619,10 +589,10 @@ async function setLogLive(live: boolean) {
   refreshRequestToken += 1;
   logCaptureUpdating.value = true;
   try {
-    const result = await invoke<StatusEnvelope>(
-      "tool:request-forward:log-capture-update",
-      { id: ruleId, enabled: live },
-    );
+    const result = await invoke<StatusEnvelope>("tool:request-forward:log-capture-update", {
+      id: ruleId,
+      enabled: live,
+    });
     if (selectionIntentToken !== intentToken || selectedId.value !== ruleId) return;
     statuses.value = upsertStatus(statuses.value, result.item);
     logRequestToken += 1;
@@ -699,10 +669,7 @@ async function exportRuleBundle(ids: number[], scopeLabel: string) {
       filters: [{ name: "LazyCat 请求转发规则包", extensions: ["json"] }],
     });
     if (!path) return;
-    const result = await invoke<RuleBundleEnvelope>(
-      "tool:request-forward:bundle-export",
-      { ids },
-    );
+    const result = await invoke<RuleBundleEnvelope>("tool:request-forward:bundle-export", { ids });
     await invoke("tool:file:write-text", {
       path,
       content: serializeRequestForwardRuleBundle(result.bundle),
@@ -735,10 +702,9 @@ async function importRuleBundle() {
     } catch {
       return;
     }
-    const result = await invoke<RuleBundleImportEnvelope>(
-      "tool:request-forward:bundle-import",
-      { bundle },
-    );
+    const result = await invoke<RuleBundleImportEnvelope>("tool:request-forward:bundle-import", {
+      bundle,
+    });
     await refreshRules({ showLoading: false });
     const firstImported = result.items[0];
     if (firstImported) {
@@ -754,10 +720,7 @@ async function importRuleBundle() {
 }
 
 function persistRuleListWidth() {
-  setSetting(
-    RULE_LIST_WIDTH_SETTING,
-    String(Math.round(preferredRuleListWidth.value)),
-  );
+  setSetting(RULE_LIST_WIDTH_SETTING, String(Math.round(preferredRuleListWidth.value)));
 }
 
 function handleRuleListPointerMove(event: PointerEvent) {
@@ -801,10 +764,7 @@ function adjustRuleListWidth(delta: number) {
 }
 
 function persistInspectorWidth() {
-  setSetting(
-    INSPECTOR_WIDTH_SETTING,
-    String(Math.round(preferredInspectorWidth.value)),
-  );
+  setSetting(INSPECTOR_WIDTH_SETTING, String(Math.round(preferredInspectorWidth.value)));
 }
 
 function handleInspectorPointerMove(event: PointerEvent) {
@@ -851,10 +811,7 @@ function reloadCurrentObservability() {
   const intentToken = selectionIntentToken;
   const ruleId = selectedId.value;
   if (ruleId == null || selectedRule.value?.id !== ruleId) return;
-  void Promise.all([
-    loadStats(ruleId, intentToken),
-    loadLogs(false, ruleId, intentToken),
-  ]);
+  void Promise.all([loadStats(ruleId, intentToken), loadLogs(false, ruleId, intentToken)]);
 }
 
 async function refreshRules(options: { showLoading?: boolean } = {}) {
@@ -885,7 +842,7 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
     if (selectionIntentToken !== intentToken) return;
     const retained = rules.value.some((rule) => rule.id === selectedId.value);
     const removedSelectedRule = selectedId.value != null && !retained;
-    selectedId.value = retained ? selectedId.value : rules.value[0]?.id ?? null;
+    selectedId.value = retained ? selectedId.value : (rules.value[0]?.id ?? null);
     if (removedSelectedRule) {
       ElMessage.warning("当前查看的规则已被删除，已切换到可用规则");
     }
@@ -963,15 +920,11 @@ async function requestEditorClose() {
   if (interactionBusy.value) return;
   if (formDirty.value) {
     try {
-      await ElMessageBox.confirm(
-        "关闭后将丢失未保存的修改。",
-        "未保存的修改",
-        {
-          type: "warning",
-          confirmButtonText: "放弃修改",
-          cancelButtonText: "继续编辑",
-        },
-      );
+      await ElMessageBox.confirm("关闭后将丢失未保存的修改。", "未保存的修改", {
+        type: "warning",
+        confirmButtonText: "放弃修改",
+        cancelButtonText: "继续编辑",
+      });
     } catch {
       return;
     }
@@ -993,7 +946,8 @@ function applySuggestedListenPort(port: number) {
     !Number.isInteger(port) ||
     port < 1 ||
     port > 65535
-  ) return;
+  )
+    return;
   form.value = { ...form.value, listenPort: port };
   formDirty.value = true;
   invalidatePreflight();
@@ -1032,7 +986,8 @@ async function checkSelectedTarget() {
       requestToken !== recoveryPreflightRequestToken ||
       intentToken !== selectionIntentToken ||
       selectedId.value !== ruleId
-    ) return;
+    )
+      return;
     recoveryPreflightResult.value = result;
     recoveryPreflightRuleId.value = ruleId;
     if (result.ready) ElMessage.success("目标检测通过");
@@ -1065,7 +1020,10 @@ function validateForm(): boolean {
   };
   const invalidFields = validateRequestForwardRuleForm(form.value);
   fieldErrors.value = Object.fromEntries(
-    invalidFields.map((field) => [field, labels[field as keyof RequestForwardRuleForm] ?? "字段无效"]),
+    invalidFields.map((field) => [
+      field,
+      labels[field as keyof RequestForwardRuleForm] ?? "字段无效",
+    ]),
   );
   if (invalidFields.length) {
     ElMessage.error("请修正表单中的错误后再继续");
@@ -1132,16 +1090,12 @@ async function saveRule(): Promise<RequestForwardRule | null> {
 
 async function chooseStartIntent(): Promise<boolean | null> {
   try {
-    await ElMessageBox.confirm(
-      "请选择本次启动是否加入应用启动时的自动恢复。",
-      "启动方式",
-      {
-        type: "info",
-        confirmButtonText: "启动并自动恢复",
-        cancelButtonText: "仅本次启动",
-        distinguishCancelAndClose: true,
-      },
-    );
+    await ElMessageBox.confirm("请选择本次启动是否加入应用启动时的自动恢复。", "启动方式", {
+      type: "info",
+      confirmButtonText: "启动并自动恢复",
+      cancelButtonText: "仅本次启动",
+      distinguishCancelAndClose: true,
+    });
     return true;
   } catch (reason) {
     return reason === "cancel" ? false : null;
@@ -1151,7 +1105,7 @@ async function chooseStartIntent(): Promise<boolean | null> {
 async function saveAndStart(autoStart?: boolean) {
   const saved = await saveRule();
   if (!saved) return;
-  const intent = autoStart ?? await chooseStartIntent();
+  const intent = autoStart ?? (await chooseStartIntent());
   if (intent == null) return;
   try {
     await startRule(saved.id, false, intent);
@@ -1264,11 +1218,11 @@ async function runBatch(operation: "start" | "stop", ids: number[], scopeLabel: 
   if (!ids.length || interactionBusy.value) return;
   if (operation === "stop") {
     try {
-      await ElMessageBox.confirm(
-        `将停止${scopeLabel}，是否继续？`,
-        "确认批量停止",
-        { type: "warning", confirmButtonText: "停止", cancelButtonText: "取消" },
-      );
+      await ElMessageBox.confirm(`将停止${scopeLabel}，是否继续？`, "确认批量停止", {
+        type: "warning",
+        confirmButtonText: "停止",
+        cancelButtonText: "取消",
+      });
     } catch {
       return;
     }
@@ -1290,7 +1244,9 @@ async function runBatch(operation: "start" | "stop", ids: number[], scopeLabel: 
     await refreshRules();
     batchDialogVisible.value = true;
   } catch (error) {
-    ElMessage.error(`${operation === "start" ? "全部启动" : "全部停止"}失败：${errorMessage(error)}`);
+    ElMessage.error(
+      `${operation === "start" ? "全部启动" : "全部停止"}失败：${errorMessage(error)}`,
+    );
   } finally {
     operating.value = false;
   }
@@ -1331,11 +1287,11 @@ async function deleteRule(id: number) {
     return;
   }
   try {
-    await ElMessageBox.confirm(
-      `确定删除规则“${rule.name}”吗？删除后无法恢复。`,
-      "删除转发规则",
-      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
-    );
+    await ElMessageBox.confirm(`确定删除规则“${rule.name}”吗？删除后无法恢复。`, "删除转发规则", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
   } catch {
     return;
   }
@@ -1494,10 +1450,7 @@ watch(selectedId, (ruleId) => {
     void Promise.all([loadStats(ruleId), loadLogs(false, ruleId)]);
   }
 });
-watch(
-  [logKeyword, logMode, logMethod, logStatusCode, logStartedAt, logEndedAt],
-  scheduleLogReload,
-);
+watch([logKeyword, logMode, logMethod, logStatusCode, logStartedAt, logEndedAt], scheduleLogReload);
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
 onMounted(() => {
   const savedRuleListWidth = Number(getSetting(RULE_LIST_WIDTH_SETTING));
@@ -1585,14 +1538,19 @@ onUnmounted(() => {
               <span>{{ stateCopy }}</span>
               <small v-if="selectedRule.autoStart && !selectedRuntimeError">随应用启动</small>
               <div
-                v-if="selectedRule.autoStart && selectedState !== 'starting' && selectedState !== 'stopping'"
+                v-if="
+                  selectedRule.autoStart &&
+                  selectedState !== 'starting' &&
+                  selectedState !== 'stopping'
+                "
                 class="runtime-state__actions"
               >
                 <el-button
                   size="small"
                   :disabled="interactionBusy"
                   @click="stopAndCancelAutoStart(selectedRule.id)"
-                >停止并取消自动恢复</el-button>
+                  >停止并取消自动恢复</el-button
+                >
               </div>
               <template v-if="selectedRuntimeError">
                 <small>{{ getRequestForwardErrorSummary(selectedRuntimeError.code) }}</small>
@@ -1602,25 +1560,29 @@ onUnmounted(() => {
                     size="small"
                     :disabled="interactionBusy"
                     @click="restartSelectedRule"
-                  >重新启动</el-button>
+                    >重新启动</el-button
+                  >
                   <el-button
                     v-if="selectedRecoveryActions.includes('edit')"
                     size="small"
                     :disabled="interactionBusy"
                     @click="editSelectedRule"
-                  >编辑规则</el-button>
+                    >编辑规则</el-button
+                  >
                   <el-button
                     v-if="selectedRecoveryActions.includes('check_target')"
                     size="small"
                     :disabled="interactionBusy"
                     @click="checkSelectedTarget"
-                  >检测目标</el-button>
+                    >检测目标</el-button
+                  >
                   <el-button
                     v-if="selectedRecoveryActions.includes('use_suggested_port')"
                     size="small"
                     :disabled="interactionBusy"
                     @click="useSelectedSuggestedPort"
-                  >使用建议端口</el-button>
+                    >使用建议端口</el-button
+                  >
                 </div>
                 <div
                   v-if="recoveryPreflightResult && recoveryPreflightRuleId === selectedRule.id"
@@ -1633,15 +1595,26 @@ onUnmounted(() => {
                       v-for="check in recoveryPreflightResult.checks"
                       :key="check.kind"
                       :class="`is-${check.state}`"
-                    >{{ check.message }}</li>
+                    >
+                      {{ check.message }}
+                    </li>
                   </ul>
                 </div>
                 <details class="runtime-state__details">
                   <summary>查看技术详情</summary>
                   <dl>
-                    <div><dt>错误码</dt><dd>{{ selectedRuntimeError.code }}</dd></div>
-                    <div><dt>状态</dt><dd>{{ selectedRuntimeError.state }}</dd></div>
-                    <div><dt>原始信息</dt><dd>{{ selectedRuntimeError.message }}</dd></div>
+                    <div>
+                      <dt>错误码</dt>
+                      <dd>{{ selectedRuntimeError.code }}</dd>
+                    </div>
+                    <div>
+                      <dt>状态</dt>
+                      <dd>{{ selectedRuntimeError.state }}</dd>
+                    </div>
+                    <div>
+                      <dt>原始信息</dt>
+                      <dd>{{ selectedRuntimeError.message }}</dd>
+                    </div>
                   </dl>
                 </details>
               </template>
@@ -1657,225 +1630,239 @@ onUnmounted(() => {
         </header>
 
         <div class="workbench-pane">
-              <div class="workbench-scroll">
-                <section class="observability" aria-labelledby="observability-title">
+          <div class="workbench-scroll">
+            <section class="observability" aria-labelledby="observability-title">
+              <div
+                v-if="selectedStatus?.lastObservabilityError"
+                class="observability-warning"
+                role="status"
+              >
+                <strong>观测数据暂不可用</strong>
+                <span>{{ selectedStatus.lastObservabilityError }}</span>
+              </div>
+
+              <header class="section-header">
+                <div>
+                  <p class="section-header__eyebrow">OBSERVABILITY</p>
+                  <h2 id="observability-title">转发统计</h2>
+                </div>
+                <el-button
+                  size="small"
+                  :disabled="statsLoading || observabilityMutating"
+                  :loading="observabilityMutating"
+                  @click="resetStats"
+                >
+                  重置统计
+                </el-button>
+              </header>
+
+              <div v-if="statsError" class="stats-error" role="alert">
+                <span>{{ statsError }}</span>
+                <el-button size="small" @click="loadStats()">重新加载</el-button>
+              </div>
+              <div v-else class="stats-grid" :aria-busy="statsLoading">
+                <article class="stat-card">
+                  <span>{{ eventLabel }}</span>
+                  <strong>{{ stats?.eventCount ?? (statsLoading ? "…" : 0) }}</strong>
+                </article>
+                <article class="stat-card">
+                  <span>上传</span>
+                  <strong>{{
+                    stats ? formatBytes(stats.uploadBytes) : statsLoading ? "…" : "0 B"
+                  }}</strong>
+                </article>
+                <article class="stat-card">
+                  <span>下载</span>
+                  <strong>{{
+                    stats ? formatBytes(stats.downloadBytes) : statsLoading ? "…" : "0 B"
+                  }}</strong>
+                </article>
+                <article class="stat-card is-error">
+                  <span>错误数</span>
+                  <strong>{{ stats?.errorCount ?? (statsLoading ? "…" : 0) }}</strong>
+                </article>
+              </div>
+
+              <header class="section-header log-header">
+                <div>
+                  <p class="section-header__eyebrow">RECENT ACTIVITY</p>
+                  <h2>转发日志</h2>
+                </div>
+                <div class="log-header__actions">
                   <div
-                    v-if="selectedStatus?.lastObservabilityError"
-                    class="observability-warning"
-                    role="status"
+                    class="log-live-mode"
+                    aria-label="日志实时采集状态"
+                    :aria-busy="logCaptureUpdating"
                   >
-                    <strong>观测数据暂不可用</strong>
-                    <span>{{ selectedStatus.lastObservabilityError }}</span>
-                  </div>
-
-                  <header class="section-header">
-                    <div>
-                      <p class="section-header__eyebrow">OBSERVABILITY</p>
-                      <h2 id="observability-title">转发统计</h2>
-                    </div>
-                    <el-button
-                      size="small"
-                      :disabled="statsLoading || observabilityMutating"
-                      :loading="observabilityMutating"
-                      @click="resetStats"
-                    >
-                      重置统计
-                    </el-button>
-                  </header>
-
-                  <div v-if="statsError" class="stats-error" role="alert">
-                    <span>{{ statsError }}</span>
-                    <el-button size="small" @click="loadStats()">重新加载</el-button>
-                  </div>
-                  <div v-else class="stats-grid" :aria-busy="statsLoading">
-                    <article class="stat-card">
-                      <span>{{ eventLabel }}</span>
-                      <strong>{{ stats?.eventCount ?? (statsLoading ? "…" : 0) }}</strong>
-                    </article>
-                    <article class="stat-card">
-                      <span>上传</span>
-                      <strong>{{ stats ? formatBytes(stats.uploadBytes) : statsLoading ? "…" : "0 B" }}</strong>
-                    </article>
-                    <article class="stat-card">
-                      <span>下载</span>
-                      <strong>{{ stats ? formatBytes(stats.downloadBytes) : statsLoading ? "…" : "0 B" }}</strong>
-                    </article>
-                    <article class="stat-card is-error">
-                      <span>错误数</span>
-                      <strong>{{ stats?.errorCount ?? (statsLoading ? "…" : 0) }}</strong>
-                    </article>
-                  </div>
-
-                  <header class="section-header log-header">
-                    <div>
-                      <p class="section-header__eyebrow">RECENT ACTIVITY</p>
-                      <h2>转发日志</h2>
-                    </div>
-                    <div class="log-header__actions">
-                      <div
-                        class="log-live-mode"
-                        aria-label="日志实时采集状态"
-                        :aria-busy="logCaptureUpdating"
-                      >
-                        <button
-                          type="button"
-                          :aria-pressed="logLive"
-                          :class="{ 'is-active': logLive }"
-                          :disabled="selectedState !== 'running' || logCaptureUpdating"
-                          @click="setLogLive(true)"
-                        >实时采集</button>
-                        <button
-                          type="button"
-                          :aria-pressed="!logLive"
-                          :class="{ 'is-active': !logLive }"
-                          :disabled="selectedState !== 'running' || logCaptureUpdating"
-                          @click="setLogLive(false)"
-                        >暂停</button>
-                      </div>
-                      <el-dropdown
-                        trigger="click"
-                        :disabled="!selectedRule || exportLoading"
-                        @command="exportLogs"
-                      >
-                        <el-button size="small" :loading="exportLoading">导出</el-button>
-                        <template #dropdown>
-                          <el-dropdown-menu>
-                            <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
-                            <el-dropdown-item command="csv">导出 CSV</el-dropdown-item>
-                          </el-dropdown-menu>
-                        </template>
-                      </el-dropdown>
-                      <el-button
-                        size="small"
-                        :disabled="!selectedRule || logsLoading || observabilityMutating"
-                        :loading="observabilityMutating"
-                        @click="clearLogs"
-                      >
-                        清空全部日志
-                      </el-button>
-                    </div>
-                  </header>
-
-                  <div class="log-toolbar">
-                    <label class="log-search">
-                      <span>关键字</span>
-                      <el-input
-                        v-model="logKeyword"
-                        clearable
-                        placeholder="客户端、目标、路径或错误信息"
-                      />
-                    </label>
-                    <label class="log-filter">
-                      <span>Method</span>
-                      <el-select v-model="logMethod" clearable placeholder="全部">
-                        <el-option
-                          v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']"
-                          :key="method"
-                          :label="method"
-                          :value="method"
-                        />
-                      </el-select>
-                    </label>
-                    <label class="log-filter is-status">
-                      <span>状态码</span>
-                      <el-input-number
-                        v-model="logStatusCode"
-                        :min="100"
-                        :max="599"
-                        :step="1"
-                        controls-position="right"
-                        clearable
-                        placeholder="全部"
-                      />
-                    </label>
-                    <div class="log-mode" aria-label="日志结果筛选">
-                      <button
-                        type="button"
-                        aria-label="全部"
-                        :aria-pressed="logMode === 'all'"
-                        :class="{ 'is-active': logMode === 'all' }"
-                        @click="logMode = 'all'"
-                      >全部</button>
-                      <button
-                        type="button"
-                        aria-label="成功"
-                        :aria-pressed="logMode === 'success'"
-                        :class="{ 'is-active': logMode === 'success' }"
-                        @click="logMode = 'success'"
-                      >成功</button>
-                      <button
-                        type="button"
-                        aria-label="失败"
-                        :aria-pressed="logMode === 'error'"
-                        :class="{ 'is-active': logMode === 'error' }"
-                        @click="logMode = 'error'"
-                      >失败</button>
-                    </div>
-                    <el-button
-                      class="log-clear-filters"
-                      size="small"
-                      :disabled="!hasLogFilters"
-                      @click="clearLogFilters"
-                    >
-                      清空筛选
-                    </el-button>
-                  </div>
-
-                  <div class="log-time-filters">
-                    <label class="log-time-filter">
-                      <span>时间范围</span>
-                      <el-date-picker
-                        v-model="logTimeRange"
-                        type="datetimerange"
-                        format="YYYY-MM-DD HH:mm:ss"
-                        value-format="YYYY-MM-DDTHH:mm:ss"
-                        range-separator="至"
-                        start-placeholder="开始时间"
-                        end-placeholder="结束时间"
-                        :default-time="logRangeDefaultTime"
-                        unlink-panels
-                        clearable
-                      />
-                    </label>
-                    <span class="log-result-summary">
-                      {{ logItems.length }} / {{ logTotal }} 条
-                    </span>
-                  </div>
-
-                  <div v-if="!logLive" class="log-paused-status" role="status">
-                    <strong>实时采集已暂停</strong>
-                    <span>{{ selectedState === "running" ? "新请求不会写入日志" : "启动规则后可手动开启" }}</span>
-                    <el-button
-                      size="small"
-                      type="primary"
-                      plain
-                      :disabled="selectedState !== 'running'"
-                      :loading="logCaptureUpdating"
+                    <button
+                      type="button"
+                      :aria-pressed="logLive"
+                      :class="{ 'is-active': logLive }"
+                      :disabled="selectedState !== 'running' || logCaptureUpdating"
                       @click="setLogLive(true)"
                     >
-                      开启实时采集
-                    </el-button>
+                      实时采集
+                    </button>
+                    <button
+                      type="button"
+                      :aria-pressed="!logLive"
+                      :class="{ 'is-active': !logLive }"
+                      :disabled="selectedState !== 'running' || logCaptureUpdating"
+                      @click="setLogLive(false)"
+                    >
+                      暂停
+                    </button>
                   </div>
+                  <el-dropdown
+                    trigger="click"
+                    :disabled="!selectedRule || exportLoading"
+                    @command="exportLogs"
+                  >
+                    <el-button size="small" :loading="exportLoading">导出</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+                        <el-dropdown-item command="csv">导出 CSV</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-button
+                    size="small"
+                    :disabled="!selectedRule || logsLoading || observabilityMutating"
+                    :loading="observabilityMutating"
+                    @click="clearLogs"
+                  >
+                    清空全部日志
+                  </el-button>
+                </div>
+              </header>
 
-                  <div v-if="logRefreshError" class="log-refresh-warning" role="status">
-                    <span>{{ logRefreshError }}</span>
-                    <el-button size="small" @click="refreshLogsInBackground()">重试</el-button>
-                  </div>
-
-                  <RequestForwardLogList
-                    :items="logItems"
-                    :selected-id="selectedLogId"
-                    :loading="logsLoading"
-                    :loading-more="loadingMore"
-                    :error="logError"
-                    :has-more="hasMoreLogs"
-                    @select="selectLog"
-                    @retry="loadLogs(false)"
-                    @load-more="loadMoreLogs"
+              <div class="log-toolbar">
+                <label class="log-search">
+                  <span>关键字</span>
+                  <el-input
+                    v-model="logKeyword"
+                    clearable
+                    placeholder="客户端、目标、路径或错误信息"
                   />
-                </section>
+                </label>
+                <label class="log-filter">
+                  <span>Method</span>
+                  <el-select v-model="logMethod" clearable placeholder="全部">
+                    <el-option
+                      v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']"
+                      :key="method"
+                      :label="method"
+                      :value="method"
+                    />
+                  </el-select>
+                </label>
+                <label class="log-filter is-status">
+                  <span>状态码</span>
+                  <el-input-number
+                    v-model="logStatusCode"
+                    :min="100"
+                    :max="599"
+                    :step="1"
+                    controls-position="right"
+                    clearable
+                    placeholder="全部"
+                  />
+                </label>
+                <div class="log-mode" aria-label="日志结果筛选">
+                  <button
+                    type="button"
+                    aria-label="全部"
+                    :aria-pressed="logMode === 'all'"
+                    :class="{ 'is-active': logMode === 'all' }"
+                    @click="logMode = 'all'"
+                  >
+                    全部
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="成功"
+                    :aria-pressed="logMode === 'success'"
+                    :class="{ 'is-active': logMode === 'success' }"
+                    @click="logMode = 'success'"
+                  >
+                    成功
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="失败"
+                    :aria-pressed="logMode === 'error'"
+                    :class="{ 'is-active': logMode === 'error' }"
+                    @click="logMode = 'error'"
+                  >
+                    失败
+                  </button>
+                </div>
+                <el-button
+                  class="log-clear-filters"
+                  size="small"
+                  :disabled="!hasLogFilters"
+                  @click="clearLogFilters"
+                >
+                  清空筛选
+                </el-button>
               </div>
-            </div>
+
+              <div class="log-time-filters">
+                <label class="log-time-filter">
+                  <span>时间范围</span>
+                  <el-date-picker
+                    v-model="logTimeRange"
+                    type="datetimerange"
+                    format="YYYY-MM-DD HH:mm:ss"
+                    value-format="YYYY-MM-DDTHH:mm:ss"
+                    range-separator="至"
+                    start-placeholder="开始时间"
+                    end-placeholder="结束时间"
+                    :default-time="logRangeDefaultTime"
+                    unlink-panels
+                    clearable
+                  />
+                </label>
+                <span class="log-result-summary"> {{ logItems.length }} / {{ logTotal }} 条 </span>
+              </div>
+
+              <div v-if="!logLive" class="log-paused-status" role="status">
+                <strong>实时采集已暂停</strong>
+                <span>{{
+                  selectedState === "running" ? "新请求不会写入日志" : "启动规则后可手动开启"
+                }}</span>
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="selectedState !== 'running'"
+                  :loading="logCaptureUpdating"
+                  @click="setLogLive(true)"
+                >
+                  开启实时采集
+                </el-button>
+              </div>
+
+              <div v-if="logRefreshError" class="log-refresh-warning" role="status">
+                <span>{{ logRefreshError }}</span>
+                <el-button size="small" @click="refreshLogsInBackground()">重试</el-button>
+              </div>
+
+              <RequestForwardLogList
+                :items="logItems"
+                :selected-id="selectedLogId"
+                :loading="logsLoading"
+                :loading-more="loadingMore"
+                :error="logError"
+                :has-more="hasMoreLogs"
+                @select="selectLog"
+                @retry="loadLogs(false)"
+                @load-more="loadMoreLogs"
+              />
+            </section>
+          </div>
+        </div>
       </template>
 
       <div v-else class="workbench-empty">
@@ -1902,10 +1889,7 @@ onUnmounted(() => {
       @keydown.right.prevent="adjustInspectorWidth(-16)"
     />
 
-    <aside
-      class="log-inspector-shell"
-      :class="{ 'is-inspector-open': selectedLog }"
-    >
+    <aside class="log-inspector-shell" :class="{ 'is-inspector-open': selectedLog }">
       <RequestForwardLogInspector
         :log="selectedLog"
         :rule="selectedRule"
@@ -1952,7 +1936,9 @@ onUnmounted(() => {
 .request-forward-panel {
   display: grid;
   position: relative;
-  grid-template-columns: var(--request-forward-rule-list-width) 6px minmax(0, 1fr) 6px var(--request-forward-inspector-width);
+  grid-template-columns: var(--request-forward-rule-list-width) 6px minmax(0, 1fr) 6px var(
+      --request-forward-inspector-width
+    );
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -1963,7 +1949,9 @@ onUnmounted(() => {
 .request-forward-panel :deep(.el-button),
 .request-forward-panel :deep(.el-input__inner),
 .request-forward-panel :deep(.el-input__wrapper),
-.request-forward-panel :deep(.el-select__placeholder) { font-size: 16px; }
+.request-forward-panel :deep(.el-select__placeholder) {
+  font-size: 16px;
+}
 
 .rule-list-resizer,
 .inspector-resizer {
@@ -1978,12 +1966,33 @@ onUnmounted(() => {
   transition: background-color 150ms ease;
 }
 .rule-list-resizer::after,
-.inspector-resizer::after { position: absolute; top: 50%; left: 2px; width: 2px; height: 34px; border-radius: 2px; background: #b8c2cd; content: ""; transform: translateY(-50%); }
+.inspector-resizer::after {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: #b8c2cd;
+  content: "";
+  transform: translateY(-50%);
+}
 .rule-list-resizer:hover,
-.inspector-resizer:hover { background: #dfe8ee; }
+.inspector-resizer:hover {
+  background: #dfe8ee;
+}
 .rule-list-resizer:focus-visible,
-.inspector-resizer:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.log-inspector-shell { display: flex; min-width: 0; min-height: 0; border-left: 1px solid #dfe4e9; background: #fbfcfd; }
+.inspector-resizer:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: -2px;
+}
+.log-inspector-shell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid #dfe4e9;
+  background: #fbfcfd;
+}
 
 .rule-workbench {
   display: flex;
@@ -2048,27 +2057,87 @@ onUnmounted(() => {
   text-align: right;
 }
 
-.runtime-state span { font-size: 16px; font-weight: 700; }
-.runtime-state span::before { content: "●"; margin-right: 6px; font-size: 10px; }
-.runtime-state small { color: #c23b35; line-height: 1.45; }
-.runtime-state__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.runtime-state__actions :deep(.el-button + .el-button) { margin-left: 0; }
-.runtime-state__preflight { max-width: 420px; text-align: left; }
-.runtime-state__preflight strong { font-size: 13px; }
-.runtime-state__preflight ul { display: grid; gap: 3px; margin: 4px 0 0; padding-left: 18px; }
-.runtime-state__preflight li { color: #6b7280; font-size: 13px; overflow-wrap: anywhere; }
-.runtime-state__preflight li.is-failed { color: #c23b35; }
-.runtime-state__preflight li.is-warning { color: #a86608; }
-.runtime-state__details { max-width: 420px; color: #6b4f4c; font-size: 13px; }
-.runtime-state__details summary { cursor: pointer; }
-.runtime-state__details dl { display: grid; gap: 4px; margin: 8px 0 0; }
-.runtime-state__details dl div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
-.runtime-state__details dt { font-weight: 700; }
-.runtime-state__details dd { margin: 0; overflow-wrap: anywhere; }
-.runtime-state.is-running { color: #168357; }
+.runtime-state span {
+  font-size: 16px;
+  font-weight: 700;
+}
+.runtime-state span::before {
+  content: "●";
+  margin-right: 6px;
+  font-size: 10px;
+}
+.runtime-state small {
+  color: #c23b35;
+  line-height: 1.45;
+}
+.runtime-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.runtime-state__actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.runtime-state__preflight {
+  max-width: 420px;
+  text-align: left;
+}
+.runtime-state__preflight strong {
+  font-size: 13px;
+}
+.runtime-state__preflight ul {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.runtime-state__preflight li {
+  color: #6b7280;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.runtime-state__preflight li.is-failed {
+  color: #c23b35;
+}
+.runtime-state__preflight li.is-warning {
+  color: #a86608;
+}
+.runtime-state__details {
+  max-width: 420px;
+  color: #6b4f4c;
+  font-size: 13px;
+}
+.runtime-state__details summary {
+  cursor: pointer;
+}
+.runtime-state__details dl {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+.runtime-state__details dl div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+.runtime-state__details dt {
+  font-weight: 700;
+}
+.runtime-state__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.runtime-state.is-running {
+  color: #168357;
+}
 .runtime-state.is-starting,
-.runtime-state.is-stopping { color: #a86608; }
-.runtime-state.is-failed { color: #c23b35; }
+.runtime-state.is-stopping {
+  color: #a86608;
+}
+.runtime-state.is-failed {
+  color: #c23b35;
+}
 
 .workbench-scroll {
   min-width: 0;
@@ -2092,29 +2161,120 @@ onUnmounted(() => {
   border-radius: 6px;
   background: #fffaf0;
 }
-.observability-warning strong { color: #65450d; font-size: 14px; }
-.observability-warning span { color: #85672f; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.section-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 8px; }
-.section-header h2 { margin: 2px 0 0; color: var(--text-primary, #1f2937); font-size: 18px; }
-.section-header__eyebrow { margin: 0; color: #667486; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.stat-card { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid #e2e6eb; border-radius: 6px; background: #fff; }
-.stat-card span { color: #667486; font-size: 14px; }
-.stat-card strong { overflow: hidden; color: #26364a; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
-.stat-card.is-error strong { color: #aa3933; }
-.stats-error { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 10px; border: 1px solid #efc8c5; border-radius: 6px; background: #fff8f7; color: #a9332d; font-size: 14px; }
-.log-header { margin-top: 16px; }
-.log-header__actions { display: flex; align-items: center; gap: 8px; }
+.observability-warning strong {
+  color: #65450d;
+  font-size: 14px;
+}
+.observability-warning span {
+  color: #85672f;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.section-header h2 {
+  margin: 2px 0 0;
+  color: var(--text-primary, #1f2937);
+  font-size: 18px;
+}
+.section-header__eyebrow {
+  margin: 0;
+  color: #667486;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.stat-card {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #e2e6eb;
+  border-radius: 6px;
+  background: #fff;
+}
+.stat-card span {
+  color: #667486;
+  font-size: 14px;
+}
+.stat-card strong {
+  overflow: hidden;
+  color: #26364a;
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-card.is-error strong {
+  color: #aa3933;
+}
+.stats-error {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid #efc8c5;
+  border-radius: 6px;
+  background: #fff8f7;
+  color: #a9332d;
+  font-size: 14px;
+}
+.log-header {
+  margin-top: 16px;
+}
+.log-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .log-live-mode,
-.log-mode { display: inline-flex; flex: none; padding: 2px; border: 1px solid #d7dce3; border-radius: 6px; background: #f4f6f8; }
+.log-mode {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid #d7dce3;
+  border-radius: 6px;
+  background: #f4f6f8;
+}
 .log-live-mode button,
-.log-mode button { min-height: 32px; border: 0; border-radius: 4px; padding: 0 12px; background: transparent; color: #56667a; cursor: pointer; font: inherit; font-size: 14px; }
+.log-mode button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 12px;
+  background: transparent;
+  color: #56667a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+}
 .log-live-mode button:hover,
-.log-mode button:hover { color: #2f5f86; }
+.log-mode button:hover {
+  color: #2f5f86;
+}
 .log-live-mode button.is-active,
-.log-mode button.is-active { background: #fff; color: #245b83; box-shadow: 0 1px 2px rgb(31 41 55 / 12%); font-weight: 700; }
+.log-mode button.is-active {
+  background: #fff;
+  color: #245b83;
+  box-shadow: 0 1px 2px rgb(31 41 55 / 12%);
+  font-weight: 700;
+}
 .log-live-mode button:focus-visible,
-.log-mode button:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 2px; }
+.log-mode button:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
 .log-toolbar {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) 124px 92px auto auto;
@@ -2123,19 +2283,53 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 .log-search,
-.log-filter { display: grid; gap: 4px; }
-.log-search { min-width: 0; }
-.log-filter { width: 124px; min-width: 0; }
-.log-filter.is-status { width: 92px; }
+.log-filter {
+  display: grid;
+  gap: 4px;
+}
+.log-search {
+  min-width: 0;
+}
+.log-filter {
+  width: 124px;
+  min-width: 0;
+}
+.log-filter.is-status {
+  width: 92px;
+}
 .log-filter :deep(.el-select),
-.log-filter :deep(.el-input-number) { width: 100%; min-width: 0; }
+.log-filter :deep(.el-input-number) {
+  width: 100%;
+  min-width: 0;
+}
 .log-search > span,
 .log-filter > span,
-.log-time-filter > span { color: #56667a; font-size: 14px; font-weight: 600; }
-.log-time-filters { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 10px; }
-.log-time-filter { display: grid; width: min(100%, 480px); gap: 4px; }
-.log-time-filter :deep(.el-date-editor) { width: 100%; }
-.log-result-summary { margin-left: auto; padding-bottom: 8px; color: #657386; font-size: 13px; white-space: nowrap; }
+.log-time-filter > span {
+  color: #56667a;
+  font-size: 14px;
+  font-weight: 600;
+}
+.log-time-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.log-time-filter {
+  display: grid;
+  width: min(100%, 480px);
+  gap: 4px;
+}
+.log-time-filter :deep(.el-date-editor) {
+  width: 100%;
+}
+.log-result-summary {
+  margin-left: auto;
+  padding-bottom: 8px;
+  color: #657386;
+  font-size: 13px;
+  white-space: nowrap;
+}
 .log-paused-status {
   display: flex;
   align-items: center;
@@ -2148,8 +2342,12 @@ onUnmounted(() => {
   color: #59687a;
   font-size: 14px;
 }
-.log-paused-status strong { color: #344256; }
-.log-paused-status .el-button { margin-left: auto; }
+.log-paused-status strong {
+  color: #344256;
+}
+.log-paused-status .el-button {
+  margin-left: auto;
+}
 
 .log-refresh-warning {
   display: flex;
@@ -2166,18 +2364,35 @@ onUnmounted(() => {
 }
 
 @container request-forward-observability (max-width: 780px) {
-  .log-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .log-search { grid-column: 1 / -1; }
+  .log-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .log-search {
+    grid-column: 1 / -1;
+  }
   .log-filter,
-  .log-filter.is-status { width: 100%; }
-  .log-mode { justify-self: start; }
-  .log-clear-filters { justify-self: end; margin-left: 0; }
+  .log-filter.is-status {
+    width: 100%;
+  }
+  .log-mode {
+    justify-self: start;
+  }
+  .log-clear-filters {
+    justify-self: end;
+    margin-left: 0;
+  }
 }
 
 @container request-forward-observability (max-width: 480px) {
-  .log-toolbar { grid-template-columns: minmax(0, 1fr); }
-  .log-search { grid-column: auto; }
-  .log-clear-filters { justify-self: start; }
+  .log-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .log-search {
+    grid-column: auto;
+  }
+  .log-clear-filters {
+    justify-self: start;
+  }
 }
 
 .workbench-empty {
@@ -2204,13 +2419,17 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
 }
 
-.workbench-empty .el-button { margin-top: 18px; }
+.workbench-empty .el-button {
+  margin-top: 18px;
+}
 
 @media (max-width: 1100px) {
   .request-forward-panel {
     grid-template-columns: var(--request-forward-rule-list-width) 6px minmax(0, 1fr);
   }
-  .inspector-resizer { display: none; }
+  .inspector-resizer {
+    display: none;
+  }
   .log-inspector-shell {
     position: absolute;
     z-index: 20;
@@ -2223,7 +2442,9 @@ onUnmounted(() => {
     transform: translateX(102%);
     transition: transform 180ms ease;
   }
-  .log-inspector-shell.is-inspector-open { transform: translateX(0); }
+  .log-inspector-shell.is-inspector-open {
+    transform: translateX(0);
+  }
 }
 
 @media (max-width: 780px) {
@@ -2233,26 +2454,72 @@ onUnmounted(() => {
     overflow: hidden;
   }
   .rule-list-resizer,
-  .inspector-resizer { display: none; }
-  .workbench-header { align-items: stretch; flex-direction: column; padding: 18px; }
-  .workbench-header__aside { max-width: none; justify-items: start; }
-  .runtime-state { max-width: none; justify-items: start; text-align: left; }
-  .workbench-scroll { padding-inline: 16px; }
-  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .log-header { align-items: flex-start; }
-  .log-header__actions { flex-wrap: wrap; justify-content: flex-end; }
-  .log-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
-  .log-search { min-width: 0; grid-column: auto; }
+  .inspector-resizer {
+    display: none;
+  }
+  .workbench-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 18px;
+  }
+  .workbench-header__aside {
+    max-width: none;
+    justify-items: start;
+  }
+  .runtime-state {
+    max-width: none;
+    justify-items: start;
+    text-align: left;
+  }
+  .workbench-scroll {
+    padding-inline: 16px;
+  }
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .log-header {
+    align-items: flex-start;
+  }
+  .log-header__actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .log-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .log-search {
+    min-width: 0;
+    grid-column: auto;
+  }
   .log-filter,
-  .log-filter.is-status { width: 100%; }
-  .log-mode { align-self: flex-start; }
-  .log-time-filters { align-items: stretch; flex-direction: column; }
-  .log-time-filter { width: 100%; }
-  .log-result-summary { margin-left: 0; padding-bottom: 0; }
-  .log-paused-status { align-items: flex-start; flex-wrap: wrap; }
+  .log-filter.is-status {
+    width: 100%;
+  }
+  .log-mode {
+    align-self: flex-start;
+  }
+  .log-time-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .log-time-filter {
+    width: 100%;
+  }
+  .log-result-summary {
+    margin-left: 0;
+    padding-bottom: 0;
+  }
+  .log-paused-status {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :deep(*) { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+  :deep(*) {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 </style>

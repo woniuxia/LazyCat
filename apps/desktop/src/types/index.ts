@@ -97,11 +97,7 @@ export type {
   ActionCombinationDraft,
   ActionCombinationRunUpdatedEvent,
 } from "./action-center";
-export type {
-  PomodoroSessionStatus,
-  PomodoroSession,
-  PomodoroState,
-} from "./pomodoro";
+export type { PomodoroSessionStatus, PomodoroSession, PomodoroState } from "./pomodoro";
 export type {
   InboxItemType,
   InboxStorageKind,

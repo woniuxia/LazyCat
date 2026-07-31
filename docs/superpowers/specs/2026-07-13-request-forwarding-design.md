@@ -214,12 +214,7 @@ UDP 无连接，必须按客户端地址隔离下游响应路径。
 实际状态：
 
 ```ts
-type RequestForwardRuntimeState =
-  | "stopped"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "failed";
+type RequestForwardRuntimeState = "stopped" | "starting" | "running" | "stopping" | "failed";
 ```
 
 规则：
@@ -367,22 +362,22 @@ CREATE TABLE IF NOT EXISTS request_forward_logs (
 
 新增 `request_forward` domain，action 保持小而明确：
 
-| Channel | Action | 说明 |
-|---|---|---|
-| `tool:request-forward:list` | `list` | 规则列表与实际状态摘要 |
-| `tool:request-forward:get` | `get` | 单条规则详情 |
-| `tool:request-forward:create` | `create` | 创建停止状态规则 |
-| `tool:request-forward:update` | `update` | 更新已停止/失败规则，不接受 autoStart |
-| `tool:request-forward:delete` | `delete` | 删除已停止或 failed 规则及关联数据 |
-| `tool:request-forward:start` | `start` | 启动单条规则并设置自动恢复 |
-| `tool:request-forward:stop` | `stop` | 停止单条规则并关闭自动恢复 |
-| `tool:request-forward:start-all` | `start_all` | 启动全部未运行规则并返回逐条结果 |
-| `tool:request-forward:stop-all` | `stop_all` | 停止全部运行规则并返回逐条结果 |
-| `tool:request-forward:status` | `status` | 查询一条或全部实际状态 |
-| `tool:request-forward:log-list` | `log_list` | 分页查询规则日志 |
-| `tool:request-forward:log-clear` | `log_clear` | 清空规则日志 |
-| `tool:request-forward:stats-get` | `stats_get` | 获取累计与实时统计 |
-| `tool:request-forward:stats-reset` | `stats_reset` | 显式重置累计统计 |
+| Channel                            | Action        | 说明                                  |
+| ---------------------------------- | ------------- | ------------------------------------- |
+| `tool:request-forward:list`        | `list`        | 规则列表与实际状态摘要                |
+| `tool:request-forward:get`         | `get`         | 单条规则详情                          |
+| `tool:request-forward:create`      | `create`      | 创建停止状态规则                      |
+| `tool:request-forward:update`      | `update`      | 更新已停止/失败规则，不接受 autoStart |
+| `tool:request-forward:delete`      | `delete`      | 删除已停止或 failed 规则及关联数据    |
+| `tool:request-forward:start`       | `start`       | 启动单条规则并设置自动恢复            |
+| `tool:request-forward:stop`        | `stop`        | 停止单条规则并关闭自动恢复            |
+| `tool:request-forward:start-all`   | `start_all`   | 启动全部未运行规则并返回逐条结果      |
+| `tool:request-forward:stop-all`    | `stop_all`    | 停止全部运行规则并返回逐条结果        |
+| `tool:request-forward:status`      | `status`      | 查询一条或全部实际状态                |
+| `tool:request-forward:log-list`    | `log_list`    | 分页查询规则日志                      |
+| `tool:request-forward:log-clear`   | `log_clear`   | 清空规则日志                          |
+| `tool:request-forward:stats-get`   | `stats_get`   | 获取累计与实时统计                    |
+| `tool:request-forward:stats-reset` | `stats_reset` | 显式重置累计统计                      |
 
 `create` 不隐式启动，避免数据库写入成功但监听失败时产生含糊结果。前端“保存并启动”按 `create/update -> start` 顺序执行，分别反馈保存错误与启动错误。
 

@@ -13,6 +13,7 @@
 ### Task 1: 锁定紧凑分组结构
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 - Test: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 
@@ -29,8 +30,12 @@ it("uses an unnumbered compact rule form with side-by-side endpoints", () => {
   expect(formSource).toContain('class="form-group__title">采集选项');
   expect(formSource).not.toContain('class="form-section__heading"');
   expect(formSource).not.toMatch(/<span>0[1-4]<\/span>/);
-  expect(formSource).toMatch(/\.form-endpoints\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
-  expect(formSource).toMatch(/@media \(max-width: 680px\)[\s\S]*?\.form-endpoints\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  expect(formSource).toMatch(
+    /\.form-endpoints\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s,
+  );
+  expect(formSource).toMatch(
+    /@media \(max-width: 680px\)[\s\S]*?\.form-endpoints\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+  );
 });
 ```
 
@@ -47,6 +52,7 @@ Expected: FAIL，提示 `form-identity` 或 `form-endpoints` 不存在。
 ### Task 2: 实现紧凑表单布局
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/request-forward/RequestForwardRuleForm.vue`
 - Test: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 
@@ -228,8 +234,13 @@ Expected: FAIL，提示 `form-identity` 或 `form-endpoints` 不存在。
 将 scoped 样式替换为以下完整内容：
 
 ```css
-.rule-form { display: grid; gap: 14px; }
-.form-identity { min-width: 0; }
+.rule-form {
+  display: grid;
+  gap: 14px;
+}
+.form-identity {
+  min-width: 0;
+}
 .form-endpoints {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -246,21 +257,47 @@ Expected: FAIL，提示 `form-identity` 或 `form-endpoints` 不存在。
   font-size: 14px;
   font-weight: 700;
 }
-.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
-.form-grid--identity { grid-template-columns: minmax(0, 1fr) 180px; }
-.rule-form :deep(.el-form-item) { margin-bottom: 10px; }
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+.form-grid--identity {
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+.rule-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
 .rule-form :deep(.el-form-item__label),
 .rule-form :deep(.el-input__inner),
 .rule-form :deep(.el-select__placeholder),
 .rule-form :deep(.el-input-number .el-input__inner),
-.rule-form :deep(.el-checkbox__label) { font-size: 16px; }
+.rule-form :deep(.el-checkbox__label) {
+  font-size: 16px;
+}
 .rule-form :deep(.el-select),
-.rule-form :deep(.el-input-number) { width: 100%; }
+.rule-form :deep(.el-input-number) {
+  width: 100%;
+}
 .field-label,
-.capture-option-label { display: inline-flex; align-items: center; gap: 5px; }
-.field-tip { color: #657386; cursor: help; font-size: 16px; }
-.field-tip:hover { color: var(--el-color-primary, #409eff); }
-.field-tip:focus-visible { border-radius: 50%; outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 1px; }
+.capture-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.field-tip {
+  color: #657386;
+  cursor: help;
+  font-size: 16px;
+}
+.field-tip:hover {
+  color: var(--el-color-primary, #409eff);
+}
+.field-tip:focus-visible {
+  border-radius: 50%;
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 1px;
+}
 
 .exposure-warning {
   display: grid;
@@ -281,12 +318,18 @@ Expected: FAIL，提示 `form-identity` 或 `form-endpoints` 不存在。
 }
 
 @media (max-width: 680px) {
-  .form-endpoints { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .form-endpoints {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
 }
 
 @media (max-width: 480px) {
   .form-grid,
-  .form-grid--identity { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .form-grid--identity {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
 }
 ```
 
@@ -299,6 +342,7 @@ Expected: 两个测试文件全部通过。
 ### Task 3: 完成静态与构建验证
 
 **Files:**
+
 - Verify: `apps/desktop/src/components/request-forward/RequestForwardRuleForm.vue`
 - Verify: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 

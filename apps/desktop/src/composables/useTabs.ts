@@ -26,16 +26,13 @@ export function useTabs() {
 
     if (activeTabId.value === id) {
       // Switch to right neighbor > left neighbor > home
-      const next =
-        openTabs.value[idx] ?? openTabs.value[idx - 1] ?? openTabs.value[0];
+      const next = openTabs.value[idx] ?? openTabs.value[idx - 1] ?? openTabs.value[0];
       activeTabId.value = next.id;
     }
   }
 
   function closeOthers(keepId: string) {
-    openTabs.value = openTabs.value.filter(
-      (t) => t.pinned || t.id === keepId
-    );
+    openTabs.value = openTabs.value.filter((t) => t.pinned || t.id === keepId);
     if (!openTabs.value.find((t) => t.id === activeTabId.value)) {
       activeTabId.value = keepId;
     }

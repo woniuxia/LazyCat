@@ -4,8 +4,17 @@
     <section v-if="mergedHomeTools.length" class="home-section">
       <div class="home-section-header">
         <h2>
-          <svg class="section-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          <svg
+            class="section-icon"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+            />
           </svg>
           常用工具
         </h2>
@@ -40,11 +49,7 @@
     </section>
 
     <!-- Grouped Tools Sections -->
-    <section
-      v-for="(group, groupIndex) in groupedTools"
-      :key="group.id"
-      class="home-section"
-    >
+    <section v-for="(group, groupIndex) in groupedTools" :key="group.id" class="home-section">
       <div class="home-section-header">
         <h2>{{ group.name }}</h2>
         <span class="group-count">{{ group.tools.length }}</span>
@@ -79,17 +84,62 @@
     <section v-if="!hasAnyContent" class="home-section">
       <el-empty description="暂无工具，点击右上角设置可显示更多工具">
         <template #image>
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M10 18 L10 8 L20 18" fill="var(--lc-text-muted)" opacity="0.7"/>
-            <path d="M54 18 L54 8 L44 18" fill="var(--lc-text-muted)" opacity="0.7"/>
-            <ellipse cx="32" cy="36" rx="22" ry="20" fill="var(--lc-surface-3)"/>
-            <circle cx="23" cy="34" r="3" fill="var(--lc-text-secondary)"/>
-            <circle cx="41" cy="34" r="3" fill="var(--lc-text-secondary)"/>
-            <path d="M27 42 Q32 46 37 42" stroke="var(--lc-text-secondary)" stroke-width="2" stroke-linecap="round" fill="none"/>
-            <line x1="14" y1="30" x2="24" y2="33" stroke="var(--lc-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="14" y1="35" x2="24" y2="35" stroke="var(--lc-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="50" y1="30" x2="40" y2="33" stroke="var(--lc-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="50" y1="35" x2="40" y2="35" stroke="var(--lc-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            width="64"
+            height="64"
+            viewBox="0 0 64 64"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path d="M10 18 L10 8 L20 18" fill="var(--lc-text-muted)" opacity="0.7" />
+            <path d="M54 18 L54 8 L44 18" fill="var(--lc-text-muted)" opacity="0.7" />
+            <ellipse cx="32" cy="36" rx="22" ry="20" fill="var(--lc-surface-3)" />
+            <circle cx="23" cy="34" r="3" fill="var(--lc-text-secondary)" />
+            <circle cx="41" cy="34" r="3" fill="var(--lc-text-secondary)" />
+            <path
+              d="M27 42 Q32 46 37 42"
+              stroke="var(--lc-text-secondary)"
+              stroke-width="2"
+              stroke-linecap="round"
+              fill="none"
+            />
+            <line
+              x1="14"
+              y1="30"
+              x2="24"
+              y2="33"
+              stroke="var(--lc-text-muted)"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <line
+              x1="14"
+              y1="35"
+              x2="24"
+              y2="35"
+              stroke="var(--lc-text-muted)"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <line
+              x1="50"
+              y1="30"
+              x2="40"
+              y2="33"
+              stroke="var(--lc-text-muted)"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <line
+              x1="50"
+              y1="35"
+              x2="40"
+              y2="35"
+              stroke="var(--lc-text-muted)"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
         </template>
       </el-empty>
@@ -142,8 +192,8 @@ const groupedTools = computed<GroupedTool[]>(() => {
   return groups;
 });
 
-const hasAnyContent = computed(() =>
-  props.mergedHomeTools.length > 0 || groupedTools.value.length > 0
+const hasAnyContent = computed(
+  () => props.mergedHomeTools.length > 0 || groupedTools.value.length > 0,
 );
 
 // SortableJS for drag-reorder of favorite cards

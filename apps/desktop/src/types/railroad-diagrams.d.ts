@@ -11,12 +11,8 @@ declare module "railroad-diagrams" {
   }
 
   interface DiagramStatic {
-    (
-      ...items: Array<string | DiagramItem>
-    ): DiagramItem;
-    new (
-      items: Array<string | DiagramItem>
-    ): DiagramItem;
+    (...items: Array<string | DiagramItem>): DiagramItem;
+    new (items: Array<string | DiagramItem>): DiagramItem;
     VERTICAL_SEPARATION: number;
     ARC_RADIUS: number;
     DIAGRAM_CLASS: string;
@@ -27,25 +23,14 @@ declare module "railroad-diagrams" {
   export const Diagram: DiagramStatic;
   export const ComplexDiagram: DiagramStatic;
 
-  export function Sequence(
-    ...items: Array<string | DiagramItem>
-  ): DiagramItem;
-  export function Choice(
-    normal: number,
-    ...items: Array<string | DiagramItem>
-  ): DiagramItem;
-  export function Optional(
-    item: string | DiagramItem,
-    skip?: "skip"
-  ): DiagramItem;
-  export function OneOrMore(
-    item: string | DiagramItem,
-    rep?: string | DiagramItem
-  ): DiagramItem;
+  export function Sequence(...items: Array<string | DiagramItem>): DiagramItem;
+  export function Choice(normal: number, ...items: Array<string | DiagramItem>): DiagramItem;
+  export function Optional(item: string | DiagramItem, skip?: "skip"): DiagramItem;
+  export function OneOrMore(item: string | DiagramItem, rep?: string | DiagramItem): DiagramItem;
   export function ZeroOrMore(
     item: string | DiagramItem,
     rep?: string | DiagramItem,
-    skip?: "skip"
+    skip?: "skip",
   ): DiagramItem;
   export function Terminal(text: string): DiagramItem;
   export function NonTerminal(text: string): DiagramItem;

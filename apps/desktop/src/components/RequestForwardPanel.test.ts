@@ -19,35 +19,22 @@ const typesSource = readFileSync(
   "utf8",
 );
 const listSource = readFileSync(
-  fileURLToPath(
-    new URL("./request-forward/RequestForwardRuleList.vue", import.meta.url),
-  ),
+  fileURLToPath(new URL("./request-forward/RequestForwardRuleList.vue", import.meta.url)),
   "utf8",
 );
 const formSource = readFileSync(
-  fileURLToPath(
-    new URL("./request-forward/RequestForwardRuleForm.vue", import.meta.url),
-  ),
+  fileURLToPath(new URL("./request-forward/RequestForwardRuleForm.vue", import.meta.url)),
   "utf8",
 );
-const logListUrl = new URL(
-  "./request-forward/RequestForwardLogList.vue",
-  import.meta.url,
-);
+const logListUrl = new URL("./request-forward/RequestForwardLogList.vue", import.meta.url);
 const logListSource = existsSync(fileURLToPath(logListUrl))
   ? readFileSync(fileURLToPath(logListUrl), "utf8")
   : "";
-const dialogUrl = new URL(
-  "./request-forward/RequestForwardRuleDialog.vue",
-  import.meta.url,
-);
+const dialogUrl = new URL("./request-forward/RequestForwardRuleDialog.vue", import.meta.url);
 const dialogSource = existsSync(fileURLToPath(dialogUrl))
   ? readFileSync(fileURLToPath(dialogUrl), "utf8")
   : "";
-const inspectorUrl = new URL(
-  "./request-forward/RequestForwardLogInspector.vue",
-  import.meta.url,
-);
+const inspectorUrl = new URL("./request-forward/RequestForwardLogInspector.vue", import.meta.url);
 const inspectorSource = existsSync(fileURLToPath(inspectorUrl))
   ? readFileSync(fileURLToPath(inspectorUrl), "utf8")
   : "";
@@ -82,12 +69,16 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("编辑规则");
     expect(source).toContain("检测目标");
     expect(source).toContain("使用建议端口");
-    expect(source).toMatch(/async function checkSelectedTarget\([\s\S]*?tool:request-forward:preflight/);
+    expect(source).toMatch(
+      /async function checkSelectedTarget\([\s\S]*?tool:request-forward:preflight/,
+    );
     expect(source).toMatch(/function checkSelectedTarget[\s\S]*?selectionIntentToken/);
     expect(source).toContain("recoveryPreflightRequestToken");
     expect(source).toContain("recoveryPreflightResult.checks");
     expect(source).toContain("检测结果");
-    expect(source).toMatch(/function useSelectedSuggestedPort\([\s\S]*?openEditDialog[\s\S]*?applySuggestedListenPort/);
+    expect(source).toMatch(
+      /function useSelectedSuggestedPort\([\s\S]*?openEditDialog[\s\S]*?applySuggestedListenPort/,
+    );
     expect(source).toContain(':disabled="interactionBusy"');
   });
   it("registers the preflight channel and exact result contract", () => {
@@ -108,18 +99,10 @@ describe("RequestForwardPanel source structure", () => {
   it("routes preflight through a dedicated blocking-safe async command", () => {
     expect(tauriMainSource).toContain("async fn request_forward_preflight");
     expect(tauriMainSource).toContain("tauri::async_runtime::spawn_blocking");
-    expect(tauriMainSource).toMatch(
-      /tauri::generate_handler!\[[\s\S]*?request_forward_preflight/,
-    );
-    expect(bridgeSource).toContain(
-      'channel === "tool:request-forward:preflight"',
-    );
-    expect(bridgeSource).toContain(
-      'invoke<unknown>("request_forward_preflight", { payload })',
-    );
-    expect(tauriMainSource).toContain(
-      "tools::request_forward::encode_preflight_task_error",
-    );
+    expect(tauriMainSource).toMatch(/tauri::generate_handler!\[[\s\S]*?request_forward_preflight/);
+    expect(bridgeSource).toContain('channel === "tool:request-forward:preflight"');
+    expect(bridgeSource).toContain('invoke<unknown>("request_forward_preflight", { payload })');
+    expect(tauriMainSource).toContain("tools::request_forward::encode_preflight_task_error");
     expect(tauriMainSource).toMatch(
       /spawn_blocking[\s\S]*?\.await[\s\S]*?encode_preflight_task_error/,
     );
@@ -135,9 +118,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(preflightResultSource).toMatch(/@click=.*apply-suggested-port/);
     expect(preflightResultSource).toContain("disabled: boolean");
     expect(preflightResultSource).toContain(':disabled="disabled"');
-    expect(dialogSource).toMatch(
-      /RequestForwardPreflightResultView[\s\S]*?:disabled="disabled"/,
-    );
+    expect(dialogSource).toMatch(/RequestForwardPreflightResultView[\s\S]*?:disabled="disabled"/);
   });
 
   it("keeps preflight, preflight-and-start and legacy save paths discoverable", () => {
@@ -172,9 +153,10 @@ describe("RequestForwardPanel source structure", () => {
   });
 
   it("starts from the tested snapshot only when the backend result is ready", () => {
-    const body = source.match(
-      /async function preflightAndStart\(autoStart\?: boolean\)[\s\S]*?\n}\n\nasync function/,
-    )?.[0] ?? "";
+    const body =
+      source.match(
+        /async function preflightAndStart\(autoStart\?: boolean\)[\s\S]*?\n}\n\nasync function/,
+      )?.[0] ?? "";
     expect(body).toContain("await runPreflight()");
     expect(body).toMatch(/!result\?\.ready|!result\.ready/);
     expect(body).toContain("isAcceptedPreflightCurrent");
@@ -183,9 +165,8 @@ describe("RequestForwardPanel source structure", () => {
   });
 
   it("applies suggested ports by updating the draft, marking dirty and clearing the result", () => {
-    const body = source.match(
-      /function applySuggestedListenPort\(port: number\)[\s\S]*?\n}/,
-    )?.[0] ?? "";
+    const body =
+      source.match(/function applySuggestedListenPort\(port: number\)[\s\S]*?\n}/)?.[0] ?? "";
     expect(body).toContain("listenPort: port");
     expect(body).toContain("formDirty.value = true");
     expect(body).toContain("invalidatePreflight()");
@@ -291,7 +272,9 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("editorRuleId");
     expect(source).toContain("currentEditorIntent");
     expect(source).toMatch(/function openEditDialog\(id: number\)[\s\S]*?editorRuleId\.value = id/);
-    expect(source).not.toMatch(/function openEditDialog\(id: number\)[\s\S]*?selectedId\.value = id/);
+    expect(source).not.toMatch(
+      /function openEditDialog\(id: number\)[\s\S]*?selectedId\.value = id/,
+    );
   });
 
   it("opens create without replacing the selected observability rule", () => {
@@ -339,9 +322,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(listSource).toContain("复制规则");
     expect(source).toContain('@duplicate="openDuplicateDialog"');
 
-    const body = source.match(
-      /function openDuplicateDialog\(id: number\)[\s\S]*?\n}/,
-    )?.[0] ?? "";
+    const body = source.match(/function openDuplicateDialog\(id: number\)[\s\S]*?\n}/)?.[0] ?? "";
     expect(body).toContain("rules.value.find");
     expect(body).toContain("duplicateRequestForwardRuleForm");
     expect(body).toContain('editorMode.value = "create"');
@@ -352,9 +333,7 @@ describe("RequestForwardPanel source structure", () => {
   });
 
   it("automatically preflights a duplicate draft without applying its suggested port", () => {
-    const body = source.match(
-      /function openDuplicateDialog\(id: number\)[\s\S]*?\n}/,
-    )?.[0] ?? "";
+    const body = source.match(/function openDuplicateDialog\(id: number\)[\s\S]*?\n}/)?.[0] ?? "";
     expect(body).toContain("source.listenPort");
     expect(body).toContain("void runPreflight()");
     expect(body).not.toContain("applySuggestedListenPort");
@@ -386,12 +365,10 @@ describe("RequestForwardPanel source structure", () => {
   });
 
   it("places the startup policy before the runtime action and highlights only active runtime states", () => {
-    const startButton = listSource.match(
-      /<el-button\s+v-if="canStart\(stateOf\(rule\.id\)\)"[^>]*>/,
-    )?.[0] ?? "";
-    const stopButton = listSource.match(
-      /<el-button\s+v-else[^>]*class="rule-row__runtime-action"[^>]*>/,
-    )?.[0] ?? "";
+    const startButton =
+      listSource.match(/<el-button\s+v-if="canStart\(stateOf\(rule\.id\)\)"[^>]*>/)?.[0] ?? "";
+    const stopButton =
+      listSource.match(/<el-button\s+v-else[^>]*class="rule-row__runtime-action"[^>]*>/)?.[0] ?? "";
 
     expect(listSource).toMatch(
       /class="rule-row__controls"[\s\S]*?class="rule-row__auto-start"[\s\S]*?v-if="canStart\(stateOf\(rule\.id\)\)"/,
@@ -422,9 +399,9 @@ describe("RequestForwardPanel source structure", () => {
   it("does not overwrite dirty forms during background refresh", () => {
     expect(source).toContain("const formDirty");
     expect(source).toContain("requestEditorClose");
-    expect(source).toContain('formDirty.value = true');
+    expect(source).toContain("formDirty.value = true");
     expect(dialogSource).toContain(':model-value="form"');
-    expect(dialogSource).toContain('@update:model-value');
+    expect(dialogSource).toContain("@update:model-value");
     expect(source).toContain("formDirty.value = false");
   });
 
@@ -447,7 +424,9 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("captureRequestForwardMutationIntent");
     expect(source).toContain("applyRequestForwardMutationResult");
     expect(source).toContain("currentSelectionIntent");
-    expect(source.match(/applyRequestForwardMutationResult/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(source.match(/applyRequestForwardMutationResult/g)?.length ?? 0).toBeGreaterThanOrEqual(
+      4,
+    );
   });
 
   it("separates externally removed view and editor targets", () => {
@@ -462,7 +441,9 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("function reloadCurrentObservability");
     expect(source).toContain("const intentToken = selectionIntentToken");
     expect(source).toContain("const ruleId = selectedId.value");
-    expect(source).toMatch(/finally \{\s*observabilityMutating\.value = false;\s*reloadCurrentObservability\(\);/);
+    expect(source).toMatch(
+      /finally \{\s*observabilityMutating\.value = false;\s*reloadCurrentObservability\(\);/,
+    );
   });
 
   it("loads selected-rule stats with protocol-specific event labels", () => {
@@ -506,14 +487,18 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("重置转发统计");
     expect(source).toContain("request-forward-observability-confirm");
     expect(source).toContain("loadLogs(false, ruleId, intentToken)");
-    const clearLogsBody = source.match(/async function clearLogs\(\)[\s\S]*?\n}\n\nasync function resetStats/)?.[0] ?? "";
-    const resetStatsBody = source.match(/async function resetStats\(\)[\s\S]*?\n}\n\nfunction upsertStatus/)?.[0] ?? "";
+    const clearLogsBody =
+      source.match(/async function clearLogs\(\)[\s\S]*?\n}\n\nasync function resetStats/)?.[0] ??
+      "";
+    const resetStatsBody =
+      source.match(/async function resetStats\(\)[\s\S]*?\n}\n\nfunction upsertStatus/)?.[0] ?? "";
     expect(clearLogsBody).not.toContain("tool:request-forward:stats-reset");
     expect(resetStatsBody).not.toContain("tool:request-forward:log-clear");
   });
 
   it("allows clearing all rule logs even when the active filter is empty", () => {
-    const clearButton = source.match(/<el-button[\s\S]*?@click="clearLogs"[\s\S]*?<\/el-button>/)?.[0] ?? "";
+    const clearButton =
+      source.match(/<el-button[\s\S]*?@click="clearLogs"[\s\S]*?<\/el-button>/)?.[0] ?? "";
     expect(clearButton).toContain("全部日志");
     expect(clearButton).toContain("selectedRule");
     expect(clearButton).not.toContain("!logItems.length");
@@ -552,7 +537,9 @@ describe("RequestForwardPanel source structure", () => {
 
   it("keeps rule titles and HTTP methods in dedicated rows and columns", () => {
     expect(listSource).toContain('class="rule-row__title"');
-    expect(listSource).toMatch(/class="rule-row__title"[\s\S]*?<strong>\{\{ rule\.name \}\}<\/strong>[\s\S]*?<\/span>[\s\S]*?class="rule-row__meta"/);
+    expect(listSource).toMatch(
+      /class="rule-row__title"[\s\S]*?<strong>\{\{ rule\.name \}\}<\/strong>[\s\S]*?<\/span>[\s\S]*?class="rule-row__meta"/,
+    );
     expect(logListSource).toContain('role="columnheader">请求方式');
     expect(logListSource).toContain('class="method-cell"');
     expect(logListSource).toContain(':aria-colcount="9"');
@@ -614,8 +601,8 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain('class="inspector-resizer"');
     expect(source).toContain('role="separator"');
     expect(source).toContain('aria-orientation="vertical"');
-    expect(source).toContain('request-forward:rule-list-width');
-    expect(source).toContain('request-forward:inspector-width');
+    expect(source).toContain("request-forward:rule-list-width");
+    expect(source).toContain("request-forward:inspector-width");
     expect(source).toContain("getSetting");
     expect(source).toContain("setSetting");
     expect(source).toContain("@pointerdown");
@@ -651,7 +638,9 @@ describe("RequestForwardPanel source structure", () => {
   it("distinguishes the local HTTP listener from HTTP or HTTPS targets", () => {
     expect(formSource).toContain('<el-option label="HTTP" value="http" />');
     expect(formSource).not.toContain('label="HTTP / HTTPS"');
-    expect(formSource).toContain("HTTP 规则支持普通 HTTP 请求和 WebSocket Upgrade，目标可为 HTTP 或 HTTPS。");
+    expect(formSource).toContain(
+      "HTTP 规则支持普通 HTTP 请求和 WebSocket Upgrade，目标可为 HTTP 或 HTTPS。",
+    );
     expect(formSource).not.toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
     expect(formSource).toContain("支持 HTTP/HTTPS 基础地址及 WebSocket Upgrade");
   });
@@ -698,7 +687,9 @@ describe("RequestForwardPanel source structure", () => {
     expect(listSource).toMatch(/\.rule-row__summary\s*\{[^}]*font-size:\s*14px/s);
     expect(logListSource).toMatch(/\.log-table__row\s*\{[^}]*font-size:\s*14px/s);
     expect(formSource).toContain(".rule-form :deep(.el-form-item__label)");
-    expect(formSource).toMatch(/\.rule-form :deep\(\.el-checkbox__label\)\s*\{\s*font-size:\s*16px/s);
+    expect(formSource).toMatch(
+      /\.rule-form :deep\(\.el-checkbox__label\)\s*\{\s*font-size:\s*16px/s,
+    );
   });
 
   it("keeps the inspector as an overlay on narrow layouts", () => {
@@ -709,7 +700,7 @@ describe("RequestForwardPanel source structure", () => {
 
   it("never renders TCP or UDP payload details", () => {
     expect(inspectorSource).not.toMatch(/payload/i);
-    expect(inspectorSource).toContain('v-if="log.protocol === \'http\'"');
+    expect(inspectorSource).toContain("v-if=\"log.protocol === 'http'\"");
   });
 
   it("provides complete log filters and loading states", () => {
@@ -730,11 +721,13 @@ describe("RequestForwardPanel source structure", () => {
 
   it("defaults to paused and starts real-time collection only on explicit resume", () => {
     expect(typesSource).toContain("logCaptureEnabled: boolean");
-    expect(bridgeSource).toContain(
-      '"tool:request-forward:log-capture-update": { domain: "request_forward", action: "log_capture_update" }',
+    expect(bridgeSource).toMatch(
+      /"tool:request-forward:log-capture-update":\s*\{\s*domain:\s*"request_forward",\s*action:\s*"log_capture_update",?\s*\}/,
     );
     expect(source).toContain("selectedStatus.value?.logCaptureEnabled ?? false");
-    expect(source).toMatch(/async function refreshLogsInBackground[\s\S]*?if \(!logLive\.value\) return/);
+    expect(source).toMatch(
+      /async function refreshLogsInBackground[\s\S]*?if \(!logLive\.value\) return/,
+    );
     expect(source).not.toContain("probePausedLogs");
     expect(source).not.toContain("pausedNewCount");
     expect(source).toMatch(

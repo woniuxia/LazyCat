@@ -10,17 +10,9 @@
       <p class="menu-dialog-tip">
         可配置每个功能的别名、缩写和描述。隐藏菜单项后，仍可通过首页搜索访问。
       </p>
-      <el-input
-        v-model="query"
-        placeholder="搜索功能名、分组、别名、缩写或描述"
-        clearable
-      />
+      <el-input v-model="query" placeholder="搜索功能名、分组、别名、缩写或描述" clearable />
       <div class="menu-list">
-        <div
-          v-for="tool in filteredTools"
-          :key="tool.id"
-          class="tool-row"
-        >
+        <div v-for="tool in filteredTools" :key="tool.id" class="tool-row">
           <div class="tool-row-head">
             <div class="tool-main">
               <span class="tool-name">{{ tool.name }}</span>
@@ -177,7 +169,10 @@ function setVisible(toolId: string, visibleFlag: boolean) {
 function appendAliasInput(toolId: string) {
   const raw = aliasInput.value[toolId] ?? "";
   if (!raw.trim()) return;
-  const chunks = raw.split(",").map((it) => it.trim()).filter(Boolean);
+  const chunks = raw
+    .split(",")
+    .map((it) => it.trim())
+    .filter(Boolean);
   if (chunks.length === 0) return;
 
   const current = aliasesDraft.value[toolId] ?? [];

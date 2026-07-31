@@ -10,7 +10,9 @@
     <div v-if="consistencyWarning" class="hosts-admin-banner is-warning">
       <el-icon><WarningFilled /></el-icon>
       <span>{{ consistencyWarning }}</span>
-      <el-button size="small" text type="primary" @click="reloadSystemHosts">读取系统 hosts</el-button>
+      <el-button size="small" text type="primary" @click="reloadSystemHosts"
+        >读取系统 hosts</el-button
+      >
       <el-button size="small" text @click="dismissConsistencyWarning">忽略</el-button>
     </div>
 
@@ -18,7 +20,13 @@
       <!-- 左侧：配置列表 -->
       <aside class="hosts-sidebar">
         <div class="hosts-search">
-          <svg class="hosts-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            class="hosts-search-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
           </svg>
@@ -41,14 +49,18 @@
           <span class="hosts-list-count">{{ filteredProfiles.length }} 个</span>
         </div>
 
-        <div ref="profileListRef" class="hosts-profile-list" :class="{ 'is-loading': listLoading || reorderLoading }">
+        <div
+          ref="profileListRef"
+          class="hosts-profile-list"
+          :class="{ 'is-loading': listLoading || reorderLoading }"
+        >
           <div
             v-for="(profile, index) in filteredProfiles"
             :key="profile.id"
             class="hosts-profile-card"
             :class="{
               'is-active': hostsName === profile.name,
-              'is-enabled': profile.enabled
+              'is-enabled': profile.enabled,
             }"
             :style="{ animationDelay: `${index * 40}ms` }"
             @click="pickHosts(profile)"
@@ -111,9 +123,16 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="clone" :icon="CopyDocument">克隆配置</el-dropdown-item>
-                  <el-dropdown-item command="readSystem" :icon="Reading">读取系统 hosts</el-dropdown-item>
+                  <el-dropdown-item command="readSystem" :icon="Reading"
+                    >读取系统 hosts</el-dropdown-item
+                  >
                   <el-dropdown-item command="clear" :icon="Delete">清空编辑器</el-dropdown-item>
-                  <el-dropdown-item divided command="delete" :icon="DeleteFilled" class="hosts-delete-item">
+                  <el-dropdown-item
+                    divided
+                    command="delete"
+                    :icon="DeleteFilled"
+                    class="hosts-delete-item"
+                  >
                     删除配置
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -138,7 +157,10 @@
               ref="textareaRef"
               v-model="hostsContent"
               class="hosts-textarea"
-              :class="{ 'has-errors': validationErrors.length > 0, 'is-readonly': isEditorReadonly }"
+              :class="{
+                'has-errors': validationErrors.length > 0,
+                'is-readonly': isEditorReadonly,
+              }"
               :readonly="isEditorReadonly"
               :title="isEditorReadonly ? '双击进入编辑模式' : ''"
               placeholder="# 示例 hosts 配置&#10;127.0.0.1  localhost&#10;192.168.1.100  myserver.local&#10;::1  localhost"
@@ -151,15 +173,14 @@
             <div class="hosts-validation-title">
               <el-icon><WarningFilled /></el-icon>
               <span>
-                发现 {{ validationErrorTotal }} 个问题<template v-if="validationErrorTotal > validationErrors.length">（仅显示前 {{ validationErrors.length }} 个）</template>
+                发现 {{ validationErrorTotal }} 个问题<template
+                  v-if="validationErrorTotal > validationErrors.length"
+                  >（仅显示前 {{ validationErrors.length }} 个）</template
+                >
               </span>
             </div>
             <div class="hosts-validation-list">
-              <div
-                v-for="(err, idx) in validationErrors"
-                :key="idx"
-                class="hosts-validation-item"
-              >
+              <div v-for="(err, idx) in validationErrors" :key="idx" class="hosts-validation-item">
                 {{ err }}
               </div>
             </div>
@@ -184,12 +205,7 @@
             >
               保存配置
             </el-button>
-            <el-button
-              type="success"
-              :loading="activating"
-              :icon="Select"
-              @click="activateHosts"
-            >
+            <el-button type="success" :loading="activating" :icon="Select" @click="activateHosts">
               设为当前配置
             </el-button>
           </div>
@@ -202,7 +218,9 @@
               <div class="hosts-backup-title">
                 <el-icon><FolderOpened /></el-icon>
                 <span>备份历史</span>
-                <el-tag size="small" type="info" class="hosts-backup-count">{{ backupList.length }}</el-tag>
+                <el-tag size="small" type="info" class="hosts-backup-count">{{
+                  backupList.length
+                }}</el-tag>
               </div>
             </template>
             <el-table
@@ -211,7 +229,12 @@
               :loading="backupListLoading"
               class="hosts-backup-table"
             >
-              <el-table-column prop="filename" label="文件名" min-width="200" show-overflow-tooltip />
+              <el-table-column
+                prop="filename"
+                label="文件名"
+                min-width="200"
+                show-overflow-tooltip
+              />
               <el-table-column prop="modifiedAt" label="备份时间" width="150">
                 <template #default="{ row }">{{ formatTime(row.modifiedAt) }}</template>
               </el-table-column>
@@ -220,18 +243,12 @@
               </el-table-column>
               <el-table-column label="操作" width="120" align="center">
                 <template #default="{ row }">
-                  <el-button
-                    size="small"
-                    type="warning"
-                    link
-                    @click="restoreBackup(row.filename)"
-                  >恢复</el-button>
-                  <el-button
-                    size="small"
-                    type="danger"
-                    link
-                    @click="deleteBackup(row.filename)"
-                  >删除</el-button>
+                  <el-button size="small" type="warning" link @click="restoreBackup(row.filename)"
+                    >恢复</el-button
+                  >
+                  <el-button size="small" type="danger" link @click="deleteBackup(row.filename)"
+                    >删除</el-button
+                  >
                 </template>
               </el-table-column>
             </el-table>
@@ -322,10 +339,7 @@ const editingProfileId = ref<number | null>(null);
 // 系统 hosts 与激活 profile 不一致时显示的 banner 文案
 const consistencyWarning = ref("");
 // --- loading flags ---
-const {
-  loading: saving,
-  invoke: invokeSaveRaw,
-} = useToolInvoke();
+const { loading: saving, invoke: invokeSaveRaw } = useToolInvoke();
 const { loading: activating, invokeWithLoading: invokeActivating } = useToolInvoke();
 const { loading: deleting, invokeWithLoading: invokeDeleting } = useToolInvoke();
 const { loading: listLoading, invokeWithLoading: invokeList } = useToolInvoke();
@@ -335,10 +349,7 @@ const { loading: reorderLoading, invokeWithLoading: invokeReorder } = useToolInv
 const { invokeWithLoading: invokeHosts, invokeSilent } = useToolInvoke();
 
 // --- computed ---
-const {
-  keyword: searchKeyword,
-  filtered: filteredProfiles,
-} = useListSearch(
+const { keyword: searchKeyword, filtered: filteredProfiles } = useListSearch(
   () => hostsProfiles.value,
   (profile, keyword) => profile.name.toLowerCase().includes(keyword.toLowerCase()),
 );
@@ -355,9 +366,11 @@ const allValidationErrors = computed(() => {
   const lines = hostsContent.value.split("\n");
   const errors: string[] = [];
   // IPv4：四段 0-255
-  const ipv4Re = /^(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+  const ipv4Re =
+    /^(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
   // IPv6：粗校验，允许压缩零段
-  const ipv6Re = /^(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}$|^::$|^::1$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^:(?::[0-9a-fA-F]{1,4}){1,7}$|^(?:[0-9a-fA-F]{1,4}:){1,6}(?::[0-9a-fA-F]{1,4}){1,6}$/;
+  const ipv6Re =
+    /^(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}$|^::$|^::1$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^:(?::[0-9a-fA-F]{1,4}){1,7}$|^(?:[0-9a-fA-F]{1,4}:){1,6}(?::[0-9a-fA-F]{1,4}){1,6}$/;
   // 主机名 RFC 1123：字母数字开头/结尾，中间可有连字符
   const hostnameLabelRe = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 
@@ -704,18 +717,18 @@ async function saveHosts() {
   }
   if (validationErrors.value.length > 0) {
     try {
-      await ElMessageBox.confirm(
-        "hosts 内容存在语法错误，确定要保存吗？",
-        "语法警告",
-        { confirmButtonText: "仍然保存", cancelButtonText: "取消", type: "warning" },
-      );
+      await ElMessageBox.confirm("hosts 内容存在语法错误，确定要保存吗？", "语法警告", {
+        confirmButtonText: "仍然保存",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
     } catch {
       return;
     }
   }
 
   const editing = editingProfileId.value
-    ? hostsProfiles.value.find((p) => p.id === editingProfileId.value) ?? null
+    ? (hostsProfiles.value.find((p) => p.id === editingProfileId.value) ?? null)
     : null;
   const existingByName = hostsProfiles.value.find((p) => p.name === trimmedName);
 
@@ -848,22 +861,18 @@ async function deleteProfileByName(name: string) {
     return;
   }
   try {
-    await ElMessageBox.confirm(
-      `确定要删除配置 "${name}" 吗？此操作不可撤销。`,
-      "删除确认",
-      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
-    );
+    await ElMessageBox.confirm(`确定要删除配置 "${name}" 吗？此操作不可撤销。`, "删除确认", {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      type: "warning",
+    });
   } catch {
     return;
   }
   const result = await invokeDeleting<{
     wasActive?: boolean;
     deleted?: boolean;
-  }>(
-    "tool:hosts:delete",
-    { name },
-    { errorPrefix: "删除失败：" },
-  );
+  }>("tool:hosts:delete", { name }, { errorPrefix: "删除失败：" });
   if (!result) return;
   await loadHostsProfiles();
   if (hostsName.value === name) {
@@ -937,11 +946,11 @@ async function restoreBackup(filename: string) {
 
 async function deleteBackup(filename: string) {
   try {
-    await ElMessageBox.confirm(
-      `确定要删除备份 "${filename}" 吗？此操作不可撤销。`,
-      "删除备份",
-      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
-    );
+    await ElMessageBox.confirm(`确定要删除备份 "${filename}" 吗？此操作不可撤销。`, "删除备份", {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      type: "warning",
+    });
   } catch {
     return;
   }

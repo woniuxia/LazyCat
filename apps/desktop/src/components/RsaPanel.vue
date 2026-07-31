@@ -2,8 +2,20 @@
   <div class="panel-grid">
     <el-input v-model="cryptoInput" type="textarea" :rows="8" placeholder="明文 / 密文(Base64)" />
     <el-input v-model="cryptoOutput" type="textarea" :rows="8" readonly placeholder="输出" />
-    <el-input v-model="publicKeyPem" class="panel-grid-full" type="textarea" :rows="6" placeholder="RSA 公钥 PEM" />
-    <el-input v-model="privateKeyPem" class="panel-grid-full" type="textarea" :rows="6" placeholder="RSA 私钥 PEM" />
+    <el-input
+      v-model="publicKeyPem"
+      class="panel-grid-full"
+      type="textarea"
+      :rows="6"
+      placeholder="RSA 公钥 PEM"
+    />
+    <el-input
+      v-model="privateKeyPem"
+      class="panel-grid-full"
+      type="textarea"
+      :rows="6"
+      placeholder="RSA 私钥 PEM"
+    />
     <div class="panel-grid-full">
       <el-space>
         <el-button type="primary" @click="rsaEncrypt">RSA 加密</el-button>

@@ -66,10 +66,9 @@ function combinationIdentity(item: SpotlightItem): { id: number; name: string } 
 }
 
 async function prefetchCombinations(): Promise<SpotlightItem[]> {
-  const response = (await invokeToolByChannel(
-    "tool:action-center:combination-list",
-    {},
-  )) as { combinations?: ActionCombinationSummary[] };
+  const response = (await invokeToolByChannel("tool:action-center:combination-list", {})) as {
+    combinations?: ActionCombinationSummary[];
+  };
   return (response.combinations ?? []).map(buildActionCombinationSpotlightItem);
 }
 

@@ -33,15 +33,15 @@
 
 新增表 `sql_entity_base_classes`：
 
-| 字段 | 类型 | 约束 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `INTEGER` | 主键自增 | 基类配置 ID |
-| `alias` | `TEXT` | 非空、唯一 | 用户可读名称，例如“审计基类” |
-| `qualified_name` | `TEXT` | 非空、唯一 | 完整类名，例如 `com.example.BaseEntity` |
-| `fields_json` | `TEXT` | 非空 | Java 属性名数组 JSON |
-| `sort_order` | `INTEGER` | 非空，默认 0 | 管理列表顺序 |
-| `created_at` | `TEXT` | 非空 | 创建时间 |
-| `updated_at` | `TEXT` | 非空 | 更新时间 |
+| 字段             | 类型      | 约束         | 说明                                    |
+| ---------------- | --------- | ------------ | --------------------------------------- |
+| `id`             | `INTEGER` | 主键自增     | 基类配置 ID                             |
+| `alias`          | `TEXT`    | 非空、唯一   | 用户可读名称，例如“审计基类”            |
+| `qualified_name` | `TEXT`    | 非空、唯一   | 完整类名，例如 `com.example.BaseEntity` |
+| `fields_json`    | `TEXT`    | 非空         | Java 属性名数组 JSON                    |
+| `sort_order`     | `INTEGER` | 非空，默认 0 | 管理列表顺序                            |
+| `created_at`     | `TEXT`    | 非空         | 创建时间                                |
+| `updated_at`     | `TEXT`    | 非空         | 更新时间                                |
 
 通过现有 `helpers.rs` 的 `CREATE TABLE IF NOT EXISTS` 初始化，不改写已有数据，也不需要历史数据迁移。
 

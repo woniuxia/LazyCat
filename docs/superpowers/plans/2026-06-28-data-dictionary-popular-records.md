@@ -30,6 +30,7 @@ The worktree is expected to be dirty. Before each commit, stage only files touch
 ### Task 1: Backend Schema And Dispatch Surface
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -94,6 +95,7 @@ git commit -m "feat(data-dictionary): add record usage schema"
 ### Task 2: Primary Key Enforcement And Confirmed Pruning
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 
 - [ ] **Step 1: Write Rust tests for primary-key-required create and update**
@@ -301,6 +303,7 @@ git commit -m "feat(data-dictionary): require primary key configuration"
 ### Task 3: Record Usage Backend APIs
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 
 - [ ] **Step 1: Write Rust tests for mark_record_used and popular_records**
@@ -640,6 +643,7 @@ git commit -m "feat(data-dictionary): track popular records"
 ### Task 4: TypeScript Types And Pure List Helpers
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/data-dictionary.ts`
 - Modify: `apps/desktop/src/utils/dataDictionary.ts`
 - Modify: `apps/desktop/src/utils/dataDictionary.test.ts`
@@ -679,11 +683,11 @@ export interface MarkDataDictionaryRecordUsedResult {
 In `apps/desktop/src/utils/dataDictionary.test.ts`, add:
 
 ```ts
-import {
-  mergePopularAndSearchItems,
-  pickInitialRecordItem,
-} from "./dataDictionary";
-import type { DataDictionaryPopularRecord, DataDictionarySearchItem } from "../types/data-dictionary";
+import { mergePopularAndSearchItems, pickInitialRecordItem } from "./dataDictionary";
+import type {
+  DataDictionaryPopularRecord,
+  DataDictionarySearchItem,
+} from "../types/data-dictionary";
 
 function searchItem(id: number, title: string): DataDictionarySearchItem {
   return {
@@ -709,10 +713,10 @@ function popularItem(id: number, title: string): DataDictionaryPopularRecord {
 }
 
 it("keeps popular records first and removes duplicate search items", () => {
-  const result = mergePopularAndSearchItems([popularItem(1, "Alice")], [
-    searchItem(1, "Alice"),
-    searchItem(2, "Bob"),
-  ]);
+  const result = mergePopularAndSearchItems(
+    [popularItem(1, "Alice")],
+    [searchItem(1, "Alice"), searchItem(2, "Bob")],
+  );
 
   expect(result.map((item) => item.id)).toEqual([1, 2]);
 });
@@ -755,10 +759,7 @@ export function mergePopularAndSearchItems(
   searchItems: DataDictionarySearchItem[],
 ): Array<DataDictionaryPopularRecord | DataDictionarySearchItem> {
   const popularIds = new Set(popularItems.map((item) => item.id));
-  return [
-    ...popularItems,
-    ...searchItems.filter((item) => !popularIds.has(item.id)),
-  ];
+  return [...popularItems, ...searchItems.filter((item) => !popularIds.has(item.id))];
 }
 
 export function pickInitialRecordItem(
@@ -793,6 +794,7 @@ git commit -m "test(data-dictionary): cover popular record list helpers"
 ### Task 5: DataDictionaryPanel UI Integration
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/DataDictionaryPanel.vue`
 - Modify: `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
 
@@ -804,7 +806,7 @@ In `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`, add t
 it("requires primary field selection when creating a dictionary", () => {
   expect(source).toContain("importPrimaryPath");
   expect(source).toContain("primaryFieldPath: importPrimaryPath.value");
-  expect(source).toContain(":disabled=\"!canSubmitImport\"");
+  expect(source).toContain(':disabled="!canSubmitImport"');
 });
 
 it("loads popular records separately from keyword search", () => {
@@ -840,10 +842,7 @@ import type {
   DataDictionaryPopularRecordsResult,
   MarkDataDictionaryRecordUsedResult,
 } from "../types/data-dictionary";
-import {
-  mergePopularAndSearchItems,
-  pickInitialRecordItem,
-} from "../utils/dataDictionary";
+import { mergePopularAndSearchItems, pickInitialRecordItem } from "../utils/dataDictionary";
 ```
 
 Add state:
@@ -926,7 +925,11 @@ async function loadPopularRecords() {
     popularItems.value = [];
     return;
   }
-  if (searchScope.value === "current" && currentDictionary.value && !currentDictionary.value.primaryFieldPath) {
+  if (
+    searchScope.value === "current" &&
+    currentDictionary.value &&
+    !currentDictionary.value.primaryFieldPath
+  ) {
     popularItems.value = [];
     return;
   }
@@ -934,10 +937,13 @@ async function loadPopularRecords() {
   loadingPopular.value = true;
   popularError.value = "";
   try {
-    const result = await ipc<DataDictionaryPopularRecordsResult>("tool:data-dictionary:popular-records", {
-      dictionaryId: searchScope.value === "current" ? selectedId.value ?? undefined : undefined,
-      limit: 10,
-    });
+    const result = await ipc<DataDictionaryPopularRecordsResult>(
+      "tool:data-dictionary:popular-records",
+      {
+        dictionaryId: searchScope.value === "current" ? (selectedId.value ?? undefined) : undefined,
+        limit: 10,
+      },
+    );
     popularItems.value = result.items;
   } catch (error) {
     popularError.value = (error as Error).message || "加载常用记录失败";
@@ -966,7 +972,10 @@ Add computed:
 
 ```ts
 const currentDictionaryRequiresPrimary = computed(
-  () => searchScope.value === "current" && currentDictionary.value && !currentDictionary.value.primaryFieldPath,
+  () =>
+    searchScope.value === "current" &&
+    currentDictionary.value &&
+    !currentDictionary.value.primaryFieldPath,
 );
 ```
 
@@ -1023,7 +1032,12 @@ async function markRecordUsed(id: number) {
 Do not call `markRecordUsed` when the current dictionary has no primary key. The backend also rejects it, but the frontend should skip known invalid cases:
 
 ```ts
-if (searchScope.value === "current" && currentDictionary.value && !currentDictionary.value.primaryFieldPath) return;
+if (
+  searchScope.value === "current" &&
+  currentDictionary.value &&
+  !currentDictionary.value.primaryFieldPath
+)
+  return;
 ```
 
 - [ ] **Step 7: Confirm primary pruning from field config**
@@ -1092,6 +1106,7 @@ git commit -m "feat(data-dictionary): show popular records in panel"
 ### Task 6: Full Verification And Cleanup
 
 **Files:**
+
 - Modify only if verification reveals a defect in files touched by Tasks 1-5.
 
 - [ ] **Step 1: Run backend data dictionary tests**

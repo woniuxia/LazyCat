@@ -52,21 +52,21 @@ LazyCat 当前有三处"描述"字段以 `el-input type="textarea"` 呈现：
 
 ## 3. 关键决策汇总
 
-| # | 议题 | 决策 |
-|---|---|---|
-| 1 | 附件物理目录结构 | hash 扁平：`attachments/<hash>.<ext>` |
-| 2 | Image 节点 attrs | `{ attId, src: <相对路径>, alt? }` 双字段 |
-| 3 | description 空值 | 空字符串 `''`（不触发升级） |
-| 4 | Viewer 解析本地路径 | 渲染前 walk JSON 把 `src` 重写为 `convertFileSrc` 结果 |
-| 5 | 字节传输 | base64 over JSON，单文件 5 MB 上限 |
-| 6 | 主表删除联动 | pm/todo 的 delete 函数末尾显式调 `attachments::delete_by_owner`；`project_delete` 事务内显式清理 `pm_items`（无 FK CASCADE） |
-| 7 | tempId 生命周期 | 新建场景组件内部生成 `tmp-<uuid>`，submit 后父组件调 rebind，cancel 调 cleanup |
-| 8 | CSP / assetProtocol | 追加 `asset:` + `http://asset.localhost`，`Cargo.toml` 的 `tauri` 依赖追加 `protocol-asset` feature，main.rs 运行时 `allow_directory(attachments_dir)` |
-| 9 | 外链 Link 配置 | 白名单 `['http','https','mailto']` + `rel="noopener noreferrer"`；`openOnClick: false`，点击走 `tool:system:open_external` |
-| 10 | 图片粘贴上限 | 5 MB，超限前端弹窗拦截 |
-| 11 | 旧数据升级 | 懒升级，仅在用户编辑时自动写回 JSON |
-| 12 | rebind 是否 MVP | 是，保证 owner_id 准确，为 P2 附件库铺路 |
-| 13 | 只读 Viewer 实现 | `@tiptap/static-renderer` + 预处理本地路径 |
+| #   | 议题                | 决策                                                                                                                                                   |
+| --- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | 附件物理目录结构    | hash 扁平：`attachments/<hash>.<ext>`                                                                                                                  |
+| 2   | Image 节点 attrs    | `{ attId, src: <相对路径>, alt? }` 双字段                                                                                                              |
+| 3   | description 空值    | 空字符串 `''`（不触发升级）                                                                                                                            |
+| 4   | Viewer 解析本地路径 | 渲染前 walk JSON 把 `src` 重写为 `convertFileSrc` 结果                                                                                                 |
+| 5   | 字节传输            | base64 over JSON，单文件 5 MB 上限                                                                                                                     |
+| 6   | 主表删除联动        | pm/todo 的 delete 函数末尾显式调 `attachments::delete_by_owner`；`project_delete` 事务内显式清理 `pm_items`（无 FK CASCADE）                           |
+| 7   | tempId 生命周期     | 新建场景组件内部生成 `tmp-<uuid>`，submit 后父组件调 rebind，cancel 调 cleanup                                                                         |
+| 8   | CSP / assetProtocol | 追加 `asset:` + `http://asset.localhost`，`Cargo.toml` 的 `tauri` 依赖追加 `protocol-asset` feature，main.rs 运行时 `allow_directory(attachments_dir)` |
+| 9   | 外链 Link 配置      | 白名单 `['http','https','mailto']` + `rel="noopener noreferrer"`；`openOnClick: false`，点击走 `tool:system:open_external`                             |
+| 10  | 图片粘贴上限        | 5 MB，超限前端弹窗拦截                                                                                                                                 |
+| 11  | 旧数据升级          | 懒升级，仅在用户编辑时自动写回 JSON                                                                                                                    |
+| 12  | rebind 是否 MVP     | 是，保证 owner_id 准确，为 P2 附件库铺路                                                                                                               |
+| 13  | 只读 Viewer 实现    | `@tiptap/static-renderer` + 预处理本地路径                                                                                                             |
 
 ## 4. 数据模型
 
@@ -119,12 +119,12 @@ CREATE INDEX IF NOT EXISTS idx_attachments_hash  ON attachments(hash);
 
 ### 5.2 路径解析
 
-| 场景 | 计算 |
-|---|---|
-| 后端落盘绝对路径 | `<data_dir>/attachments/<hash>.<ext>` |
-| DB `rel_path` 存储 | `attachments/<hash>.<ext>`（无前导斜杠，用 `/`） |
-| 节点 `attrs.src` | 等于 `rel_path`，用 `/` 分隔 |
-| 前端渲染 URL | `convertFileSrc(<data_dir>/attachments/<hash>.<ext>)` |
+| 场景               | 计算                                                  |
+| ------------------ | ----------------------------------------------------- |
+| 后端落盘绝对路径   | `<data_dir>/attachments/<hash>.<ext>`                 |
+| DB `rel_path` 存储 | `attachments/<hash>.<ext>`（无前导斜杠，用 `/`）      |
+| 节点 `attrs.src`   | 等于 `rel_path`，用 `/` 分隔                          |
+| 前端渲染 URL       | `convertFileSrc(<data_dir>/attachments/<hash>.<ext>)` |
 
 其中 `<hash>` 为 blake3 digest 前 16 字节的 hex 形式（= 32 字符）。
 
@@ -134,21 +134,21 @@ CREATE INDEX IF NOT EXISTS idx_attachments_hash  ON attachments(hash);
 
 ### 6.1 新增 `tool:attachments:*` 通道
 
-| Channel | 入参 | 出参 |
-|---|---|---|
-| `tool:attachments:save` | `{ ownerType, ownerId, fileName, mime, kind, bytesBase64 }` | `{ id, relPath, hash, size }` |
-| `tool:attachments:list` | `{ ownerType, ownerId }` | `Attachment[]` |
-| `tool:attachments:remove` | `{ id }` | `{ removedFile: boolean }` |
-| `tool:attachments:rebind` | `{ ownerType, fromOwnerId, toOwnerId }` | `{ updated: number }` |
-| `tool:attachments:cleanup_orphans` | `{ ownerType, ownerId, keepIds: number[] }` | `{ removedCount, removedFiles }` |
-| `tool:attachments:delete_by_owner` | `{ ownerType, ownerId }` | `{ removedCount, removedFiles }` |
+| Channel                            | 入参                                                        | 出参                             |
+| ---------------------------------- | ----------------------------------------------------------- | -------------------------------- |
+| `tool:attachments:save`            | `{ ownerType, ownerId, fileName, mime, kind, bytesBase64 }` | `{ id, relPath, hash, size }`    |
+| `tool:attachments:list`            | `{ ownerType, ownerId }`                                    | `Attachment[]`                   |
+| `tool:attachments:remove`          | `{ id }`                                                    | `{ removedFile: boolean }`       |
+| `tool:attachments:rebind`          | `{ ownerType, fromOwnerId, toOwnerId }`                     | `{ updated: number }`            |
+| `tool:attachments:cleanup_orphans` | `{ ownerType, ownerId, keepIds: number[] }`                 | `{ removedCount, removedFiles }` |
+| `tool:attachments:delete_by_owner` | `{ ownerType, ownerId }`                                    | `{ removedCount, removedFiles }` |
 
 ### 6.2 新增 `tool:system:*` 通道
 
-| Channel | 入参 | 出参 |
-|---|---|---|
-| `tool:system:get_paths` | `{}` | `{ dataDir, attachmentsDir }` |
-| `tool:system:open_external` | `{ url }` | `{ ok: true }` |
+| Channel                     | 入参      | 出参                          |
+| --------------------------- | --------- | ----------------------------- |
+| `tool:system:get_paths`     | `{}`      | `{ dataDir, attachmentsDir }` |
+| `tool:system:open_external` | `{ url }` | `{ ok: true }`                |
 
 （独立出 `system` 域是为了未来承接更多"环境探测 / 跨平台系统交互"类查询；`open_external` 内部实现调 `open::that`，仅接受 `http/https/mailto` 协议白名单，其他协议直接 `Err`）
 
@@ -220,25 +220,25 @@ CREATE INDEX IF NOT EXISTS idx_attachments_hash  ON attachments(hash);
 
 ```ts
 defineProps<{
-  modelValue: string                          // stringified JSON / '' / legacy 纯文本
-  ownerType: 'pm_project' | 'pm_item' | 'todo'
-  ownerId?: string | number | null            // 仅 null/undefined 生成 tempId；0 / '' 视为合法 id
-  placeholder?: string
-  maxImageMb?: number                         // 默认 5
-}>()
+  modelValue: string; // stringified JSON / '' / legacy 纯文本
+  ownerType: "pm_project" | "pm_item" | "todo";
+  ownerId?: string | number | null; // 仅 null/undefined 生成 tempId；0 / '' 视为合法 id
+  placeholder?: string;
+  maxImageMb?: number; // 默认 5
+}>();
 
 defineEmits<{
-  'update:modelValue': [value: string]
-  'attachment-added': [attId: number]
-  'oversize': [mb: number]
-}>()
+  "update:modelValue": [value: string];
+  "attachment-added": [attId: number];
+  oversize: [mb: number];
+}>();
 
 defineExpose<{
-  focus: () => void
-  blur: () => void
-  getAttachmentIds: () => number[]            // 遍历当前 doc 收集所有 attId
-  getEffectiveOwnerId: () => string           // realId 或 tempId 的字符串
-}>()
+  focus: () => void;
+  blur: () => void;
+  getAttachmentIds: () => number[]; // 遍历当前 doc 收集所有 attId
+  getEffectiveOwnerId: () => string; // realId 或 tempId 的字符串
+}>();
 ```
 
 内部行为：
@@ -266,8 +266,8 @@ defineExpose<{
 
 ```ts
 defineProps<{
-  value: string
-}>()
+  value: string;
+}>();
 ```
 
 内部行为：
@@ -281,48 +281,48 @@ defineProps<{
 
 ```ts
 export function useRichDescriptionLifecycle(opts: {
-  ownerType: string
-  editorRef: Ref<RichDescriptionEditorExposed | null>
-  getRealId: () => string | number | null
+  ownerType: string;
+  editorRef: Ref<RichDescriptionEditorExposed | null>;
+  getRealId: () => string | number | null;
 }) {
   async function afterSubmit(realId: string | number) {
-    const editor = opts.editorRef.value
-    if (!editor) return
-    const tempId = editor.getEffectiveOwnerId()
-    if (!tempId.startsWith('tmp-')) return          // 编辑场景无需 rebind
-    await invokeTool('tool:attachments:rebind', {
+    const editor = opts.editorRef.value;
+    if (!editor) return;
+    const tempId = editor.getEffectiveOwnerId();
+    if (!tempId.startsWith("tmp-")) return; // 编辑场景无需 rebind
+    await invokeTool("tool:attachments:rebind", {
       ownerType: opts.ownerType,
       fromOwnerId: tempId,
       toOwnerId: String(realId),
-    })
+    });
   }
 
   async function onCancel() {
-    const editor = opts.editorRef.value
-    if (!editor) return
-    const ownerId = editor.getEffectiveOwnerId()
-    if (!ownerId.startsWith('tmp-')) return         // 编辑场景：清掉被删除的附件
-    await invokeTool('tool:attachments:cleanup_orphans', {
+    const editor = opts.editorRef.value;
+    if (!editor) return;
+    const ownerId = editor.getEffectiveOwnerId();
+    if (!ownerId.startsWith("tmp-")) return; // 编辑场景：清掉被删除的附件
+    await invokeTool("tool:attachments:cleanup_orphans", {
       ownerType: opts.ownerType,
       ownerId,
       keepIds: [],
-    })
+    });
   }
 
   async function beforeCloseEdit() {
     // 编辑场景：保存前清理被用户删除的附件
-    const editor = opts.editorRef.value
-    if (!editor) return
-    const realId = opts.getRealId()
-    if (!realId) return
-    await invokeTool('tool:attachments:cleanup_orphans', {
+    const editor = opts.editorRef.value;
+    if (!editor) return;
+    const realId = opts.getRealId();
+    if (!realId) return;
+    await invokeTool("tool:attachments:cleanup_orphans", {
       ownerType: opts.ownerType,
       ownerId: String(realId),
       keepIds: editor.getAttachmentIds(),
-    })
+    });
   }
 
-  return { afterSubmit, onCancel, beforeCloseEdit }
+  return { afterSubmit, onCancel, beforeCloseEdit };
 }
 ```
 
@@ -356,16 +356,16 @@ Editor 和 Viewer 共用，保证 schema 完全一致。
 ```ts
 // 点击链接调系统浏览器，不在 webview 内跳转
 onMounted(() => {
-  viewerEl.addEventListener('click', (e) => {
-    const a = (e.target as Element).closest('a[href]')
-    if (!a) return
-    e.preventDefault()
-    const href = a.getAttribute('href') ?? ''
+  viewerEl.addEventListener("click", (e) => {
+    const a = (e.target as Element).closest("a[href]");
+    if (!a) return;
+    e.preventDefault();
+    const href = a.getAttribute("href") ?? "";
     // 再次防御：仅放行 http/https/mailto
-    if (!/^(https?:|mailto:)/i.test(href)) return
-    invokeTool('tool:system:open_external', { url: href })
-  })
-})
+    if (!/^(https?:|mailto:)/i.test(href)) return;
+    invokeTool("tool:system:open_external", { url: href });
+  });
+});
 ```
 
 （`tool:system:open_external` 见 §6.2；Rust 端实现为协议白名单 + `open::that`）
@@ -535,18 +535,22 @@ app.asset_protocol_scope()
 
 ```ts
 function normalizeLegacy(raw: string): JSONContent {
-  const EMPTY = { type: 'doc', content: [{ type: 'paragraph' }] }
-  const t = raw?.trim() ?? ''
-  if (!t) return EMPTY
-  if (t.startsWith('{')) {
-    try { return JSON.parse(t) } catch { /* fall through */ }
+  const EMPTY = { type: "doc", content: [{ type: "paragraph" }] };
+  const t = raw?.trim() ?? "";
+  if (!t) return EMPTY;
+  if (t.startsWith("{")) {
+    try {
+      return JSON.parse(t);
+    } catch {
+      /* fall through */
+    }
   }
   // 纯文本（含换行）→ 每行一个 paragraph
-  const paragraphs = t.split(/\r?\n/).map(line => ({
-    type: 'paragraph',
-    content: line ? [{ type: 'text', text: line }] : [],
-  }))
-  return { type: 'doc', content: paragraphs }
+  const paragraphs = t.split(/\r?\n/).map((line) => ({
+    type: "paragraph",
+    content: line ? [{ type: "text", text: line }] : [],
+  }));
+  return { type: "doc", content: paragraphs };
 }
 ```
 
@@ -554,13 +558,17 @@ function normalizeLegacy(raw: string): JSONContent {
 
 ```ts
 const parsed = computed(() => {
-  const t = props.value?.trim() ?? ''
-  if (!t) return null
-  if (t.startsWith('{')) {
-    try { return JSON.parse(t) } catch { return null }
+  const t = props.value?.trim() ?? "";
+  if (!t) return null;
+  if (t.startsWith("{")) {
+    try {
+      return JSON.parse(t);
+    } catch {
+      return null;
+    }
   }
-  return null  // 走纯文本 fallback
-})
+  return null; // 走纯文本 fallback
+});
 
 // 模板中：
 // <div v-if="parsed" class="rte-prose" v-html="renderedHtml" />
@@ -571,28 +579,28 @@ const parsed = computed(() => {
 
 ## 12. 错误处理与边界
 
-| 场景 | 处理 |
-|---|---|
-| 粘贴图片超 5 MB | Editor 弹 `ElMessage.warning('单张图片不能超过 5 MB')`，不进入 save 流程 |
-| save 失败（磁盘满/权限） | 移除占位节点 + `URL.revokeObjectURL(blobUrl)` + `ElMessage.error(err)` |
-| Image 节点的 attId 引用的附件被删 | Viewer 渲染时 src 文件不存在 → 浏览器显示破图标，不报错（接受这种降级） |
-| 用户在 Link 里手填 `javascript:` / `data:` | 编辑器保存后 Viewer 的 sanitizeHref 清空 href；点击监听也二次拦截 |
-| 粘贴 SVG 或 image/svg+xml | `attachments:save` 直接 Err("svg not supported")；前端捕获后移除占位 |
-| JSON.parse 失败 | Editor 走 legacy 纯文本路径；Viewer 走 legacy fallback |
-| rebind 无任何行更新 | 静默接受（可能是 onCancel 已先走） |
-| cleanup_orphans 物理文件删除失败 | 记 warning 不阻塞 DB 删除 |
-| 组件被销毁时粘贴仍在进行 | 用 `onBeforeUnmount` 释放 editor + revokeObjectURL；未完成的 save 其结果被丢弃 |
-| 数据目录迁移 | 现有 `action_migrate_data_dir` 目前只复制 `lazycat.sqlite` 与 `hosts-backups/`，**本方案在 `settings.rs:251` 附近同步追加 `attachments/` 的递归复制** |
+| 场景                                       | 处理                                                                                                                                                  |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 粘贴图片超 5 MB                            | Editor 弹 `ElMessage.warning('单张图片不能超过 5 MB')`，不进入 save 流程                                                                              |
+| save 失败（磁盘满/权限）                   | 移除占位节点 + `URL.revokeObjectURL(blobUrl)` + `ElMessage.error(err)`                                                                                |
+| Image 节点的 attId 引用的附件被删          | Viewer 渲染时 src 文件不存在 → 浏览器显示破图标，不报错（接受这种降级）                                                                               |
+| 用户在 Link 里手填 `javascript:` / `data:` | 编辑器保存后 Viewer 的 sanitizeHref 清空 href；点击监听也二次拦截                                                                                     |
+| 粘贴 SVG 或 image/svg+xml                  | `attachments:save` 直接 Err("svg not supported")；前端捕获后移除占位                                                                                  |
+| JSON.parse 失败                            | Editor 走 legacy 纯文本路径；Viewer 走 legacy fallback                                                                                                |
+| rebind 无任何行更新                        | 静默接受（可能是 onCancel 已先走）                                                                                                                    |
+| cleanup_orphans 物理文件删除失败           | 记 warning 不阻塞 DB 删除                                                                                                                             |
+| 组件被销毁时粘贴仍在进行                   | 用 `onBeforeUnmount` 释放 editor + revokeObjectURL；未完成的 save 其结果被丢弃                                                                        |
+| 数据目录迁移                               | 现有 `action_migrate_data_dir` 目前只复制 `lazycat.sqlite` 与 `hosts-backups/`，**本方案在 `settings.rs:251` 附近同步追加 `attachments/` 的递归复制** |
 
 ## 13. 联动清理清单
 
 在实施期需要改的 Rust 删除函数（均在 delete 路径末尾增加 `delete_by_owner_internal` 调用）：
 
-| 文件 | 函数 | owner_type |
-|---|---|---|
-| `pm.rs` | `item_delete` | `pm_item` |
-| `pm.rs` | `project_delete` | 先逐一清子 items 的 `pm_item`，再 `DELETE FROM pm_items`，最后清 `pm_project` |
-| `todo.rs` | `item_delete` + 内部 `delete_item_by_id` | `todo` |
+| 文件      | 函数                                     | owner_type                                                                    |
+| --------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `pm.rs`   | `item_delete`                            | `pm_item`                                                                     |
+| `pm.rs`   | `project_delete`                         | 先逐一清子 items 的 `pm_item`，再 `DELETE FROM pm_items`，最后清 `pm_project` |
+| `todo.rs` | `item_delete` + 内部 `delete_item_by_id` | `todo`                                                                        |
 
 ### 13.1 `project_delete` 的级联写法（修复现有孤儿 bug）
 
@@ -692,46 +700,46 @@ attachments::delete_by_owner_internal(conn, "todo", &item_id.to_string())?;
 
 ## 15. 验证矩阵
 
-| 场景 | 期望结果 |
-|---|---|
-| 空 description 打开编辑器 | 显示 placeholder，无报错 |
-| 旧纯文本 description 打开编辑器 | 自动转为段落显示，编辑保存后 DB 变 JSON |
-| 旧纯文本 description 打开 Viewer | 走 legacy 路径，保留换行 |
-| 旧 Todo MD 描述（`**粗体**` / `# 标题`）打开 Viewer | 按纯文本段落显示，字面保留标记（接受已知退化） |
-| 在编辑器粘贴 PNG 截图 | 立即出现 loading 占位；save 完成后替换为最终 src，文件写入 attachments/ |
-| 粘贴超 5 MB 图 | 弹提示，不出现占位 |
-| 粘贴同一张图两次 | 第二次 hash 命中，复用已有 rel_path，不重复写文件，DB 多一行引用 |
-| 粘贴 SVG | save 返回 Err，占位节点被移除 |
-| 链接手填 `javascript:alert(1)` | Viewer 渲染后 href 被清空；即便通过 DOM 直接触发点击也被二次拦截 |
-| 新建 PM Item 后取消 | 刚粘贴的图 tmp 记录被清，物理文件按引用计数清 |
-| 新建 PM Item 后提交 | rebind 后 owner_id 从 tmp-xx 变为 realId |
-| 编辑态删除一张图并保存 | cleanup_orphans 清 DB 记录；物理文件按引用计数清 |
-| 删除 PM Item | 该 item 所有附件被清 |
-| 删除整个 PM Project | 事务内子 item 附件 → pm_items 行 → project 附件按序清，无孤儿 |
-| 数据目录迁移（含 attachments） | 新目录下同时存在 `lazycat.sqlite` / `hosts-backups/` / `attachments/`，图片仍可显示 |
-| 数据目录自定义到 D:\Data | assetProtocol 动态 scope 生效，图片仍可显示 |
-| Viewer 渲染 1000 字 + 3 张图 | 首次渲染 <100ms（非大列表场景） |
-| 外链自动识别 | 输入 `https://example.com` 空格/回车自动成为 link mark |
-| 外链点击 | 走 `tool:system:open_external` → 系统浏览器，不在 webview 跳转 |
-| 主题切换 | 编辑器 toolbar / Viewer 的配色跟随 theme-light |
-| TodoDetailEdit 老 md 工具栏 | 完全移除，不残留按钮 |
-| 构建 | `pnpm typecheck` 和 `build:web` 通过，产物体积增加可接受（TipTap 全家桶约 150 KB gzipped） |
+| 场景                                                | 期望结果                                                                                   |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 空 description 打开编辑器                           | 显示 placeholder，无报错                                                                   |
+| 旧纯文本 description 打开编辑器                     | 自动转为段落显示，编辑保存后 DB 变 JSON                                                    |
+| 旧纯文本 description 打开 Viewer                    | 走 legacy 路径，保留换行                                                                   |
+| 旧 Todo MD 描述（`**粗体**` / `# 标题`）打开 Viewer | 按纯文本段落显示，字面保留标记（接受已知退化）                                             |
+| 在编辑器粘贴 PNG 截图                               | 立即出现 loading 占位；save 完成后替换为最终 src，文件写入 attachments/                    |
+| 粘贴超 5 MB 图                                      | 弹提示，不出现占位                                                                         |
+| 粘贴同一张图两次                                    | 第二次 hash 命中，复用已有 rel_path，不重复写文件，DB 多一行引用                           |
+| 粘贴 SVG                                            | save 返回 Err，占位节点被移除                                                              |
+| 链接手填 `javascript:alert(1)`                      | Viewer 渲染后 href 被清空；即便通过 DOM 直接触发点击也被二次拦截                           |
+| 新建 PM Item 后取消                                 | 刚粘贴的图 tmp 记录被清，物理文件按引用计数清                                              |
+| 新建 PM Item 后提交                                 | rebind 后 owner_id 从 tmp-xx 变为 realId                                                   |
+| 编辑态删除一张图并保存                              | cleanup_orphans 清 DB 记录；物理文件按引用计数清                                           |
+| 删除 PM Item                                        | 该 item 所有附件被清                                                                       |
+| 删除整个 PM Project                                 | 事务内子 item 附件 → pm_items 行 → project 附件按序清，无孤儿                              |
+| 数据目录迁移（含 attachments）                      | 新目录下同时存在 `lazycat.sqlite` / `hosts-backups/` / `attachments/`，图片仍可显示        |
+| 数据目录自定义到 D:\Data                            | assetProtocol 动态 scope 生效，图片仍可显示                                                |
+| Viewer 渲染 1000 字 + 3 张图                        | 首次渲染 <100ms（非大列表场景）                                                            |
+| 外链自动识别                                        | 输入 `https://example.com` 空格/回车自动成为 link mark                                     |
+| 外链点击                                            | 走 `tool:system:open_external` → 系统浏览器，不在 webview 跳转                             |
+| 主题切换                                            | 编辑器 toolbar / Viewer 的配色跟随 theme-light                                             |
+| TodoDetailEdit 老 md 工具栏                         | 完全移除，不残留按钮                                                                       |
+| 构建                                                | `pnpm typecheck` 和 `build:web` 通过，产物体积增加可接受（TipTap 全家桶约 150 KB gzipped） |
 
 ## 16. 风险与缓解
 
-| 风险 | 缓解 |
-|---|---|
-| assetProtocol scope 通配过宽被 XSS 利用 | 静态 scope 只给 `attachments/**`，不开全盘；运行时 allow_directory 也只给 attachments |
-| `tauri` feature 漏开 `protocol-asset` 导致图片 404 | Cargo.toml 与 CSP 一并在 §14 #2 同步修改；在验证矩阵 "粘贴 PNG 截图" 用例中 fail-fast 暴露 |
-| TipTap 3 与 StarterKit 版本兼容 | 锁版本同时升级，package.json 用 `^3.x.y` 确切次版本 |
-| JSON 序列化后超长导致 SQLite 行变慢 | 现实描述内容量级可控（单条预计 <10 KB），SQLite TEXT 无上限，不成为瓶颈 |
-| Link 协议被钻空（`javascript:` / `data:`） | 三层防御：Link 扩展白名单 `['http','https','mailto']` + Viewer sanitizeHref + 点击监听二次校验；`tool:system:open_external` 后端再做一次白名单 |
-| 粘贴 SVG 中内嵌脚本 | `attachments:save` 显式拒绝 image/svg+xml；Image 扩展不渲染未落盘的 src |
-| Viewer `v-html` 的 XSS 面 | static-renderer 只按 schema 产出，不保留未识别标签/事件属性；Link href 经 sanitize |
-| base64 大图卡 IPC | 单图上限压到 5 MB；粘贴显示 loading 占位，失败回滚不卡死编辑流 |
-| 数据目录迁移忘了复制 attachments | §13 + §14 #4 明确在 `settings.rs::action_migrate_data_dir` 追加复制；§15 验证矩阵覆盖 |
-| 用户在旧版本数据库上跑新版本 | `ensure_schema` 用 `CREATE TABLE IF NOT EXISTS`，向前兼容 |
-| 旧 PM `project_delete` 孤儿 items 未清理 | 本方案 §13.1 改为事务内显式 `DELETE FROM pm_items WHERE project_id=?`，一次性修复历史 bug |
+| 风险                                               | 缓解                                                                                                                                           |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| assetProtocol scope 通配过宽被 XSS 利用            | 静态 scope 只给 `attachments/**`，不开全盘；运行时 allow_directory 也只给 attachments                                                          |
+| `tauri` feature 漏开 `protocol-asset` 导致图片 404 | Cargo.toml 与 CSP 一并在 §14 #2 同步修改；在验证矩阵 "粘贴 PNG 截图" 用例中 fail-fast 暴露                                                     |
+| TipTap 3 与 StarterKit 版本兼容                    | 锁版本同时升级，package.json 用 `^3.x.y` 确切次版本                                                                                            |
+| JSON 序列化后超长导致 SQLite 行变慢                | 现实描述内容量级可控（单条预计 <10 KB），SQLite TEXT 无上限，不成为瓶颈                                                                        |
+| Link 协议被钻空（`javascript:` / `data:`）         | 三层防御：Link 扩展白名单 `['http','https','mailto']` + Viewer sanitizeHref + 点击监听二次校验；`tool:system:open_external` 后端再做一次白名单 |
+| 粘贴 SVG 中内嵌脚本                                | `attachments:save` 显式拒绝 image/svg+xml；Image 扩展不渲染未落盘的 src                                                                        |
+| Viewer `v-html` 的 XSS 面                          | static-renderer 只按 schema 产出，不保留未识别标签/事件属性；Link href 经 sanitize                                                             |
+| base64 大图卡 IPC                                  | 单图上限压到 5 MB；粘贴显示 loading 占位，失败回滚不卡死编辑流                                                                                 |
+| 数据目录迁移忘了复制 attachments                   | §13 + §14 #4 明确在 `settings.rs::action_migrate_data_dir` 追加复制；§15 验证矩阵覆盖                                                          |
+| 用户在旧版本数据库上跑新版本                       | `ensure_schema` 用 `CREATE TABLE IF NOT EXISTS`，向前兼容                                                                                      |
+| 旧 PM `project_delete` 孤儿 items 未清理           | 本方案 §13.1 改为事务内显式 `DELETE FROM pm_items WHERE project_id=?`，一次性修复历史 bug                                                      |
 
 ## 17. 后续演进（P2）
 

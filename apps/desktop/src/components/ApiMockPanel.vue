@@ -35,7 +35,9 @@
                 @click="copyAccessUrl"
               />
             </span>
-            <small v-if="selectedProject.host === '0.0.0.0'">监听 {{ selectedProject.host }}:{{ selectedProject.port }}</small>
+            <small v-if="selectedProject.host === '0.0.0.0'"
+              >监听 {{ selectedProject.host }}:{{ selectedProject.port }}</small
+            >
           </span>
         </div>
         <div class="action-buttons">
@@ -47,7 +49,13 @@
           >
             项目设置
           </el-button>
-          <el-button :icon="Refresh" size="small" :disabled="!selectedProject" @click="manualRefresh">刷新</el-button>
+          <el-button
+            :icon="Refresh"
+            size="small"
+            :disabled="!selectedProject"
+            @click="manualRefresh"
+            >刷新</el-button
+          >
           <el-button
             v-if="selectedProjectRuntimeAction === 'restart'"
             :icon="Refresh"
@@ -79,13 +87,19 @@
           </el-button>
         </div>
       </div>
-      <div v-if="selectedProject && selectedProject.enabledRouteCount === 0" class="api-mock-notice">
+      <div
+        v-if="selectedProject && selectedProject.enabledRouteCount === 0"
+        class="api-mock-notice"
+      >
         没有启用路由，启动或重启服务前至少启用一条路由。
       </div>
       <div v-else-if="selectedProjectRuntimeAction === 'restart'" class="api-mock-notice">
         运行中的服务仍使用旧配置，重启后本次修改才会生效。
       </div>
-      <div v-else-if="selectedProject?.runtime.lastError && !selectedProject.runtime.running" class="api-mock-notice error">
+      <div
+        v-else-if="selectedProject?.runtime.lastError && !selectedProject.runtime.running"
+        class="api-mock-notice error"
+      >
         上次启动失败：{{ selectedProject.runtime.lastError }}
       </div>
 
@@ -111,7 +125,12 @@
         </el-tab-pane>
 
         <el-tab-pane label="请求日志" name="logs">
-          <ApiMockLogList :logs="logs" :status="logsStatus" @clear="clearLogs" @jump="jumpToLogRoute" />
+          <ApiMockLogList
+            :logs="logs"
+            :status="logsStatus"
+            @clear="clearLogs"
+            @jump="jumpToLogRoute"
+          />
         </el-tab-pane>
       </el-tabs>
 
@@ -128,7 +147,14 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { CopyDocument, Plus, Refresh, Setting, VideoPause, VideoPlay } from "@element-plus/icons-vue";
+import {
+  CopyDocument,
+  Plus,
+  Refresh,
+  Setting,
+  VideoPause,
+  VideoPlay,
+} from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -187,7 +213,7 @@ const routeForm = reactive<ApiMockRouteFormModel>({
   responseKind: "static_body",
   contentType: DEFAULT_API_MOCK_CONTENT_TYPE,
   headers: [],
-  bodyText: "{\n  \"ok\": true\n}",
+  bodyText: '{\n  "ok": true\n}',
   enabled: true,
   delayMs: 0,
   cors: createDefaultApiMockCors(),
@@ -195,7 +221,9 @@ const routeForm = reactive<ApiMockRouteFormModel>({
 
 const routeBaseline = ref("");
 
-const selectedProject = computed(() => projects.value.find((item) => item.id === selectedProjectId.value) ?? null);
+const selectedProject = computed(
+  () => projects.value.find((item) => item.id === selectedProjectId.value) ?? null,
+);
 const selectedProjectAccessUrl = computed(() => {
   return selectedProject.value ? getMockProjectAccessUrl(selectedProject.value) : "";
 });
@@ -219,7 +247,11 @@ function routeFormSnapshotText(): string {
     statusCode: routeForm.statusCode,
     responseKind: routeForm.responseKind,
     contentType: routeForm.contentType,
-    headers: routeForm.headers.map((row) => ({ enabled: row.enabled, key: row.key, value: row.value })),
+    headers: routeForm.headers.map((row) => ({
+      enabled: row.enabled,
+      key: row.key,
+      value: row.value,
+    })),
     bodyText: routeForm.bodyText,
     enabled: routeForm.enabled,
     delayMs: routeForm.delayMs,
@@ -239,7 +271,7 @@ function assignRouteForm(route: ApiMockRouteDetail | null) {
   routeForm.responseKind = route?.responseKind ?? "static_body";
   routeForm.contentType = route?.contentType ?? DEFAULT_API_MOCK_CONTENT_TYPE;
   routeForm.headers = route?.headers ? route.headers.map((row) => ({ ...row })) : [];
-  routeForm.bodyText = route?.bodyText ?? "{\n  \"ok\": true\n}";
+  routeForm.bodyText = route?.bodyText ?? '{\n  "ok": true\n}';
   routeForm.enabled = route?.enabled ?? true;
   routeForm.delayMs = route?.delayMs ?? 0;
   routeForm.cors = route?.cors
@@ -264,7 +296,10 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 function showSaveResult(subject: string) {
-  if (selectedProject.value && deriveMockProjectRuntimeState(selectedProject.value) === "restart-required") {
+  if (
+    selectedProject.value &&
+    deriveMockProjectRuntimeState(selectedProject.value) === "restart-required"
+  ) {
     ElMessage.warning(`${subject}已保存，重启 Mock 服务后生效`);
     return;
   }
@@ -292,7 +327,9 @@ async function confirmLeaveRouteForm(): Promise<boolean> {
 }
 
 async function refreshProjects() {
-  const result = (await invokeToolByChannel("tool:api-mock:project-list", {})) as { projects: ApiMockProjectSummary[] };
+  const result = (await invokeToolByChannel("tool:api-mock:project-list", {})) as {
+    projects: ApiMockProjectSummary[];
+  };
   projects.value = result.projects;
   if (!selectedProjectId.value && projects.value[0]) {
     selectedProjectId.value = projects.value[0].id;
@@ -335,7 +372,9 @@ function manualRefresh() {
 
 async function loadRoute(id: number, options: { switchTab?: boolean } = {}) {
   const { switchTab = true } = options;
-  const result = (await invokeToolByChannel("tool:api-mock:route-get", { id })) as { route: ApiMockRouteDetail };
+  const result = (await invokeToolByChannel("tool:api-mock:route-get", { id })) as {
+    route: ApiMockRouteDetail;
+  };
   selectedRouteId.value = id;
   assignRouteForm(result.route);
   if (switchTab) activeTab.value = "route";
@@ -423,9 +462,13 @@ async function handleProjectDialogDelete() {
   const target = projectDialogTarget.value;
   if (!target) return;
   try {
-    await ElMessageBox.confirm(`删除项目「${target.name}」及其路由配置？运行中的服务会同时停止。`, "删除项目", {
-      type: "warning",
-    });
+    await ElMessageBox.confirm(
+      `删除项目「${target.name}」及其路由配置？运行中的服务会同时停止。`,
+      "删除项目",
+      {
+        type: "warning",
+      },
+    );
   } catch {
     return;
   }
@@ -530,7 +573,11 @@ async function saveRoute(options: { reselect?: boolean } = {}): Promise<boolean>
 async function deleteRoute() {
   if (!selectedRouteId.value) return;
   try {
-    await ElMessageBox.confirm("删除该 Mock 路由？运行中的服务需要重启后才会移除该路由。", "删除路由", { type: "warning" });
+    await ElMessageBox.confirm(
+      "删除该 Mock 路由？运行中的服务需要重启后才会移除该路由。",
+      "删除路由",
+      { type: "warning" },
+    );
   } catch {
     return;
   }
@@ -582,7 +629,10 @@ async function handleRoutesReorder(ids: number[]) {
     .map((id) => previous.find((route) => route.id === id))
     .filter((route): route is ApiMockRouteSummary => !!route);
   try {
-    await invokeToolByChannel("tool:api-mock:route-reorder", { projectId: selectedProjectId.value, ids });
+    await invokeToolByChannel("tool:api-mock:route-reorder", {
+      projectId: selectedProjectId.value,
+      ids,
+    });
     await refreshProjects();
     await refreshRoutes();
   } catch (error) {
@@ -617,7 +667,9 @@ async function pickFile() {
 async function startProject() {
   if (!selectedProjectId.value) return;
   try {
-    await invokeToolByChannel("tool:api-mock:service-start", { projectId: selectedProjectId.value });
+    await invokeToolByChannel("tool:api-mock:service-start", {
+      projectId: selectedProjectId.value,
+    });
     await refreshAll();
     resetLogsPolling();
     activeTab.value = "logs";
@@ -644,7 +696,9 @@ async function restartProject() {
   if (!selectedProjectId.value) return;
   try {
     await invokeToolByChannel("tool:api-mock:service-stop", { projectId: selectedProjectId.value });
-    await invokeToolByChannel("tool:api-mock:service-start", { projectId: selectedProjectId.value });
+    await invokeToolByChannel("tool:api-mock:service-start", {
+      projectId: selectedProjectId.value,
+    });
     await refreshAll();
     resetLogsPolling();
     ElMessage.success("Mock 服务已重启");
@@ -657,7 +711,9 @@ async function restartProject() {
 async function clearLogs() {
   if (!selectedProjectId.value) return;
   try {
-    await invokeToolByChannel("tool:api-mock:request-logs-clear", { projectId: selectedProjectId.value });
+    await invokeToolByChannel("tool:api-mock:request-logs-clear", {
+      projectId: selectedProjectId.value,
+    });
     logs.value = [];
   } catch (error) {
     ElMessage.error(getErrorMessage(error, "清空日志失败"));

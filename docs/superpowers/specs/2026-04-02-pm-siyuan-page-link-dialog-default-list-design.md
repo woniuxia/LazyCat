@@ -167,7 +167,7 @@ const siyuanPageLocationState = ref<
 继续复用现有 `resolvePmSiyuanEffectiveLocation()` 纯函数，确保逻辑唯一：
 
 ```ts
-projectLocation ?? globalLocation ?? null
+projectLocation ?? globalLocation ?? null;
 ```
 
 本轮不新增第二套位置解析逻辑，避免后续项目设置与弹窗表现不一致。

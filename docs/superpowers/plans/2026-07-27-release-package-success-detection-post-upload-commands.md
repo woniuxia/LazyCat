@@ -29,6 +29,7 @@
 ## Task 1：持久化四个项目配置字段
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
 - Test: `apps/desktop/src/utils/releasePackage.test.ts`
@@ -149,6 +150,7 @@ git commit -m "feat(release-package): 保存成功检测与后置命令配置"
 ## Task 2：以日志关键字参与目标构建判定
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 
 - [ ] **Step 1：写关键字匹配失败测试**
@@ -247,6 +249,7 @@ git commit -m "feat(release-package): 支持日志关键字成功检测"
 ## Task 3：在已认证 SSH 连接上执行远程命令
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 
@@ -363,6 +366,7 @@ git commit -m "feat(release-package): 支持 SSH 上传后命令"
 ## Task 4：上传提交后交回控制连接并聚合前后端命令
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 
@@ -468,6 +472,7 @@ git commit -m "feat(release-package): 编排前后端上传后命令"
 ## Task 5：实现只重试明确失败命令的后端链路
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -541,7 +546,10 @@ assert!(supported_actions().contains(&"command_retry_start"));
 契约固定为：
 
 ```ts
-interface CommandRetryPrepareInput { projectId: number; retryToken: string }
+interface CommandRetryPrepareInput {
+  projectId: number;
+  retryToken: string;
+}
 interface CommandRetryPrepareResult {
   targets: ReleasePackageTarget[];
   host: string;
@@ -557,7 +565,10 @@ interface CommandRetryPreflightInput {
   probeToken: string;
   privateKeyPassphrase?: string;
 }
-interface CommandRetryPreflightResult { authToken: string; expiresAt: string }
+interface CommandRetryPreflightResult {
+  authToken: string;
+  expiresAt: string;
+}
 interface CommandRetryStartInput {
   projectId: number;
   retryToken: string;
@@ -596,6 +607,7 @@ git commit -m "feat(release-package): 支持仅重试失败命令"
 ## Task 6：扩展前端运行状态和命令重试 composable
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.ts`
 - Test: `apps/desktop/src/composables/useReleasePackageRuntime.test.ts`
@@ -640,7 +652,13 @@ Expected: FAIL，新状态和事件字段尚未定义。
 增加：
 
 ```ts
-export type ReleasePackageCommandStatus = "skipped" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
+export type ReleasePackageCommandStatus =
+  | "skipped"
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 ```
 
 `ReleasePackageRunStatus` 增加 `upload_succeeded_command_failed`；`ReleasePackageStatusEvent` 增加可选 `commandTarget`、`commandStatus`、`commandRetryToken`。`ReleasePackageProjectRuntime` 增加：
@@ -659,10 +677,10 @@ mock `invokeToolByChannel`，覆盖 prepare → host trust → preflight → sta
 
 ```ts
 await retry.prepare(7, "retry-1");
-expect(invokeMock).toHaveBeenCalledWith(
-  "tool:release-package:command-retry-prepare",
-  { projectId: 7, retryToken: "retry-1" },
-);
+expect(invokeMock).toHaveBeenCalledWith("tool:release-package:command-retry-prepare", {
+  projectId: 7,
+  retryToken: "retry-1",
+});
 await retry.preflight("");
 expect(invokeMock).toHaveBeenCalledWith(
   "tool:release-package:command-retry-preflight",
@@ -707,6 +725,7 @@ git commit -m "feat(release-package): 跟踪后置命令运行与重试状态"
 ## Task 7：完成上线包面板配置和重试交互
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Test: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 
@@ -800,6 +819,7 @@ git commit -m "feat(release-package): 配置并重试前后端后置命令"
 ## Task 8：对齐通知、动作中心和经验文档
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/global_notification.rs`
 - Modify: `apps/desktop/src/components/GlobalNotificationPopup.vue`
 - Test: `apps/desktop/src/components/GlobalNotificationPopup.test.ts`
@@ -886,6 +906,7 @@ git commit -m "feat(release-package): 对齐后置命令失败终态"
 ## Task 9：完整验证与最终审查
 
 **Files:**
+
 - Test: all files changed by Tasks 1-8
 
 - [ ] **Step 1：运行 Rust 上线包和动作中心测试**

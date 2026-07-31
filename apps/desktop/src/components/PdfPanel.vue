@@ -28,38 +28,40 @@
                 <td class="info-label">页面尺寸</td>
                 <td class="info-value">
                   {{ pdfInfo.pageWidthMm }} x {{ pdfInfo.pageHeightMm }} mm
-                  <span v-if="pdfInfo.paperSize" class="paper-size-tag">（{{ pdfInfo.paperSize }}）</span>
+                  <span v-if="pdfInfo.paperSize" class="paper-size-tag"
+                    >（{{ pdfInfo.paperSize }}）</span
+                  >
                 </td>
                 <td class="info-label">PDF 版本</td>
                 <td class="info-value">{{ pdfInfo.pdfVersion }}</td>
               </tr>
               <tr>
                 <td class="info-label">标题</td>
-                <td class="info-value">{{ pdfInfo.title || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.title || "-" }}</td>
                 <td class="info-label">作者</td>
-                <td class="info-value">{{ pdfInfo.author || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.author || "-" }}</td>
               </tr>
               <tr>
                 <td class="info-label">主题</td>
-                <td class="info-value">{{ pdfInfo.subject || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.subject || "-" }}</td>
                 <td class="info-label">关键词</td>
-                <td class="info-value">{{ pdfInfo.keywords || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.keywords || "-" }}</td>
               </tr>
               <tr>
                 <td class="info-label">创建者</td>
-                <td class="info-value">{{ pdfInfo.creator || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.creator || "-" }}</td>
                 <td class="info-label">生成器</td>
-                <td class="info-value">{{ pdfInfo.producer || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.producer || "-" }}</td>
               </tr>
               <tr>
                 <td class="info-label">创建日期</td>
-                <td class="info-value">{{ pdfInfo.creationDate || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.creationDate || "-" }}</td>
                 <td class="info-label">修改日期</td>
-                <td class="info-value">{{ pdfInfo.modDate || '-' }}</td>
+                <td class="info-value">{{ pdfInfo.modDate || "-" }}</td>
               </tr>
               <tr>
                 <td class="info-label">加密</td>
-                <td class="info-value" colspan="3">{{ pdfInfo.encrypted ? '是' : '否' }}</td>
+                <td class="info-value" colspan="3">{{ pdfInfo.encrypted ? "是" : "否" }}</td>
               </tr>
             </tbody>
           </table>
@@ -72,19 +74,33 @@
           <div class="pdf-file-row">
             <el-button @click="pickSplitFile">选择文件</el-button>
             <el-input v-model="splitPath" placeholder="源 PDF 文件路径" class="pdf-path-input" />
-            <el-tag v-if="splitPageCount > 0" type="info" class="page-count-tag">共 {{ splitPageCount }} 页</el-tag>
+            <el-tag v-if="splitPageCount > 0" type="info" class="page-count-tag"
+              >共 {{ splitPageCount }} 页</el-tag
+            >
           </div>
           <el-input
             v-model="splitRanges"
-            :placeholder="splitPageCount > 0 ? `页码范围（留空则逐页拆分），如 1-3,5,7-${splitPageCount}` : '页码范围（留空则逐页拆分），如 1-3,5,7-10'"
+            :placeholder="
+              splitPageCount > 0
+                ? `页码范围（留空则逐页拆分），如 1-3,5,7-${splitPageCount}`
+                : '页码范围（留空则逐页拆分），如 1-3,5,7-10'
+            "
           />
           <div class="pdf-file-row">
             <el-button @click="pickSplitOutputDir">输出目录</el-button>
-            <el-input v-model="splitOutputDir" placeholder="输出文件夹路径" class="pdf-path-input" />
+            <el-input
+              v-model="splitOutputDir"
+              placeholder="输出文件夹路径"
+              class="pdf-path-input"
+            />
           </div>
           <div class="pdf-actions">
             <el-button type="primary" :loading="splitLoading" @click="doSplit">执行拆分</el-button>
-            <el-button v-if="splitResultFiles.length > 0" @click="revealPath(splitResultFiles[0].path)">打开输出目录</el-button>
+            <el-button
+              v-if="splitResultFiles.length > 0"
+              @click="revealPath(splitResultFiles[0].path)"
+              >打开输出目录</el-button
+            >
           </div>
           <el-alert
             v-if="splitResultMsg"
@@ -94,11 +110,7 @@
             :closable="false"
           />
           <div v-if="splitResultFiles.length > 0" class="split-file-list">
-            <div
-              v-for="(f, idx) in splitResultFiles"
-              :key="idx"
-              class="split-file-item"
-            >
+            <div v-for="(f, idx) in splitResultFiles" :key="idx" class="split-file-item">
               <span class="split-file-index">{{ idx + 1 }}.</span>
               <span class="split-file-name" :title="f.path">{{ f.filename }}</span>
               <el-tag size="small" type="info">{{ f.pages }} 页</el-tag>
@@ -112,28 +124,37 @@
         <div class="pdf-section">
           <div class="pdf-actions">
             <el-button :loading="mergeFilesLoading" @click="addMergeFiles">添加文件</el-button>
-            <el-button
-              v-if="mergeFiles.length > 0"
-              type="danger"
-              plain
-              @click="clearMergeFiles"
-            >清空列表</el-button>
+            <el-button v-if="mergeFiles.length > 0" type="danger" plain @click="clearMergeFiles"
+              >清空列表</el-button
+            >
           </div>
 
           <div v-if="mergeFiles.length > 0" class="merge-file-list">
-            <div
-              v-for="(f, idx) in mergeFiles"
-              :key="f.path"
-              class="merge-file-item"
-            >
+            <div v-for="(f, idx) in mergeFiles" :key="f.path" class="merge-file-item">
               <span class="merge-file-index">{{ idx + 1 }}.</span>
               <span class="merge-file-name" :title="f.path">{{ shortName(f.path) }}</span>
               <el-tag v-if="f.pages > 0" size="small" type="info">{{ f.pages }} 页</el-tag>
               <div class="merge-order-actions" aria-label="调整合并顺序">
-                <el-button text size="small" :disabled="idx === 0" :aria-label="`上移 ${shortName(f.path)}`" @click="moveMergeFile(idx, -1)">上移</el-button>
-                <el-button text size="small" :disabled="idx === mergeFiles.length - 1" :aria-label="`下移 ${shortName(f.path)}`" @click="moveMergeFile(idx, 1)">下移</el-button>
+                <el-button
+                  text
+                  size="small"
+                  :disabled="idx === 0"
+                  :aria-label="`上移 ${shortName(f.path)}`"
+                  @click="moveMergeFile(idx, -1)"
+                  >上移</el-button
+                >
+                <el-button
+                  text
+                  size="small"
+                  :disabled="idx === mergeFiles.length - 1"
+                  :aria-label="`下移 ${shortName(f.path)}`"
+                  @click="moveMergeFile(idx, 1)"
+                  >下移</el-button
+                >
               </div>
-              <el-button text size="small" type="danger" @click="removeMergeFile(idx)">移除</el-button>
+              <el-button text size="small" type="danger" @click="removeMergeFile(idx)"
+                >移除</el-button
+              >
             </div>
             <div class="merge-total">
               共 {{ mergeFiles.length }} 个文件，{{ mergeTotalPages }} 页
@@ -143,7 +164,12 @@
 
           <div class="pdf-file-row">
             <el-button @click="pickMergeOutput">保存到</el-button>
-            <el-input v-model="mergeOutputPath" placeholder="合并后的 PDF 文件路径" class="pdf-path-input" @input="clearMergeResult" />
+            <el-input
+              v-model="mergeOutputPath"
+              placeholder="合并后的 PDF 文件路径"
+              class="pdf-path-input"
+              @input="clearMergeResult"
+            />
           </div>
           <div class="pdf-actions">
             <el-button
@@ -151,8 +177,11 @@
               :loading="mergeLoading"
               :disabled="mergeFiles.length < 2"
               @click="doMerge"
-            >执行合并</el-button>
-            <el-button v-if="mergeResultPath" @click="revealPath(mergeResultPath)">打开输出目录</el-button>
+              >执行合并</el-button
+            >
+            <el-button v-if="mergeResultPath" @click="revealPath(mergeResultPath)"
+              >打开输出目录</el-button
+            >
           </div>
           <el-alert
             v-if="mergeResult"
@@ -173,7 +202,11 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
-interface SplitResultFile { filename: string; pages: number; path: string }
+interface SplitResultFile {
+  filename: string;
+  pages: number;
+  path: string;
+}
 
 const activeTab = ref("info");
 
@@ -207,7 +240,9 @@ async function pickInfoFile() {
     if (result) {
       infoPath.value = typeof result === "string" ? result : result.path;
     }
-  } catch { /* dialog cancelled */ }
+  } catch {
+    /* dialog cancelled */
+  }
 }
 
 async function fetchInfo() {
@@ -239,7 +274,9 @@ const splitResultFiles = ref<SplitResultFile[]>([]);
 const splitPageCount = ref(0);
 
 async function fetchPageCount(filePath: string): Promise<number> {
-  const data = await invokeToolByChannel("tool:pdf:info", { path: filePath }) as { pages: number };
+  const data = (await invokeToolByChannel("tool:pdf:info", { path: filePath })) as {
+    pages: number;
+  };
   return data.pages;
 }
 
@@ -273,7 +310,9 @@ async function pickSplitOutputDir() {
     if (result) {
       splitOutputDir.value = typeof result === "string" ? result : result.path;
     }
-  } catch { /* dialog cancelled */ }
+  } catch {
+    /* dialog cancelled */
+  }
 }
 
 async function runSplit(overwrite: boolean) {
@@ -308,11 +347,11 @@ async function doSplit() {
       return;
     }
     try {
-      await ElMessageBox.confirm(
-        "输出目录中已有同名拆分文件，是否覆盖全部冲突文件？",
-        "确认覆盖",
-        { type: "warning", confirmButtonText: "覆盖", cancelButtonText: "取消" },
-      );
+      await ElMessageBox.confirm("输出目录中已有同名拆分文件，是否覆盖全部冲突文件？", "确认覆盖", {
+        type: "warning",
+        confirmButtonText: "覆盖",
+        cancelButtonText: "取消",
+      });
       await runSplit(true);
     } catch (confirmError) {
       if (confirmError !== "cancel" && confirmError !== "close") {
@@ -325,7 +364,10 @@ async function doSplit() {
 }
 
 // --- Merge Tab ---
-interface MergeFileEntry { path: string; pages: number }
+interface MergeFileEntry {
+  path: string;
+  pages: number;
+}
 const mergeFiles = ref<MergeFileEntry[]>([]);
 const mergeOutputPath = ref("");
 const mergeFilesLoading = ref(false);
@@ -349,14 +391,17 @@ async function addMergeFiles() {
       const pendingPaths = paths.filter((path, index) => {
         const normalized = path.toLowerCase();
         if (existingPaths.has(normalized)) return false;
-        if (paths.findIndex((candidate) => candidate.toLowerCase() === normalized) !== index) return false;
+        if (paths.findIndex((candidate) => candidate.toLowerCase() === normalized) !== index)
+          return false;
         return true;
       });
       mergeFilesLoading.value = true;
       const results = await Promise.allSettled(
         pendingPaths.map(async (path) => ({ path, pages: await fetchPageCount(path) })),
       );
-      const loaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const loaded = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
       const failed = results.length - loaded.length;
       mergeFiles.value.push(...loaded);
       if (loaded.length > 0) clearMergeResult();
@@ -415,7 +460,9 @@ async function pickMergeOutput() {
     if (result) {
       mergeOutputPath.value = result;
     }
-  } catch { /* dialog cancelled */ }
+  } catch {
+    /* dialog cancelled */
+  }
 }
 
 async function runMerge(overwrite: boolean) {

@@ -1,91 +1,103 @@
 <template>
   <div class="weekly-panel">
     <el-config-provider :locale="zhCn">
-    <div class="weekly-header">
-      <div class="header-left">
-        <span class="header-kicker">近7天内的推进轨迹与完成情况</span>
-        <div class="header-title-row">
-          <h3>本周工作</h3>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="~"
-            start-placeholder="开始"
-            end-placeholder="结束"
-            size="small"
-            :disabled-date="noop"
-            @change="onDateChange"
-          />
+      <div class="weekly-header">
+        <div class="header-left">
+          <span class="header-kicker">近7天内的推进轨迹与完成情况</span>
+          <div class="header-title-row">
+            <h3>本周工作</h3>
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              range-separator="~"
+              start-placeholder="开始"
+              end-placeholder="结束"
+              size="small"
+              :disabled-date="noop"
+              @change="onDateChange"
+            />
+          </div>
         </div>
-      </div>
-      <div class="header-actions">
-        <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
-        <el-button size="small" type="primary" @click="generateWeeklyReport" :disabled="!hasData">生成周报</el-button>
-      </div>
-    </div>
-
-    <div v-if="hasData" class="weekly-body">
-      <div class="summary-grid">
-        <div
-          v-for="card in summaryCards"
-          :key="card.key"
-          class="summary-card"
-          :class="{ 'is-alert': card.tone === 'alert' }"
-        >
-          <div class="summary-label">{{ card.label }}</div>
-          <div class="summary-value">{{ card.value }}</div>
-          <div class="summary-hint">{{ card.hint }}</div>
+        <div class="header-actions">
+          <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
+          <el-button size="small" type="primary" @click="generateWeeklyReport" :disabled="!hasData"
+            >生成周报</el-button
+          >
         </div>
       </div>
 
-      <div class="group-list">
-        <section v-for="group in groupedData" :key="group.key" class="work-group-card">
-          <div class="group-header">
-            <div class="group-title-wrap">
-              <span class="project-dot" :style="{ backgroundColor: group.projectColor || 'var(--lc-accent)' }" />
-              <div class="group-title-copy">
-                <div class="group-title-row">
-                  <span class="group-name">{{ group.projectName }}</span>
-                  <el-tag v-if="group.projectArchived" size="small" type="info">已归档</el-tag>
+      <div v-if="hasData" class="weekly-body">
+        <div class="summary-grid">
+          <div
+            v-for="card in summaryCards"
+            :key="card.key"
+            class="summary-card"
+            :class="{ 'is-alert': card.tone === 'alert' }"
+          >
+            <div class="summary-label">{{ card.label }}</div>
+            <div class="summary-value">{{ card.value }}</div>
+            <div class="summary-hint">{{ card.hint }}</div>
+          </div>
+        </div>
+
+        <div class="group-list">
+          <section v-for="group in groupedData" :key="group.key" class="work-group-card">
+            <div class="group-header">
+              <div class="group-title-wrap">
+                <span
+                  class="project-dot"
+                  :style="{ backgroundColor: group.projectColor || 'var(--lc-accent)' }"
+                />
+                <div class="group-title-copy">
+                  <div class="group-title-row">
+                    <span class="group-name">{{ group.projectName }}</span>
+                    <el-tag v-if="group.projectArchived" size="small" type="info">已归档</el-tag>
+                  </div>
+                  <span class="group-summary">{{ formatGroupSummary(group) }}</span>
                 </div>
-                <span class="group-summary">{{ formatGroupSummary(group) }}</span>
               </div>
+              <span class="group-count">{{ group.items.length }} 项</span>
             </div>
-            <span class="group-count">{{ group.items.length }} 项</span>
-          </div>
 
-          <div class="group-timeline">
-            <article
-              v-for="item in group.items"
-              :key="`${item.source}-${item.id}`"
-              class="timeline-row"
-            >
-              <div class="timeline-date">{{ formatTimelineDate(item) }}</div>
-              <div class="work-item-card" :class="{ 'is-risk': isRiskItem(item) }">
-                <div class="item-head">
-                  <span class="item-title">{{ item.title }}</span>
-                  <span class="item-time">{{ formatItemTime(item) }}</span>
+            <div class="group-timeline">
+              <article
+                v-for="item in group.items"
+                :key="`${item.source}-${item.id}`"
+                class="timeline-row"
+              >
+                <div class="timeline-date">{{ formatTimelineDate(item) }}</div>
+                <div class="work-item-card" :class="{ 'is-risk': isRiskItem(item) }">
+                  <div class="item-head">
+                    <span class="item-title">{{ item.title }}</span>
+                    <span class="item-time">{{ formatItemTime(item) }}</span>
+                  </div>
+                  <div class="item-meta">
+                    <span class="item-badge" :class="item.source === 'pm' ? 'is-pm' : 'is-todo'">
+                      {{ item.source === "pm" ? "PM" : "Todo" }}
+                    </span>
+                    <span v-if="item.itemType" class="item-badge is-neutral">{{
+                      itemTypeLabel(item.itemType)
+                    }}</span>
+                    <span v-if="item.source === 'pm'" class="item-badge is-neutral">{{
+                      statusLabel(item.status)
+                    }}</span>
+                    <span
+                      class="item-badge is-priority"
+                      :style="{ color: priorityColor(item.priority) }"
+                    >
+                      {{ priorityLabel(item.priority) }}
+                    </span>
+                  </div>
                 </div>
-                <div class="item-meta">
-                  <span class="item-badge" :class="item.source === 'pm' ? 'is-pm' : 'is-todo'">
-                    {{ item.source === "pm" ? "PM" : "Todo" }}
-                  </span>
-                  <span v-if="item.itemType" class="item-badge is-neutral">{{ itemTypeLabel(item.itemType) }}</span>
-                  <span v-if="item.source === 'pm'" class="item-badge is-neutral">{{ statusLabel(item.status) }}</span>
-                  <span class="item-badge is-priority" :style="{ color: priorityColor(item.priority) }">
-                    {{ priorityLabel(item.priority) }}
-                  </span>
-                </div>
-              </div>
-            </article>
-          </div>
-        </section>
+              </article>
+            </div>
+          </section>
+        </div>
       </div>
-    </div>
 
-    <div v-else-if="!loading" class="weekly-empty">
-      <el-empty description="近7天还没有命中的工作项" />
-    </div>
+      <div v-else-if="!loading" class="weekly-empty">
+        <el-empty description="近7天还没有命中的工作项" />
+      </div>
     </el-config-provider>
   </div>
 </template>
@@ -237,7 +249,9 @@ const groupedData = computed<WorkGroup[]>(() => {
   return Array.from(groups.values())
     .map((group) => ({
       ...group,
-      items: [...group.items].sort((left, right) => getItemSortAt(right).localeCompare(getItemSortAt(left))),
+      items: [...group.items].sort((left, right) =>
+        getItemSortAt(right).localeCompare(getItemSortAt(left)),
+      ),
     }))
     .sort((left, right) => right.latestSortAt.localeCompare(left.latestSortAt));
 });
@@ -246,7 +260,11 @@ async function loadData() {
   loading.value = true;
   try {
     const [start, end] = dateRange.value;
-    data.value = (await invoke<WeeklyWorkResult>("tool:pm:weekly-work", { windowStart: start, windowEnd: end })) ?? null;
+    data.value =
+      (await invoke<WeeklyWorkResult>("tool:pm:weekly-work", {
+        windowStart: start,
+        windowEnd: end,
+      })) ?? null;
   } catch (error) {
     console.error(error);
   } finally {
@@ -331,7 +349,9 @@ function formatTimelineDate(item: WeeklyWorkItem): string {
 
 function formatItemTime(item: WeeklyWorkItem): string {
   if (item.source !== "pm") {
-    return item.completedAt ? `完成于 ${formatDateTime(item.completedAt)}` : `创建于 ${formatDateTime(item.createdAt)}`;
+    return item.completedAt
+      ? `完成于 ${formatDateTime(item.completedAt)}`
+      : `创建于 ${formatDateTime(item.createdAt)}`;
   }
 
   const range = normalizePmDateRangeForDraft(item.startAt, item.endAt);
@@ -406,7 +426,9 @@ async function generateWeeklyReport() {
     const start = item.startAt ? toReportDate(item.startAt) : "--";
     const end = item.endAt
       ? toReportDate(item.endAt)
-      : (item.source === "todo" && item.completedAt ? toReportDate(item.completedAt) : "--");
+      : item.source === "todo" && item.completedAt
+        ? toReportDate(item.completedAt)
+        : "--";
     const ref = item.refCode ?? "--";
     const progress = progressLabel(item);
     return { title: item.title, system: sys, start, end, ref, progress };
@@ -416,7 +438,10 @@ async function generateWeeklyReport() {
   const keys: (keyof (typeof rows)[0])[] = ["title", "system", "start", "end", "ref", "progress"];
 
   const theadCells = headers
-    .map((h) => `<th style="padding:8px 10px;text-align:center;font-weight:700;font-size:13px;color:#ffffff;background-color:#0ea5e9;border:1px solid #0284c7">${h}</th>`)
+    .map(
+      (h) =>
+        `<th style="padding:8px 10px;text-align:center;font-weight:700;font-size:13px;color:#ffffff;background-color:#0ea5e9;border:1px solid #0284c7">${h}</th>`,
+    )
     .join("");
   const tbodyRows = rows
     .map((row, idx) => {
@@ -429,7 +454,12 @@ async function generateWeeklyReport() {
   const html = `${titleHtml}<table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;font-family:'Microsoft YaHei','PingFang SC',sans-serif;border:1px solid #cbd5e1"><thead><tr>${theadCells}</tr></thead><tbody>${tbodyRows}</tbody></table>`;
 
   const title = formatReportTitle();
-  const text = [title, "", headers.join("\t"), ...rows.map((row) => keys.map((k) => row[k]).join("\t"))].join("\n");
+  const text = [
+    title,
+    "",
+    headers.join("\t"),
+    ...rows.map((row) => keys.map((k) => row[k]).join("\t")),
+  ].join("\n");
 
   try {
     await navigator.clipboard.write([
@@ -471,9 +501,7 @@ onMounted(loadData);
   gap: 16px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--el-border-color-lighter);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
-    var(--el-bg-color);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent), var(--el-bg-color);
   flex-shrink: 0;
 }
 
@@ -709,7 +737,9 @@ onMounted(loadData);
   border: 1px solid var(--lc-border);
   border-radius: 14px;
   background: linear-gradient(180deg, var(--el-bg-color), var(--el-fill-color-extra-light));
-  transition: border-color var(--lc-duration) var(--lc-ease), background var(--lc-duration) var(--lc-ease);
+  transition:
+    border-color var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration) var(--lc-ease);
 }
 
 .work-item-card:hover {

@@ -193,9 +193,7 @@ const KEYWORD_CUSTOM_KIND_SET = new Set<KeywordCommandCustom["kind"]>([
   "snippet-tag",
 ]);
 
-function sanitizeKeywordCommands(
-  raw: unknown,
-): SpotlightConfigKeywordCommands | undefined {
+function sanitizeKeywordCommands(raw: unknown): SpotlightConfigKeywordCommands | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const obj = raw as Record<string, unknown>;
 
@@ -222,8 +220,7 @@ function sanitizeKeywordCommands(
       const kind = o.kind as KeywordCommandCustom["kind"] | undefined;
       const toolId = typeof o.toolId === "string" ? o.toolId : undefined;
       const targetTag = typeof o.targetTag === "string" ? o.targetTag : undefined;
-      const forwardArgs =
-        typeof o.forwardArgs === "boolean" ? o.forwardArgs : undefined;
+      const forwardArgs = typeof o.forwardArgs === "boolean" ? o.forwardArgs : undefined;
       const enabled = typeof o.enabled === "boolean" ? o.enabled : true;
       if (!id || seenIds.has(id)) continue;
       if (!keyword || !KEYWORD_PATTERN_INTERNAL.test(keyword)) continue;

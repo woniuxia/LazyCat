@@ -18,17 +18,15 @@ export function usageRefKey(ref: UsageRef): string {
   ]);
 }
 
-export function normalizeUsageScore(
-  summary: UsageSummary | undefined,
-  now = Date.now(),
-): number {
+export function normalizeUsageScore(summary: UsageSummary | undefined, now = Date.now()): number {
   if (!summary) return 0;
   const historicalCount = Math.max(0, summary.totalCount - summary.windowCount);
   const effectiveCount = Math.max(0, summary.windowCount) + Math.min(historicalCount, 30) * 0.15;
   const frequency = Math.min(1, Math.log1p(effectiveCount) / Math.log1p(30));
-  const ageDays = summary.lastUsedAt == null
-    ? Number.POSITIVE_INFINITY
-    : Math.max(0, now - summary.lastUsedAt) / 86_400_000;
+  const ageDays =
+    summary.lastUsedAt == null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, now - summary.lastUsedAt) / 86_400_000;
   const recency = Number.isFinite(ageDays) ? Math.exp(-ageDays / 14) : 0;
   return frequency * 0.75 + recency * 0.25;
 }
@@ -57,9 +55,11 @@ export function rankSearchCandidate(
   item: SpotlightItem,
   summaries: ReadonlyMap<string, UsageSummary>,
 ): number {
-  return relevance +
+  return (
+    relevance +
     normalizeUsageScore(itemUsageSummary(item, summaries)) * MAX_USAGE_BOOST +
-    businessScore(item) * MAX_BUSINESS_BOOST;
+    businessScore(item) * MAX_BUSINESS_BOOST
+  );
 }
 
 export function rankEmptyItems(
@@ -87,14 +87,15 @@ export function rankEmptyItems(
     }),
   );
 
-  candidates.sort((left, right) =>
-    Number(right.contextual) - Number(left.contextual) ||
-    right.score - left.score ||
-    right.usageScore - left.usageScore ||
-    right.lastUsedAt - left.lastUsedAt ||
-    left.providerOrder - right.providerOrder ||
-    left.sourceOrder - right.sourceOrder ||
-    left.item.itemId.localeCompare(right.item.itemId),
+  candidates.sort(
+    (left, right) =>
+      Number(right.contextual) - Number(left.contextual) ||
+      right.score - left.score ||
+      right.usageScore - left.usageScore ||
+      right.lastUsedAt - left.lastUsedAt ||
+      left.providerOrder - right.providerOrder ||
+      left.sourceOrder - right.sourceOrder ||
+      left.item.itemId.localeCompare(right.item.itemId),
   );
 
   const counts = new Map<SpotlightProviderId, number>();

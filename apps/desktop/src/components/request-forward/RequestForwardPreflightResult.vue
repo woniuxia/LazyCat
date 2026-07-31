@@ -100,14 +100,20 @@ const stateLabels = {
   background: #f4f7f9;
 }
 
-.preflight-result__summary > div { display: grid; gap: 2px; }
+.preflight-result__summary > div {
+  display: grid;
+  gap: 2px;
+}
 .preflight-result__eyebrow {
   color: #667486;
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
 }
-.preflight-result__summary strong { color: #26364a; font-size: 16px; }
+.preflight-result__summary strong {
+  color: #26364a;
+  font-size: 16px;
+}
 .preflight-result__verdict {
   flex: none;
   border-radius: 999px;
@@ -117,9 +123,17 @@ const stateLabels = {
   font-size: 12px;
   font-weight: 700;
 }
-.is-blocked .preflight-result__verdict { background: #fbe8e6; color: #9f302b; }
+.is-blocked .preflight-result__verdict {
+  background: #fbe8e6;
+  color: #9f302b;
+}
 
-.preflight-result__checks { display: grid; margin: 0; padding: 0; list-style: none; }
+.preflight-result__checks {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .preflight-check {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr);
@@ -127,7 +141,9 @@ const stateLabels = {
   padding: 10px 13px;
   border-bottom: 1px solid #edf0f3;
 }
-.preflight-check:last-child { border-bottom: 0; }
+.preflight-check:last-child {
+  border-bottom: 0;
+}
 .preflight-check__mark {
   width: 8px;
   height: 8px;
@@ -144,16 +160,27 @@ const stateLabels = {
   background: #c5453e;
   box-shadow: 0 0 0 3px #fbe6e4;
 }
-.preflight-check__heading { display: flex; align-items: baseline; gap: 8px; }
-.preflight-check__heading strong { color: #314156; font-size: 14px; }
+.preflight-check__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.preflight-check__heading strong {
+  color: #314156;
+  font-size: 14px;
+}
 .preflight-check__heading em {
   color: #2b7d5e;
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
 }
-.is-warning .preflight-check__heading em { color: #9a650e; }
-.is-failed .preflight-check__heading em { color: #a73731; }
+.is-warning .preflight-check__heading em {
+  color: #9a650e;
+}
+.is-failed .preflight-check__heading em {
+  color: #a73731;
+}
 .preflight-check p {
   margin: 3px 0 0;
   color: #647184;
@@ -176,6 +203,9 @@ const stateLabels = {
 
 @media (max-width: 560px) {
   .preflight-result__summary,
-  .preflight-result__suggestion { align-items: flex-start; flex-direction: column; }
+  .preflight-result__suggestion {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

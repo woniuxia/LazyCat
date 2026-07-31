@@ -148,11 +148,7 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
     // Favorites
     const rawFav = getSettingJson<string[]>("favorites", []);
     const hasSeededTodoFavorite = getSettingJson<boolean>(TODO_FAVORITE_SEEDED_KEY, false);
-    const favoriteBootstrap = bootstrapFavoriteToolIds(
-      rawFav,
-      hasSeededTodoFavorite,
-      isRealToolId,
-    );
+    const favoriteBootstrap = bootstrapFavoriteToolIds(rawFav, hasSeededTodoFavorite, isRealToolId);
     favoriteToolIds.value = favoriteBootstrap.favoriteToolIds;
     if (favoriteBootstrap.shouldMarkTodoSeeded) {
       setSettingJson(TODO_FAVORITE_SEEDED_KEY, true);

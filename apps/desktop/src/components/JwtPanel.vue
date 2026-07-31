@@ -1,12 +1,7 @@
 <template>
   <div class="panel-grid">
     <div class="panel-grid-full">
-      <el-input
-        v-model="token"
-        type="textarea"
-        :rows="4"
-        placeholder="粘贴 JWT Token"
-      />
+      <el-input v-model="token" type="textarea" :rows="4" placeholder="粘贴 JWT Token" />
     </div>
     <div v-if="decoded" class="panel-grid-full jwt-sections">
       <div class="jwt-section">
@@ -101,7 +96,9 @@ watch(token, (val) => {
 });
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("jwt", (text) => { token.value = text; });
+watchPendingInput("jwt", (text) => {
+  token.value = text;
+});
 
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer);
@@ -142,5 +139,7 @@ onBeforeUnmount(() => {
   max-height: 360px;
 }
 
-.jwt-signature { color: var(--el-color-danger); }
+.jwt-signature {
+  color: var(--el-color-danger);
+}
 </style>

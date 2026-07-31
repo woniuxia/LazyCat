@@ -79,12 +79,12 @@ describe("useActionCombinations", () => {
   beforeEach(() => {
     vi.useRealTimers();
     invokeMock.mockReset();
-    listenMock.mockReset().mockImplementation(
-      async (name: string, handler: (event: { payload: unknown }) => void) => {
+    listenMock
+      .mockReset()
+      .mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
         listeners.set(name, handler);
         return vi.fn();
-      },
-    );
+      });
     listeners.clear();
   });
 
@@ -124,16 +124,24 @@ describe("useActionCombinations", () => {
     const restored = runningRun("run-restored");
     invokeMock
       .mockResolvedValueOnce({ definitions: [] })
-      .mockResolvedValueOnce({ combinations: [{
-        id: 7, name: "开发环境", executionMode: "serial", stepCount: 2,
-        latestRunStatus: "running", updatedAt: "2026-07-26 10:00:00",
-      }] })
+      .mockResolvedValueOnce({
+        combinations: [
+          {
+            id: 7,
+            name: "开发环境",
+            executionMode: "serial",
+            stepCount: 2,
+            latestRunStatus: "running",
+            updatedAt: "2026-07-26 10:00:00",
+          },
+        ],
+      })
       .mockResolvedValueOnce({ runs: [restored] });
     const state = useActionCombinations({ pollIntervalMs: 10_000 });
     await state.start();
-    expect(invokeMock).toHaveBeenCalledWith(
-      "tool:action-center:combination-run-list", { combinationId: 7 },
-    );
+    expect(invokeMock).toHaveBeenCalledWith("tool:action-center:combination-run-list", {
+      combinationId: 7,
+    });
     expect(state.activeRun.value?.id).toBe("run-restored");
     expect(state.runActive.value).toBe(true);
     state.stop();
@@ -144,19 +152,27 @@ describe("useActionCombinations", () => {
     const runListResponse = deferred<{ runs: ActionCombinationRunDetail[] }>();
     invokeMock
       .mockResolvedValueOnce({ definitions: [] })
-      .mockResolvedValueOnce({ combinations: [{
-        id: 7, name: "开发环境", executionMode: "serial", stepCount: 2,
-        latestRunStatus: "running", updatedAt: "2026-07-26 10:00:00",
-      }] })
+      .mockResolvedValueOnce({
+        combinations: [
+          {
+            id: 7,
+            name: "开发环境",
+            executionMode: "serial",
+            stepCount: 2,
+            latestRunStatus: "running",
+            updatedAt: "2026-07-26 10:00:00",
+          },
+        ],
+      })
       .mockReturnValueOnce(runListResponse.promise);
     const state = useActionCombinations({ pollIntervalMs: 5 });
     const starting = state.start();
     for (let attempt = 0; attempt < 10 && invokeMock.mock.calls.length < 3; attempt += 1) {
       await Promise.resolve();
     }
-    expect(invokeMock).toHaveBeenCalledWith(
-      "tool:action-center:combination-run-list", { combinationId: 7 },
-    );
+    expect(invokeMock).toHaveBeenCalledWith("tool:action-center:combination-run-list", {
+      combinationId: 7,
+    });
 
     state.stop();
     runListResponse.resolve({ runs: [runningRun("run-restored")] });
@@ -388,10 +404,9 @@ describe("useActionCombinations", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(invokeMock).toHaveBeenCalledWith(
-      "tool:action-center:combination-run-get",
-      { runId: "run-1" },
-    );
+    expect(invokeMock).toHaveBeenCalledWith("tool:action-center:combination-run-get", {
+      runId: "run-1",
+    });
     expect(state.activeRun.value?.status).toBe("succeeded");
     expect(state.combinations.value[0].latestRunStatus).toBe("succeeded");
 

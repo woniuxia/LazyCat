@@ -6,11 +6,7 @@
 
     <div class="spotlight-settings-group">
       <div class="group-title">数据源</div>
-      <div
-        v-for="p in editableProviders"
-        :key="p.id"
-        class="provider-row"
-      >
+      <div v-for="p in editableProviders" :key="p.id" class="provider-row">
         <el-switch
           :model-value="resolveEnabled(p.id, p.defaultEnabled)"
           @update:model-value="(v: boolean) => onToggleProvider(p.id, v)"
@@ -30,20 +26,14 @@
           <div v-if="aliasErrors[p.id]" class="alias-error">
             {{ aliasErrors[p.id] }}
           </div>
-          <div class="alias-default-hint">
-            默认:{{ p.defaultAliases.join(", ") || "(无)" }}
-          </div>
+          <div class="alias-default-hint">默认:{{ p.defaultAliases.join(", ") || "(无)" }}</div>
         </div>
       </div>
     </div>
 
     <div class="spotlight-settings-group">
       <div class="group-title">快速命令</div>
-      <div
-        v-for="qc in quickCommands"
-        :key="qc.id"
-        class="quick-command-row"
-      >
+      <div v-for="qc in quickCommands" :key="qc.id" class="quick-command-row">
         <el-switch
           :model-value="resolveQuickEnabled(qc.id, qc.defaultEnabled)"
           @update:model-value="(v: boolean) => onToggleQuickCommand(qc.id, v)"
@@ -58,17 +48,11 @@
     <div class="spotlight-settings-group">
       <div class="group-title-row">
         <span class="group-title">关键字命令(; 前缀)</span>
-        <el-button size="small" type="primary" plain @click="onAddCustom">
-          + 添加
-        </el-button>
+        <el-button size="small" type="primary" plain @click="onAddCustom"> + 添加 </el-button>
       </div>
 
       <div class="kw-section-label">内置命令</div>
-      <div
-        v-for="b in builtinList"
-        :key="b.id"
-        class="quick-command-row"
-      >
+      <div v-for="b in builtinList" :key="b.id" class="quick-command-row">
         <el-switch
           :model-value="resolveBuiltinEnabled(b.id, b.defaultEnabled)"
           @update:model-value="(v: boolean) => onToggleBuiltin(b.id, v)"
@@ -82,29 +66,22 @@
 
       <div class="kw-section-label">自定义命令</div>
       <div v-if="customList.length === 0" class="kw-empty">
-        还没有自定义命令。点击右上角"+ 添加"创建一个,例如 <code>;wifi</code> 列出 Vault 中 tag=wifi 的密码。
+        还没有自定义命令。点击右上角"+ 添加"创建一个,例如 <code>;wifi</code> 列出 Vault 中 tag=wifi
+        的密码。
       </div>
-      <div
-        v-for="c in customList"
-        :key="c.id"
-        class="quick-command-row"
-      >
+      <div v-for="c in customList" :key="c.id" class="quick-command-row">
         <el-switch
           :model-value="c.enabled"
           @update:model-value="(v: boolean) => onToggleCustom(c.id, v)"
         />
         <div class="quick-command-meta">
-          <div class="quick-command-name">
-            ; {{ c.keyword }} — {{ c.name || "(未命名)" }}
-          </div>
+          <div class="quick-command-name">; {{ c.keyword }} — {{ c.name || "(未命名)" }}</div>
           <div class="quick-command-desc">
             {{ describeCustom(c) }}
           </div>
         </div>
         <el-button size="small" link @click="onEditCustom(c)">编辑</el-button>
-        <el-button size="small" link type="danger" @click="onDeleteCustom(c.id)">
-          删除
-        </el-button>
+        <el-button size="small" link type="danger" @click="onDeleteCustom(c.id)"> 删除 </el-button>
       </div>
     </div>
 
@@ -316,9 +293,7 @@ async function commitAliases(id: SpotlightProviderId) {
     .filter(Boolean);
   const result = configStore.validateAliases(aliases, id);
   if (!result.ok) {
-    aliasErrors[id] = result.conflicts
-      .map((c) => `「${c.alias}」${c.reason}`)
-      .join(";");
+    aliasErrors[id] = result.conflicts.map((c) => `「${c.alias}」${c.reason}`).join(";");
     return;
   }
   aliasErrors[id] = "";

@@ -1,11 +1,7 @@
 import { ref } from "vue";
 
 import { invokeToolByChannel } from "../bridge/tauri";
-import type {
-  ActionDefinition,
-  ActionDispatchSummary,
-  ActionTargetOption,
-} from "../types";
+import type { ActionDefinition, ActionDispatchSummary, ActionTargetOption } from "../types";
 
 interface TodoActionDraft {
   actionType: string | null;
@@ -85,10 +81,7 @@ export function useTodoActionBinding(itemDraft: TodoActionDraft) {
     return actionTargets.value.some((target) => target.id === targetId && target.available);
   }
 
-  async function dispatchTodoAction(
-    item: TodoActionTrigger,
-    options: DispatchOptions = {},
-  ) {
+  async function dispatchTodoAction(item: TodoActionTrigger, options: DispatchOptions = {}) {
     const requestVersion = ++latestDispatchRequestVersion;
     const payload: Record<string, string> = {
       triggerType: "todo_item",

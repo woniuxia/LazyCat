@@ -18,8 +18,10 @@ export function shouldHideNamedHotkeyWindow(
   payload: HotkeyNavigatePayload,
   state: NamedHotkeyWindowState,
 ): boolean {
-  return payload.target === state.activeTool
-    && payload.wasWindowVisible
-    && payload.wasWindowFocused
-    && !payload.didMoveToCursorMonitor;
+  return (
+    payload.target === state.activeTool &&
+    payload.wasWindowVisible &&
+    payload.wasWindowFocused &&
+    !payload.didMoveToCursorMonitor
+  );
 }

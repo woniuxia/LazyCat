@@ -109,10 +109,11 @@ describe("ActionCenterPanel contracts", () => {
   it("surfaces run-level errors in notifications and run history", () => {
     const panelSource = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
     const historySource = readFileSync(
-      new URL("./action-center/ActionRunHistory.vue", import.meta.url), "utf8",
+      new URL("./action-center/ActionRunHistory.vue", import.meta.url),
+      "utf8",
     );
     expect(panelSource).toContain("run.error?.trim()");
-    expect(panelSource).toContain('status === "succeeded" ? "组合动作运行完成"');
+    expect(panelSource).toMatch(/status === "succeeded"\s*\?\s*"组合动作运行完成"/);
     expect(panelSource).toContain('"组合动作运行失败"');
     expect(historySource).toContain("activeRun.error");
     expect(historySource).toContain("run.error");
@@ -121,14 +122,11 @@ describe("ActionCenterPanel contracts", () => {
 
   it("offers the target tool when a loaded target list is empty", () => {
     const source = readFileSync(
-      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",
+      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url),
+      "utf8",
     );
-    expect(source).toContain(
-      `targets.has(step.localId)
-              && (
-                targetState(step.localId).selected?.available === false
-                || targetState(step.localId).options.length === 0
-              )`,
+    expect(source).toMatch(
+      /targets\.has\(step\.localId\)\s*&&\s*\(\s*targetState\(step\.localId\)\.selected\?\.available === false\s*\|\|\s*targetState\(step\.localId\)\.options\.length === 0\s*\)/,
     );
     expect(source).toContain("暂无可用目标，请先在对应工具中完成配置");
     expect(source).toContain("definitionFor(step.actionType)?.targetToolId");
@@ -136,9 +134,12 @@ describe("ActionCenterPanel contracts", () => {
 
   it("supports keyboard step reordering with accessible drag labels", () => {
     const source = readFileSync(
-      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",
+      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url),
+      "utf8",
     );
-    expect(source).toContain("function reorderStepWithKeyboard(index: number, event: KeyboardEvent)");
+    expect(source).toContain(
+      "function reorderStepWithKeyboard(index: number, event: KeyboardEvent)",
+    );
     expect(source).toContain('event.key === "ArrowUp"');
     expect(source).toContain('event.key === "ArrowDown"');
     expect(source).toContain('@keydown="reorderStepWithKeyboard(index, $event)"');

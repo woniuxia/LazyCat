@@ -67,12 +67,12 @@ fire-and-forget 原因：计数不阻塞 UI，失败不影响核心操作。
 
 ## 影响文件
 
-| 文件 | 改动 |
-|------|------|
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | ALTER TABLE 追加两列 |
-| `apps/desktop/src-tauri/src/tools/vault.rs` | 新增 `cmd_record_usage` 函数及内部分发，修改 list 排序 SQL |
-| `apps/desktop/src/bridge/tauri.ts` | 新增 `tool:vault:record-usage` 通道 |
-| `apps/desktop/src/components/VaultPanel.vue` | 两处 recordUsage 调用 |
+| 文件                                          | 改动                                                       |
+| --------------------------------------------- | ---------------------------------------------------------- |
+| `apps/desktop/src-tauri/src/tools/helpers.rs` | ALTER TABLE 追加两列                                       |
+| `apps/desktop/src-tauri/src/tools/vault.rs`   | 新增 `cmd_record_usage` 函数及内部分发，修改 list 排序 SQL |
+| `apps/desktop/src/bridge/tauri.ts`            | 新增 `tool:vault:record-usage` 通道                        |
+| `apps/desktop/src/components/VaultPanel.vue`  | 两处 recordUsage 调用                                      |
 
 ## 不涉及
 

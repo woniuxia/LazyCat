@@ -22,6 +22,7 @@
 ### Task 1: 让密码库服务器元数据返回可信端口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs:277-318`
 - Test: `apps/desktop/src-tauri/src/tools/vault.rs:1550-1635`
 
@@ -151,6 +152,7 @@ git commit -m "feat: 让密码库凭据元数据返回端口"
 ### Task 2: 让上线包按认证方式解析和校验端口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs:362-389`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs:340-402`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs:700-755`
@@ -407,6 +409,7 @@ git commit -m "fix: 上线包使用密码库服务器端口"
 ### Task 3: 规范化前端凭据端口并按认证方式校验
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/releasePackage.ts:145-190`
 - Test: `apps/desktop/src/utils/releasePackage.test.ts:175-225`
 
@@ -511,6 +514,7 @@ git commit -m "fix: 按认证方式校验上线包端口"
 ### Task 4: 移除密码模式端口输入并展示凭据端口
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue:249-300`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue:500-690`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue:1384-1410`
@@ -602,12 +606,13 @@ interface VaultMetaEntry {
 将绑定失效判断扩充为已选凭据不完整也视为无效：
 
 ```ts
-const vaultBindingInvalid = computed(() => (
-  draft.sshAuthType === "password"
-  && draft.vaultEntryId !== null
-  && vaultOptionsLoaded.value
-  && (selectedVaultCredential.value === null || !selectedVaultCredential.value.complete)
-));
+const vaultBindingInvalid = computed(
+  () =>
+    draft.sshAuthType === "password" &&
+    draft.vaultEntryId !== null &&
+    vaultOptionsLoaded.value &&
+    (selectedVaultCredential.value === null || !selectedVaultCredential.value.complete),
+);
 ```
 
 - [ ] **Step 5: 条件显示端口输入并补充只读摘要**
@@ -638,7 +643,11 @@ ElMessage.error("绑定的服务器凭据缺少地址、端口、账号或密码
 桌面宽度下让三个摘要字段稳定排成三列：
 
 ```css
-.vault-credential-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vault-credential-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
 ```
 
 保留现有移动端 `.vault-credential-summary { grid-template-columns: 1fr; }` 规则。
@@ -663,6 +672,7 @@ git commit -m "feat: 上线包展示密码库服务器端口"
 ### Task 5: 完整验证
 
 **Files:**
+
 - Verify only: all files changed in Tasks 1-4
 
 - [ ] **Step 1: 运行相关前端测试**

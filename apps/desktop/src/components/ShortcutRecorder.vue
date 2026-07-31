@@ -8,7 +8,7 @@
         :class="{ focused, conflict: !!conflictHint }"
         readonly
         :value="modelValue"
-        :placeholder="focused ? '请按下快捷键组合...' : (placeholder || '点击此处录入快捷键')"
+        :placeholder="focused ? '请按下快捷键组合...' : placeholder || '点击此处录入快捷键'"
         @focus="onFocus"
         @blur="onBlur"
         @keydown="onKeydown"
@@ -39,10 +39,14 @@
       @mousedown.prevent="toggleManualMode"
     >
       <svg v-if="manualMode" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        <path
+          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+        />
       </svg>
       <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+        <path
+          d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+        />
       </svg>
     </button>
     <span v-if="conflictHint" class="shortcut-recorder-hint">{{ conflictHint }}</span>
@@ -73,11 +77,18 @@ const conflictHint = ref("");
 const isToggling = ref(false);
 
 const MODIFIER_KEYS = new Set([
-  "Control", "Alt", "Shift", "Meta",
-  "ControlLeft", "ControlRight",
-  "AltLeft", "AltRight",
-  "ShiftLeft", "ShiftRight",
-  "MetaLeft", "MetaRight",
+  "Control",
+  "Alt",
+  "Shift",
+  "Meta",
+  "ControlLeft",
+  "ControlRight",
+  "AltLeft",
+  "AltRight",
+  "ShiftLeft",
+  "ShiftRight",
+  "MetaLeft",
+  "MetaRight",
 ]);
 
 function mapKeyName(e: KeyboardEvent): string | null {
@@ -89,19 +100,41 @@ function mapKeyName(e: KeyboardEvent): string | null {
   if (/^Numpad(\d)$/.test(code)) return `Numpad${code.slice(6)}`;
 
   const specialMap: Record<string, string> = {
-    Space: "Space", Enter: "Enter", Tab: "Tab", Escape: "Esc",
-    Backspace: "Backspace", Delete: "Delete", Insert: "Insert",
-    Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
-    ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
-    PrintScreen: "PrintScreen", ScrollLock: "ScrollLock", Pause: "Pause",
-    NumLock: "NumLock", CapsLock: "CapsLock",
+    Space: "Space",
+    Enter: "Enter",
+    Tab: "Tab",
+    Escape: "Esc",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    Insert: "Insert",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    PrintScreen: "PrintScreen",
+    ScrollLock: "ScrollLock",
+    Pause: "Pause",
+    NumLock: "NumLock",
+    CapsLock: "CapsLock",
   };
   if (specialMap[key]) return specialMap[key];
 
   const punctMap: Record<string, string> = {
-    Semicolon: ";", Equal: "=", Comma: ",", Minus: "-", Period: ".",
-    Slash: "/", Backquote: "`", BracketLeft: "[", Backslash: "\\",
-    BracketRight: "]", Quote: "'",
+    Semicolon: ";",
+    Equal: "=",
+    Comma: ",",
+    Minus: "-",
+    Period: ".",
+    Slash: "/",
+    Backquote: "`",
+    BracketLeft: "[",
+    Backslash: "\\",
+    BracketRight: "]",
+    Quote: "'",
   };
   if (punctMap[code]) return punctMap[code];
 
@@ -143,7 +176,11 @@ function onKeydown(e: KeyboardEvent) {
 async function onFocus() {
   focused.value = true;
   conflictHint.value = "";
-  try { await pauseAllShortcuts(); } catch { /* ignore */ }
+  try {
+    await pauseAllShortcuts();
+  } catch {
+    /* ignore */
+  }
 }
 
 async function onBlur() {
@@ -151,7 +188,11 @@ async function onBlur() {
   focused.value = false;
   // Only resume shortcuts if we're in key recording mode
   if (!manualMode.value) {
-    try { await resumeAllShortcuts(); } catch { /* ignore */ }
+    try {
+      await resumeAllShortcuts();
+    } catch {
+      /* ignore */
+    }
   }
 }
 

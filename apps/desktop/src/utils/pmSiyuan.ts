@@ -19,9 +19,7 @@ export function resolvePmSiyuanEffectiveLocation(
   return projectLocation ?? globalLocation ?? null;
 }
 
-export function formatPmSiyuanLocationLabel(
-  location: PmSiyuanLocation | null | undefined,
-): string {
+export function formatPmSiyuanLocationLabel(location: PmSiyuanLocation | null | undefined): string {
   if (!location) {
     return "未设置";
   }
@@ -59,20 +57,14 @@ function normalizePmSiyuanKeyword(keyword: string): string {
   return keyword.trim().toLowerCase();
 }
 
-function matchesPmSiyuanDirectoryNode(
-  node: PmSiyuanDirectoryNode,
-  keyword: string,
-): boolean {
+function matchesPmSiyuanDirectoryNode(node: PmSiyuanDirectoryNode, keyword: string): boolean {
   const fields = isPmSiyuanNotebookDirectory(node)
     ? [node.name]
     : [node.name, node.hpath, node.path ?? ""];
   return fields.some((field) => field.toLowerCase().includes(keyword));
 }
 
-function filterPmSiyuanTreeNode(
-  node: PmSiyuanTreeNode,
-  keyword: string,
-): PmSiyuanTreeNode | null {
+function filterPmSiyuanTreeNode(node: PmSiyuanTreeNode, keyword: string): PmSiyuanTreeNode | null {
   const children = node.children
     .map((child) => filterPmSiyuanTreeNode(child, keyword))
     .filter((child): child is PmSiyuanTreeNode => Boolean(child));
@@ -112,9 +104,7 @@ export function filterPmSiyuanDirectory(
     .filter((notebook): notebook is PmSiyuanNotebookDirectory => Boolean(notebook));
 }
 
-export function collectPmSiyuanExpandedKeys(
-  notebooks: PmSiyuanNotebookDirectory[],
-): string[] {
+export function collectPmSiyuanExpandedKeys(notebooks: PmSiyuanNotebookDirectory[]): string[] {
   const keys = new Set<string>();
 
   function walk(nodes: PmSiyuanTreeNode[]) {
@@ -190,9 +180,7 @@ function collectPmSiyuanPagesFromNode(
   return result;
 }
 
-function collectPmSiyuanPagesFromNotebook(
-  notebook: PmSiyuanNotebookDirectory,
-): PmSiyuanPageRef[] {
+function collectPmSiyuanPagesFromNotebook(notebook: PmSiyuanNotebookDirectory): PmSiyuanPageRef[] {
   const result: PmSiyuanPageRef[] = [];
   flattenPmSiyuanTreeNodes(result, new Set<string>(), notebook, notebook.children);
   return result;
@@ -248,10 +236,7 @@ export function collectPmSiyuanPagesForLocation(
   return { state: "ready", pages };
 }
 
-export function filterPmSiyuanPages(
-  pages: PmSiyuanPageRef[],
-  keyword: string,
-): PmSiyuanPageRef[] {
+export function filterPmSiyuanPages(pages: PmSiyuanPageRef[], keyword: string): PmSiyuanPageRef[] {
   const normalizedKeyword = normalizePmSiyuanKeyword(keyword);
   if (!normalizedKeyword) {
     return pages;

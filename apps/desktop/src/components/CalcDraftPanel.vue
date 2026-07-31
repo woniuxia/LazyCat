@@ -119,7 +119,9 @@ function onInput(value: string | number) {
 
 async function onHistoryClick(item: CalcDraftEntry) {
   const copied = await copyTextToClipboard(item.resultRaw);
-  ElMessage.success(copied ? `已复制结果: ${item.resultRaw}` : `复制失败，结果为: ${item.resultRaw}`);
+  ElMessage.success(
+    copied ? `已复制结果: ${item.resultRaw}` : `复制失败，结果为: ${item.resultRaw}`,
+  );
 }
 
 function formatCalcHistoryTime(timestamp: number) {

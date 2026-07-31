@@ -2,214 +2,217 @@
   <div class="pm-panel">
     <el-config-provider :locale="zhCn">
       <div class="pm-layout" v-loading="initialLoading">
-      <!-- Left: Project list -->
-      <PmSidebar
-        :projects="projects"
-        :project-item-counts="projectItemCounts"
-        :selected-project-id="selectedProjectId"
-        :today-badge-count="todayBadgeCount"
-        :drop-target-project-id="dropTargetProjectId"
-        :view-id="viewId"
-        @select-project="selectProject"
-        @show-today="showToday"
-        @open-settings="showSettingsDrawer = true"
-        @create-project="projectDialogRef?.showCreate()"
-        @project-context="(event, p) => projectDialogRef?.handleContext(event, p, openCtxMenu)"
-        @project-drag-over="onProjectDragOver"
-        @project-drag-leave="onProjectDragLeave"
-        @project-drop="onProjectDrop"
-      />
-
-      <!-- Center: Kanban / Gantt -->
-      <div class="pm-main">
-        <PmToolbar
-          v-if="selectedProject"
-          :selected-project="selectedProject"
-          :is-overview="isOverview"
+        <!-- Left: Project list -->
+        <PmSidebar
+          :projects="projects"
+          :project-item-counts="projectItemCounts"
+          :selected-project-id="selectedProjectId"
+          :today-badge-count="todayBadgeCount"
+          :drop-target-project-id="dropTargetProjectId"
           :view-id="viewId"
-          :can-create-items="canCreateItemsInCurrentContext"
-          :create-blocked-reason="createItemBlockedReason"
-          v-model:search-input="searchInput"
-          v-model:filter-type="filterType"
-          v-model:filter-priority="filterPriority"
-          v-model:selected-statuses="selectedStatuses"
-          @update:view-id="setView"
-          @create-item="showCreateItem"
+          @select-project="selectProject"
+          @show-today="showToday"
+          @open-settings="showSettingsDrawer = true"
+          @create-project="projectDialogRef?.showCreate()"
+          @project-context="(event, p) => projectDialogRef?.handleContext(event, p, openCtxMenu)"
+          @project-drag-over="onProjectDragOver"
+          @project-drag-leave="onProjectDragLeave"
+          @project-drop="onProjectDrop"
         />
 
-        <div v-if="!selectedProject" class="pm-empty">
-          <el-empty description="选择一个项目查看看板" />
-        </div>
-
-        <template v-else>
-          <PmKanbanView
-            v-if="viewId === 'kanban'"
-            :items="statusFilteredItems"
-            :selected-item-id="selectedItemId"
-            :selected-statuses="selectedStatuses"
+        <!-- Center: Kanban / Gantt -->
+        <div class="pm-main">
+          <PmToolbar
+            v-if="selectedProject"
+            :selected-project="selectedProject"
             :is-overview="isOverview"
+            :view-id="viewId"
             :can-create-items="canCreateItemsInCurrentContext"
             :create-blocked-reason="createItemBlockedReason"
-            :enabled="true"
-            @select="selectItem"
-            @edit="editItem"
-            @item-context="onItemContext"
-            @quick-advance="quickAdvance"
+            v-model:search-input="searchInput"
+            v-model:filter-type="filterType"
+            v-model:filter-priority="filterPriority"
+            v-model:selected-statuses="selectedStatuses"
+            @update:view-id="setView"
             @create-item="showCreateItem"
-            @items-changed="loadItems"
           />
 
-          <PmGanttView
-            v-else-if="viewId === 'gantt'"
-            ref="ganttViewRef"
-            :items="statusFilteredItems"
-            :selected-item-id="selectedItemId"
-            :show-project-meta="isOverview"
-            @select="selectItem"
-            @edit="editItem"
-            @item-context="onGanttItemContext"
-            @date-change="onGanttDateChange"
-            @view-change="closeCtxMenu"
-            @viewport-scroll="closeCtxMenu"
-          />
+          <div v-if="!selectedProject" class="pm-empty">
+            <el-empty description="选择一个项目查看看板" />
+          </div>
 
-          <PmTodayView
-            v-else-if="viewId === 'today'"
-            ref="todayViewRef"
-            :selected-project-id="selectedProjectId"
-            :selected-item-id="selectedItemId"
-            :refresh-signal="todayRefreshSignal"
-            @select="selectItem"
-            @edit="editItem"
-            @item-context="onItemContext"
-            @items-changed="onTodayItemsChanged"
-          />
-
-          <PmCalendarView
-            v-else-if="viewId === 'calendar'"
-            :selected-project-id="selectedProjectId"
-            :selected-item-id="selectedItemId"
-            @select="selectItem"
-            @edit="editItem"
-            @item-context="onItemContext"
-            @create-at-date="showCreateItemAtDate"
-            @items-changed="loadItems"
-          />
-
-          <PmMatrixView
-            v-else-if="viewId === 'matrix'"
-            :selected-project-id="selectedProjectId"
-            :selected-item-id="selectedItemId"
-            @select="selectItem"
-            @edit="editItem"
-            @item-context="onItemContext"
-            @items-changed="loadItems"
-          />
-
-          <!-- 列表视图单独缓存：dropdown/popover 的挂载开销较大，避免每次切换都重建 -->
-          <KeepAlive>
-            <PmListView
-              v-if="viewId === 'list'"
+          <template v-else>
+            <PmKanbanView
+              v-if="viewId === 'kanban'"
               :items="statusFilteredItems"
-              :projects="projects"
               :selected-item-id="selectedItemId"
+              :selected-statuses="selectedStatuses"
               :is-overview="isOverview"
+              :can-create-items="canCreateItemsInCurrentContext"
+              :create-blocked-reason="createItemBlockedReason"
+              :enabled="true"
+              @select="selectItem"
+              @edit="editItem"
+              @item-context="onItemContext"
+              @quick-advance="quickAdvance"
+              @create-item="showCreateItem"
+              @items-changed="loadItems"
+            />
+
+            <PmGanttView
+              v-else-if="viewId === 'gantt'"
+              ref="ganttViewRef"
+              :items="statusFilteredItems"
+              :selected-item-id="selectedItemId"
+              :show-project-meta="isOverview"
+              @select="selectItem"
+              @edit="editItem"
+              @item-context="onGanttItemContext"
+              @date-change="onGanttDateChange"
+              @view-change="closeCtxMenu"
+              @viewport-scroll="closeCtxMenu"
+            />
+
+            <PmTodayView
+              v-else-if="viewId === 'today'"
+              ref="todayViewRef"
               :selected-project-id="selectedProjectId"
+              :selected-item-id="selectedItemId"
+              :refresh-signal="todayRefreshSignal"
+              @select="selectItem"
+              @edit="editItem"
+              @item-context="onItemContext"
+              @items-changed="onTodayItemsChanged"
+            />
+
+            <PmCalendarView
+              v-else-if="viewId === 'calendar'"
+              :selected-project-id="selectedProjectId"
+              :selected-item-id="selectedItemId"
+              @select="selectItem"
+              @edit="editItem"
+              @item-context="onItemContext"
+              @create-at-date="showCreateItemAtDate"
+              @items-changed="loadItems"
+            />
+
+            <PmMatrixView
+              v-else-if="viewId === 'matrix'"
+              :selected-project-id="selectedProjectId"
+              :selected-item-id="selectedItemId"
               @select="selectItem"
               @edit="editItem"
               @item-context="onItemContext"
               @items-changed="loadItems"
             />
-          </KeepAlive>
+
+            <!-- 列表视图单独缓存：dropdown/popover 的挂载开销较大，避免每次切换都重建 -->
+            <KeepAlive>
+              <PmListView
+                v-if="viewId === 'list'"
+                :items="statusFilteredItems"
+                :projects="projects"
+                :selected-item-id="selectedItemId"
+                :is-overview="isOverview"
+                :selected-project-id="selectedProjectId"
+                @select="selectItem"
+                @edit="editItem"
+                @item-context="onItemContext"
+                @items-changed="loadItems"
+              />
+            </KeepAlive>
+          </template>
+
+          <!-- Right: Detail panel (floating) -->
+          <PmDetailPanel
+            v-if="selectedItem"
+            :project="selectedItemProject"
+            :item="selectedItem"
+            @close="selectedItemId = null"
+            @toggle-pin="togglePin"
+            @advance-status="advanceStatus"
+            @delete="deleteItem"
+          />
+        </div>
+      </div>
+
+      <PmProjectDialog ref="projectDialogRef" @projects-changed="onProjectsChanged" />
+
+      <!-- Item dialog -->
+      <PmItemDialog
+        ref="itemDialogRef"
+        v-model:visible="itemDialogVisible"
+        v-model:form-project-id="itemFormProjectId"
+        :editing-item="editingItem"
+        :projects="projects"
+        :selected-project-id="selectedProjectId"
+        :is-overview="isOverview"
+        :primary-page="itemPrimaryPage"
+        :extra-pages="itemExtraPages"
+        :global-siyuan-location="globalSiyuanLocation"
+        :siyuan-config-ready="siyuanConfigReady"
+        :submitting="itemSubmitting"
+        @submit="submitItem"
+        @open-siyuan-link-picker="openSiyuanLinkPicker"
+        @open-siyuan-page="openSiyuanPage"
+        @siyuan-page-command="handleItemSiyuanPageCommand"
+        @open-item-link="openItemLink"
+      >
+        <template #todo-edit-mode>
+          <div v-if="editingItem" class="pm-item-card pm-item-section">
+            <div class="pm-item-section-title">执行任务</div>
+            <InlineTodoList
+              :pm-item-id="() => editingItem?.id"
+              :items="dialogPmTodo.items"
+              :summary="dialogPmTodo.summary"
+              :loading="dialogPmTodo.loading"
+              mode="edit"
+              :candidates="dialogPmTodo.candidates"
+              :candidates-loading="dialogPmTodo.candidateLoading"
+              @create="dialogPmTodo.quickCreate"
+              @toggle="dialogPmTodo.toggleCompleteById"
+              @unlink="dialogPmTodo.unlink"
+              @link="dialogPmTodo.linkBatch"
+              @search-candidates="dialogPmTodo.searchCandidates"
+            />
+          </div>
         </template>
 
-        <!-- Right: Detail panel (floating) -->
-        <PmDetailPanel v-if="selectedItem" :project="selectedItemProject" :item="selectedItem"
-          @close="selectedItemId = null" @toggle-pin="togglePin" @advance-status="advanceStatus" @delete="deleteItem" />
-      </div>
-    </div>
+        <template #todo-create-mode>
+          <div v-if="!editingItem" class="pm-item-card pm-item-section">
+            <div class="pm-item-section-title">执行任务</div>
+            <InlineTodoList
+              ref="createModeTodoRef"
+              :pm-item-id="() => undefined"
+              :items="[]"
+              :summary="null"
+              :loading="false"
+              mode="edit"
+              :candidates="createModeCandidates"
+              :candidates-loading="createModeCandidatesLoading"
+              @create="onCreateModeTodoCreate"
+              @toggle="() => {}"
+              @unlink="() => {}"
+              @link="onCreateModeTodoLink"
+              @search-candidates="onCreateModeSearchCandidates"
+              @pending-change="onPendingChange"
+            />
+          </div>
+        </template>
+      </PmItemDialog>
 
-    <PmProjectDialog ref="projectDialogRef" @projects-changed="onProjectsChanged" />
+      <!-- Context menu -->
+      <PmContextMenu
+        :visible="ctxMenuVisible"
+        :x="ctxMenuX"
+        :y="ctxMenuY"
+        :actions="ctxMenuActions"
+        @close="closeCtxMenu"
+      />
 
-    <!-- Item dialog -->
-    <PmItemDialog
-      ref="itemDialogRef"
-      v-model:visible="itemDialogVisible"
-      v-model:form-project-id="itemFormProjectId"
-      :editing-item="editingItem"
-      :projects="projects"
-      :selected-project-id="selectedProjectId"
-      :is-overview="isOverview"
-      :primary-page="itemPrimaryPage"
-      :extra-pages="itemExtraPages"
-      :global-siyuan-location="globalSiyuanLocation"
-      :siyuan-config-ready="siyuanConfigReady"
-      :submitting="itemSubmitting"
-      @submit="submitItem"
-      @open-siyuan-link-picker="openSiyuanLinkPicker"
-      @open-siyuan-page="openSiyuanPage"
-      @siyuan-page-command="handleItemSiyuanPageCommand"
-      @open-item-link="openItemLink"
-    >
-      <template #todo-edit-mode>
-        <div v-if="editingItem" class="pm-item-card pm-item-section">
-          <div class="pm-item-section-title">执行任务</div>
-          <InlineTodoList
-            :pm-item-id="() => editingItem?.id"
-            :items="dialogPmTodo.items"
-            :summary="dialogPmTodo.summary"
-            :loading="dialogPmTodo.loading"
-            mode="edit"
-            :candidates="dialogPmTodo.candidates"
-            :candidates-loading="dialogPmTodo.candidateLoading"
-            @create="dialogPmTodo.quickCreate"
-            @toggle="dialogPmTodo.toggleCompleteById"
-            @unlink="dialogPmTodo.unlink"
-            @link="dialogPmTodo.linkBatch"
-            @search-candidates="dialogPmTodo.searchCandidates"
-          />
-        </div>
-      </template>
+      <PmSettingsDrawer v-model="showSettingsDrawer" @imported="onImported" />
 
-      <template #todo-create-mode>
-        <div v-if="!editingItem" class="pm-item-card pm-item-section">
-          <div class="pm-item-section-title">执行任务</div>
-          <InlineTodoList
-            ref="createModeTodoRef"
-            :pm-item-id="() => undefined"
-            :items="[]"
-            :summary="null"
-            :loading="false"
-            mode="edit"
-            :candidates="createModeCandidates"
-            :candidates-loading="createModeCandidatesLoading"
-            @create="onCreateModeTodoCreate"
-            @toggle="() => {}"
-            @unlink="() => {}"
-            @link="onCreateModeTodoLink"
-            @search-candidates="onCreateModeSearchCandidates"
-            @pending-change="onPendingChange"
-          />
-        </div>
-      </template>
-    </PmItemDialog>
-
-    <!-- Context menu -->
-    <PmContextMenu
-      :visible="ctxMenuVisible"
-      :x="ctxMenuX"
-      :y="ctxMenuY"
-      :actions="ctxMenuActions"
-      @close="closeCtxMenu"
-    />
-
-    <PmSettingsDrawer
-      v-model="showSettingsDrawer"
-      @imported="onImported"
-    />
-
-    <PmSiyuanDrawer />
-
+      <PmSiyuanDrawer />
     </el-config-provider>
   </div>
 </template>
@@ -219,7 +222,12 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive, p
 import { ElMessage } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { useToolInvoke } from "../../composables/useToolInvoke";
-import { getSetting, getSettingJson, setSetting, setSettingJson } from "../../composables/useSettings";
+import {
+  getSetting,
+  getSettingJson,
+  setSetting,
+  setSettingJson,
+} from "../../composables/useSettings";
 import type {
   PmProject,
   PmItem,
@@ -253,17 +261,10 @@ import PmSidebar from "./PmSidebar.vue";
 import { usePmSiyuan } from "../../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../../composables/usePmSiyuan";
-import {
-  formatPmSiyuanLocationLabel,
-  isPmSiyuanNotebookDirectory,
-} from "../../utils/pmSiyuan";
-import {
-  normalizePmDateRangeForDraft,
-} from "../../utils/pmDate";
+import { formatPmSiyuanLocationLabel, isPmSiyuanNotebookDirectory } from "../../utils/pmSiyuan";
+import { normalizePmDateRangeForDraft } from "../../utils/pmDate";
 import { ensureDataDir } from "../../rich/data-dir";
-import {
-  getPmDefaultSelectedStatuses,
-} from "../../utils/pmStatusFilter";
+import { getPmDefaultSelectedStatuses } from "../../utils/pmStatusFilter";
 import { usePmTodoLinking } from "../../composables/usePmTodoLinking";
 import { usePmViewMemory } from "../../composables/usePmViewMemory";
 import { usePmNavigation } from "../../composables/usePmNavigation";
@@ -275,7 +276,6 @@ import { PM_KANBAN_DRAG_KEY } from "../../composables/pmKanbanDragKey";
 const { invoke } = useToolInvoke();
 
 // ── Types ────────────────────────────────────────────────
-
 
 // ── State ────────────────────────────────────────────────
 
@@ -313,19 +313,22 @@ const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
 const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
 const itemSubmitting = ref(false);
 const itemDialogRef = ref<InstanceType<typeof PmItemDialog> | null>(null);
-const itemForm = computed(() => itemDialogRef.value?.form ?? {
-  title: "",
-  itemType: "task" as PmItemType,
-  priority: "P2" as PmPriority,
-  status: "todo" as PmItemStatus,
-  startAt: null as string | null,
-  endAt: null as string | null,
-  linkUrl: "",
-  description: "",
-  startedAt: null as string | null,
-  testingAt: null as string | null,
-  completedAt: null as string | null,
-});
+const itemForm = computed(
+  () =>
+    itemDialogRef.value?.form ?? {
+      title: "",
+      itemType: "task" as PmItemType,
+      priority: "P2" as PmPriority,
+      status: "todo" as PmItemStatus,
+      startAt: null as string | null,
+      endAt: null as string | null,
+      linkUrl: "",
+      description: "",
+      startedAt: null as string | null,
+      testingAt: null as string | null,
+      completedAt: null as string | null,
+    },
+);
 
 // PM-Todo linking composables
 const dialogPmTodo = reactive(usePmTodoLinking(() => editingItem.value?.id));
@@ -362,7 +365,10 @@ function onCreateModeTodoLink(ids: number[]) {
   // InlineTodoList handles local state internally
 }
 
-function onPendingChange(creates: Array<{ title: string; priority: string; description: string }>, links: number[]) {
+function onPendingChange(
+  creates: Array<{ title: string; priority: string; description: string }>,
+  links: number[],
+) {
   pendingTodoCreates.value = creates;
   pendingTodoLinkIds.value = links;
 }
@@ -383,10 +389,12 @@ const itemDialogProjectId = computed<number | null>(() => {
   }
   return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
 });
-const itemDialogProject = computed(() =>
-  projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
+const itemDialogProject = computed(
+  () => projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
 );
-const dialogProjectSiyuanOverride = computed(() => itemDialogProject.value?.siyuanLocationOverride ?? null);
+const dialogProjectSiyuanOverride = computed(
+  () => itemDialogProject.value?.siyuanLocationOverride ?? null,
+);
 const dialogProjectName = computed(() => itemDialogProject.value?.name ?? "未归项目");
 const siyuan = usePmSiyuan({
   dialogProjectSiyuanOverride,
@@ -462,7 +470,7 @@ const selectedProject = computed(() => {
 });
 const selectedItem = computed(() => items.value.find((i) => i.id === selectedItemId.value) ?? null);
 const selectedItemProject = computed(() =>
-  selectedItem.value ? projectMap.value.get(selectedItem.value.projectId) ?? null : null,
+  selectedItem.value ? (projectMap.value.get(selectedItem.value.projectId) ?? null) : null,
 );
 
 const canCreateItemsInCurrentContext = computed(() => {
@@ -585,7 +593,6 @@ function selectProject(id: number | "overview") {
   selectedItemId.value = null;
 }
 
-
 function selectItem(item: PmItem) {
   selectedItemId.value = item.id;
 }
@@ -646,7 +653,8 @@ async function loadTodayCounts() {
       completedToday: 0,
       totalActive: 0,
     };
-    todayBadgeCount.value = (counts.overdue ?? 0) + (counts.dueToday ?? 0) + (counts.inProgress ?? 0);
+    todayBadgeCount.value =
+      (counts.overdue ?? 0) + (counts.dueToday ?? 0) + (counts.inProgress ?? 0);
   } catch (e) {
     console.warn("[pm] today counts load failed:", e);
     todayBadgeCount.value = 0;
@@ -666,7 +674,11 @@ function onTodayItemsChanged() {
 
 async function loadItemCounts() {
   try {
-    const rows = (await invoke<{ projectId: number; total: number; done: number }[]>("tool:pm:item-counts", {})) ?? [];
+    const rows =
+      (await invoke<{ projectId: number; total: number; done: number }[]>(
+        "tool:pm:item-counts",
+        {},
+      )) ?? [];
     const map: Record<number, { total: number; done: number }> = {};
     for (const r of rows) {
       map[r.projectId] = { total: r.total, done: r.done };
@@ -924,8 +936,13 @@ onBeforeUnmount(() => {
   animation: drop-pulse 1s ease infinite;
 }
 @keyframes drop-pulse {
-  0%, 100% { box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5); }
-  50% { box-shadow: inset 0 0 0 2px var(--el-color-primary-light-3); }
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--el-color-primary-light-3);
+  }
 }
 .project-count {
   flex-shrink: 0;
@@ -944,7 +961,9 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   cursor: pointer;
   font-size: 15px;
-  transition: background 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
   flex-wrap: wrap;
   position: relative;
 }
@@ -1009,7 +1028,6 @@ onBeforeUnmount(() => {
 .pm-main {
   border-radius: var(--lc-radius-lg);
 }
-
 </style>
 
 <style>
@@ -1174,7 +1192,8 @@ body.pm-is-dragging * {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .pm-item-project-card--switchable:not(.pm-item-project-card--switch-open) .pm-item-project-switch-trigger {
+  .pm-item-project-card--switchable:not(.pm-item-project-card--switch-open)
+    .pm-item-project-switch-trigger {
     opacity: 0;
     transform: translateY(-6px);
     pointer-events: none;
@@ -1302,7 +1321,10 @@ body.pm-is-dragging * {
   height: 40px;
   padding-inline: 16px;
   border-radius: 12px;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .pm-item-dialog-link-clear-btn {

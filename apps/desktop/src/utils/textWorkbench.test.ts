@@ -10,9 +10,21 @@ describe("textWorkbench", () => {
   });
 
   it("summarizes inserted, removed and changed lines", () => {
-    expect(summarizeDiff([
-      { originalStartLineNumber: 2, originalEndLineNumber: 3, modifiedStartLineNumber: 2, modifiedEndLineNumber: 4 },
-      { originalStartLineNumber: 8, originalEndLineNumber: 8, modifiedStartLineNumber: 9, modifiedEndLineNumber: 0 },
-    ])).toEqual({ hunks: 2, addedLines: 1, removedLines: 1, changedLines: 2 });
+    expect(
+      summarizeDiff([
+        {
+          originalStartLineNumber: 2,
+          originalEndLineNumber: 3,
+          modifiedStartLineNumber: 2,
+          modifiedEndLineNumber: 4,
+        },
+        {
+          originalStartLineNumber: 8,
+          originalEndLineNumber: 8,
+          modifiedStartLineNumber: 9,
+          modifiedEndLineNumber: 0,
+        },
+      ]),
+    ).toEqual({ hunks: 2, addedLines: 1, removedLines: 1, changedLines: 2 });
   });
 });

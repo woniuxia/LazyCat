@@ -22,23 +22,39 @@
       </div>
 
       <div v-if="status?.privacyMaskActive" class="banner banner-warn">
-        <span><el-icon class="banner-icon"><Lock /></el-icon> 敏感模式已开启{{ privacyUntilLabel }}</span>
+        <span
+          ><el-icon class="banner-icon"><Lock /></el-icon> 敏感模式已开启{{
+            privacyUntilLabel
+          }}</span
+        >
         <el-button size="small" type="primary" link @click="onPrivacyOff">一键关闭</el-button>
       </div>
       <div v-if="status?.spotlightDetected" class="banner banner-warn">
-        <span><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到 Windows Spotlight 启用，可能影响桌面壁纸；不影响本工具挂件</span>
+        <span
+          ><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到 Windows Spotlight
+          启用，可能影响桌面壁纸；不影响本工具挂件</span
+        >
       </div>
       <div v-if="status?.thirdPartyEngine" class="banner banner-warn">
-        <span><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到 {{ status.thirdPartyEngine }}，挂件不受影响但桌面壁纸可能被它改</span>
+        <span
+          ><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到
+          {{ status.thirdPartyEngine }}，挂件不受影响但桌面壁纸可能被它改</span
+        >
       </div>
 
       <div v-if="status?.lastError" class="banner banner-error">
-        <span><el-icon class="banner-icon"><CircleCloseFilled /></el-icon> {{ status.lastError }}</span>
-        <el-button size="small" type="primary" link :loading="applying" @click="onApply">重试</el-button>
+        <span
+          ><el-icon class="banner-icon"><CircleCloseFilled /></el-icon> {{ status.lastError }}</span
+        >
+        <el-button size="small" type="primary" link :loading="applying" @click="onApply"
+          >重试</el-button
+        >
       </div>
 
       <div v-if="autoSkipBanner" class="banner banner-info">
-        <span><el-icon class="banner-icon"><VideoPause /></el-icon> {{ autoSkipBanner }}</span>
+        <span
+          ><el-icon class="banner-icon"><VideoPause /></el-icon> {{ autoSkipBanner }}</span
+        >
       </div>
 
       <div class="status-meta">
@@ -57,11 +73,7 @@
         >
           立即刷新
         </el-button>
-        <el-button
-          v-if="!status?.paused"
-          :disabled="!config.enabled"
-          @click="onPause"
-        >
+        <el-button v-if="!status?.paused" :disabled="!config.enabled" @click="onPause">
           暂停
         </el-button>
         <el-button v-else type="primary" @click="onResume">恢复</el-button>
@@ -89,33 +101,23 @@
               <el-radio-button :label="30">30 min</el-radio-button>
               <el-radio-button :label="60">60 min</el-radio-button>
             </el-radio-group>
-            <div class="hint">
-              心跳间隔（PM/Todo CRUD 后 5s 自动立刷，不依赖此间隔）
-            </div>
+            <div class="hint">心跳间隔（PM/Todo CRUD 后 5s 自动立刷，不依赖此间隔）</div>
           </el-form-item>
           <el-form-item label="停靠位置">
-            <el-radio-group
-              v-model="config.edge"
-              @change="saveField('edge')"
-            >
+            <el-radio-group v-model="config.edge" @change="saveField('edge')">
               <el-radio-button label="right">右侧</el-radio-button>
               <el-radio-button label="left">左侧</el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="收起延迟">
-            <el-radio-group
-              v-model="config.collapseDelayMs"
-              @change="saveField('collapseDelayMs')"
-            >
+            <el-radio-group v-model="config.collapseDelayMs" @change="saveField('collapseDelayMs')">
               <el-radio-button :label="200">0.2s</el-radio-button>
               <el-radio-button :label="500">0.5s</el-radio-button>
               <el-radio-button :label="800">0.8s</el-radio-button>
               <el-radio-button :label="1200">1.2s</el-radio-button>
               <el-radio-button :label="2000">2s</el-radio-button>
             </el-radio-group>
-            <div class="hint">
-              鼠标离开挂件后自动收起的等待时间
-            </div>
+            <div class="hint">鼠标离开挂件后自动收起的等待时间</div>
           </el-form-item>
         </el-form>
       </el-tab-pane>
@@ -567,7 +569,9 @@ async function onPrivacyChoiceChange(choice: string | number | boolean | undefin
       enabled: true,
       durationMin: min,
     });
-    ElMessage.success(min > 0 ? `已开启敏感模式（${min} 分钟后自动关）` : "已开启敏感模式（直到手动关）");
+    ElMessage.success(
+      min > 0 ? `已开启敏感模式（${min} 分钟后自动关）` : "已开启敏感模式（直到手动关）",
+    );
     await Promise.all([refreshConfig(), refreshStatus()]);
   } catch (e) {
     ElMessage.error(`保存失败：${formatError(e)}`);

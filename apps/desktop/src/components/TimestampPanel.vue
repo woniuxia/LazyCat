@@ -16,11 +16,7 @@
 
     <div class="panel-grid-full row">
       <span class="row-label">日期 -> 时间戳</span>
-      <el-input
-        v-model="dateInput"
-        placeholder="日期，如 2026-02-21 10:20:30"
-        style="flex: 1"
-      />
+      <el-input v-model="dateInput" placeholder="日期，如 2026-02-21 10:20:30" style="flex: 1" />
       <el-button-group>
         <el-button :type="datePrecision === 's' ? 'primary' : ''" @click="setDatePrecision('s')">
           秒
@@ -35,7 +31,9 @@
     <div class="panel-grid-full java-wrap">
       <div class="java-head">
         <span class="java-title">Java 日期时间互转工具栏</span>
-        <span class="java-hint">支持 Date / Instant / LocalDate / LocalDateTime / ZonedDateTime</span>
+        <span class="java-hint"
+          >支持 Date / Instant / LocalDate / LocalDateTime / ZonedDateTime</span
+        >
       </div>
 
       <div class="java-toolbar">
@@ -66,13 +64,7 @@
         :rows="2"
         placeholder="输入要转换的值（可留空，仅生成模板代码）"
       />
-      <el-input
-        v-model="javaOutput"
-        type="textarea"
-        :rows="2"
-        readonly
-        placeholder="转换结果"
-      />
+      <el-input v-model="javaOutput" type="textarea" :rows="2" readonly placeholder="转换结果" />
       <el-input
         v-model="javaCodeOutput"
         type="textarea"
@@ -155,9 +147,7 @@ function parseLocalDate(raw: string): Date | null {
 
 function parseLocalDateTime(raw: string): Date | null {
   const normalized = raw.trim().replace("T", " ");
-  const match = normalized.match(
-    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/,
-  );
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!match) return null;
   const [, y, m, d, hh, mm, ss] = match;
   const date = new Date(
@@ -241,7 +231,10 @@ async function timestampToDate() {
 
     const normalized = timePrecision.value === "s" ? ts : Math.floor(ts / 1000);
     timeOutput.value = String(
-      await invokeToolByChannel("tool:time:timestamp-to-date", { input: normalized, timezone: "local" }),
+      await invokeToolByChannel("tool:time:timestamp-to-date", {
+        input: normalized,
+        timezone: "local",
+      }),
     );
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -260,7 +253,8 @@ async function dateToTimestamp() {
       input: raw,
     })) as { seconds: number; milliseconds: number };
 
-    dateOutput.value = datePrecision.value === "s" ? String(data.seconds) : String(data.milliseconds);
+    dateOutput.value =
+      datePrecision.value === "s" ? String(data.seconds) : String(data.milliseconds);
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -346,8 +340,10 @@ function sourceInitLine(type: JavaDateType, input: string): string {
     if (/^\d+$/.test(text)) return `Date date = new Date(${text}L);`;
     return "Date date = new Date();";
   }
-  if (type === "instant") return `Instant instant = Instant.parse("${text || "2026-02-21T10:20:30Z"}");`;
-  if (type === "local_date") return `LocalDate localDate = LocalDate.parse("${text || "2026-02-21"}");`;
+  if (type === "instant")
+    return `Instant instant = Instant.parse("${text || "2026-02-21T10:20:30Z"}");`;
+  if (type === "local_date")
+    return `LocalDate localDate = LocalDate.parse("${text || "2026-02-21"}");`;
   if (type === "local_datetime") {
     const value = text || "2026-02-21T10:20:30";
     return `LocalDateTime localDateTime = LocalDateTime.parse("${value.replace(" ", "T")}");`;
@@ -450,7 +446,9 @@ watch([javaInput, javaSourceType, javaTargetType], () => {
 });
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("timestamp", (text) => { timeInput.value = text; });
+watchPendingInput("timestamp", (text) => {
+  timeInput.value = text;
+});
 </script>
 
 <style scoped>

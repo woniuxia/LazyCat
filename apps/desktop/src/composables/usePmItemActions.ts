@@ -178,7 +178,10 @@ export function usePmItemActions(deps: PmItemActionsDeps) {
             console.warn("迁移新建项目的临时附件失败", error);
           }
           // Process pending todo data for newly created item
-          if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
+          if (
+            result.id &&
+            (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)
+          ) {
             const tempTodo = usePmTodoLinking(() => result.id);
             for (const c of pendingTodoCreates.value) {
               await tempTodo.quickCreate(c.title, c.priority, c.description);

@@ -46,16 +46,16 @@
 
 ## 4. 常用命令与打包决策
 
-| 命令 | 用途 |
-|------|------|
-| `pnpm test` | 单元测试 |
-| `pnpm typecheck` | 全工作区类型检查 |
-| `pnpm --filter @lazycat/desktop build:web` | 渲染层构建 |
-| `pnpm build` | 全量构建 |
-| `pnpm package:win` | 默认本地打包：lite portable zip + SHA256，不上传 |
-| `pnpm build:win` | 明确要求 NSIS 安装包 |
-| `pnpm release:win -- -Tag vX.Y.Z` | 正式 GitHub Release，默认 lite portable |
-| `pnpm release:all:win -- -Tag vX.Y.Z` | 正式 GitHub Release，完整四包 |
+| 命令                                       | 用途                                             |
+| ------------------------------------------ | ------------------------------------------------ |
+| `pnpm test`                                | 单元测试                                         |
+| `pnpm typecheck`                           | 全工作区类型检查                                 |
+| `pnpm --filter @lazycat/desktop build:web` | 渲染层构建                                       |
+| `pnpm build`                               | 全量构建                                         |
+| `pnpm package:win`                         | 默认本地打包：lite portable zip + SHA256，不上传 |
+| `pnpm build:win`                           | 明确要求 NSIS 安装包                             |
+| `pnpm release:win -- -Tag vX.Y.Z`          | 正式 GitHub Release，默认 lite portable          |
+| `pnpm release:all:win -- -Tag vX.Y.Z`      | 正式 GitHub Release，完整四包                    |
 
 - 用户只说“打包”或“本地打包”时，必须执行 `pnpm package:win`。
 - 便携包优先交付 zip。需要完整四包才用 `release:all:win`。
@@ -63,22 +63,22 @@
 
 ## 5. 经验索引
 
-| 场景 | 经验文件 |
-|------|----------|
-| 产品边界、架构、IPC、Tauri、SQLite 迁移、结构治理 | [architecture.md](docs/experience/architecture.md) |
-| UI、响应式、滚动、scoped CSS、Element Plus、Teleport | [ui-and-styling.md](docs/experience/ui-and-styling.md) |
-| 数据字典 | [data-dictionary.md](docs/experience/data-dictionary.md) |
-| Todo、提醒、日期时间 | [todo.md](docs/experience/todo.md) |
-| PM、甘特、思源 | [pm.md](docs/experience/pm.md) |
-| Spotlight、快捷键、浏览器身份 | [spotlight-and-launcher.md](docs/experience/spotlight-and-launcher.md) |
-| API Mock、访问链路、Cron | [api-and-network-tools.md](docs/experience/api-and-network-tools.md) |
-| 请求转发 | [request-forward.md](docs/experience/request-forward.md) |
-| 上线包 | [release-package.md](docs/experience/release-package.md) |
-| Windows 构建与发布 | [windows-build-and-release.md](docs/experience/windows-build-and-release.md) |
-| Vault、Inbox | [vault-and-inbox.md](docs/experience/vault-and-inbox.md) |
-| 离线手册、资源、本地预览 | [manuals-and-resources.md](docs/experience/manuals-and-resources.md) |
-| Agent 协作、只读边界、续作、交接、主动提交、规范、验证 | [agent-workflow.md](docs/experience/agent-workflow.md) |
-| JSON 树、Base64、片段、番茄钟等 | [other-tools.md](docs/experience/other-tools.md) |
+| 场景                                                   | 经验文件                                                                     |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| 产品边界、架构、IPC、Tauri、SQLite 迁移、结构治理      | [architecture.md](docs/experience/architecture.md)                           |
+| UI、响应式、滚动、scoped CSS、Element Plus、Teleport   | [ui-and-styling.md](docs/experience/ui-and-styling.md)                       |
+| 数据字典                                               | [data-dictionary.md](docs/experience/data-dictionary.md)                     |
+| Todo、提醒、日期时间                                   | [todo.md](docs/experience/todo.md)                                           |
+| PM、甘特、思源                                         | [pm.md](docs/experience/pm.md)                                               |
+| Spotlight、快捷键、浏览器身份                          | [spotlight-and-launcher.md](docs/experience/spotlight-and-launcher.md)       |
+| API Mock、访问链路、Cron                               | [api-and-network-tools.md](docs/experience/api-and-network-tools.md)         |
+| 请求转发                                               | [request-forward.md](docs/experience/request-forward.md)                     |
+| 上线包                                                 | [release-package.md](docs/experience/release-package.md)                     |
+| Windows 构建与发布                                     | [windows-build-and-release.md](docs/experience/windows-build-and-release.md) |
+| Vault、Inbox                                           | [vault-and-inbox.md](docs/experience/vault-and-inbox.md)                     |
+| 离线手册、资源、本地预览                               | [manuals-and-resources.md](docs/experience/manuals-and-resources.md)         |
+| Agent 协作、只读边界、续作、交接、主动提交、规范、验证 | [agent-workflow.md](docs/experience/agent-workflow.md)                       |
+| JSON 树、Base64、片段、番茄钟等                        | [other-tools.md](docs/experience/other-tools.md)                             |
 
 完整索引和经验维护规则见 [process.md](process.md)。
 

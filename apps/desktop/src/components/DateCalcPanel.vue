@@ -1,63 +1,88 @@
 <template>
   <el-config-provider :locale="zhCn">
-  <div class="date-calc-panel">
-    <el-card shadow="never">
-      <template #header><span>日期间隔</span></template>
-      <div class="calc-row">
-        <el-date-picker v-model="diffStart" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" />
-        <span>至</span>
-        <el-date-picker v-model="diffEnd" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" />
-        <el-button type="primary" @click="calcDiff">计算</el-button>
-      </div>
-      <div v-if="diffResult" class="result-grid">
-        <div class="result-item">
-          <div class="result-label">天数</div>
-          <div class="result-value">{{ diffResult.days }}</div>
+    <div class="date-calc-panel">
+      <el-card shadow="never">
+        <template #header><span>日期间隔</span></template>
+        <div class="calc-row">
+          <el-date-picker
+            v-model="diffStart"
+            type="date"
+            placeholder="开始日期"
+            value-format="YYYY-MM-DD"
+          />
+          <span>至</span>
+          <el-date-picker
+            v-model="diffEnd"
+            type="date"
+            placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+          />
+          <el-button type="primary" @click="calcDiff">计算</el-button>
         </div>
-        <div class="result-item">
-          <div class="result-label">小时</div>
-          <div class="result-value">{{ diffResult.hours }}</div>
+        <div v-if="diffResult" class="result-grid">
+          <div class="result-item">
+            <div class="result-label">天数</div>
+            <div class="result-value">{{ diffResult.days }}</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">小时</div>
+            <div class="result-value">{{ diffResult.hours }}</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">分钟</div>
+            <div class="result-value">{{ diffResult.minutes }}</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">秒</div>
+            <div class="result-value">{{ diffResult.seconds }}</div>
+          </div>
+          <div class="result-item natural">
+            <div class="result-label">自然语言</div>
+            <div class="result-value">{{ diffResult.natural }}</div>
+          </div>
         </div>
-        <div class="result-item">
-          <div class="result-label">分钟</div>
-          <div class="result-value">{{ diffResult.minutes }}</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">秒</div>
-          <div class="result-value">{{ diffResult.seconds }}</div>
-        </div>
-        <div class="result-item natural">
-          <div class="result-label">自然语言</div>
-          <div class="result-value">{{ diffResult.natural }}</div>
-        </div>
-      </div>
-    </el-card>
+      </el-card>
 
-    <el-card shadow="never">
-      <template #header><span>日期加减</span></template>
-      <div class="calc-row">
-        <el-date-picker v-model="addDate" type="date" placeholder="基准日期" value-format="YYYY-MM-DD" />
-        <span>加</span>
-        <el-input-number v-model="addDays" :min="-99999" :max="99999" controls-position="right" />
-        <span>天</span>
-        <el-input-number v-model="addHours" :min="-99999" :max="99999" controls-position="right" />
-        <span>时</span>
-        <el-input-number v-model="addMinutes" :min="-99999" :max="99999" controls-position="right" />
-        <span>分</span>
-        <el-button type="primary" @click="calcAdd">计算</el-button>
-      </div>
-      <div v-if="addResult" class="result-grid">
-        <div class="result-item">
-          <div class="result-label">结果日期</div>
-          <div class="result-value">{{ addResult.result }}</div>
+      <el-card shadow="never">
+        <template #header><span>日期加减</span></template>
+        <div class="calc-row">
+          <el-date-picker
+            v-model="addDate"
+            type="date"
+            placeholder="基准日期"
+            value-format="YYYY-MM-DD"
+          />
+          <span>加</span>
+          <el-input-number v-model="addDays" :min="-99999" :max="99999" controls-position="right" />
+          <span>天</span>
+          <el-input-number
+            v-model="addHours"
+            :min="-99999"
+            :max="99999"
+            controls-position="right"
+          />
+          <span>时</span>
+          <el-input-number
+            v-model="addMinutes"
+            :min="-99999"
+            :max="99999"
+            controls-position="right"
+          />
+          <span>分</span>
+          <el-button type="primary" @click="calcAdd">计算</el-button>
         </div>
-        <div class="result-item">
-          <div class="result-label">完整时间</div>
-          <div class="result-value">{{ addResult.resultDatetime }}</div>
+        <div v-if="addResult" class="result-grid">
+          <div class="result-item">
+            <div class="result-label">结果日期</div>
+            <div class="result-value">{{ addResult.result }}</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">完整时间</div>
+            <div class="result-value">{{ addResult.resultDatetime }}</div>
+          </div>
         </div>
-      </div>
-    </el-card>
-  </div>
+      </el-card>
+    </div>
   </el-config-provider>
 </template>
 
@@ -68,7 +93,13 @@ import { invokeToolByChannel } from "../bridge/tauri";
 
 const diffStart = ref("");
 const diffEnd = ref("");
-const diffResult = ref<{ days: number; hours: number; minutes: number; seconds: number; natural: string } | null>(null);
+const diffResult = ref<{
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  natural: string;
+} | null>(null);
 
 const addDate = ref("");
 const addDays = ref(0);

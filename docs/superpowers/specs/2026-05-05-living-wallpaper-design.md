@@ -77,11 +77,11 @@
 
 精简后 3 个模块自上而下：
 
-| # | 模块 | 占高 | 说明 |
-|---|------|------|------|
-| ① | 概览块 | ~220 px | 进度环 + 警戒灯（合并） |
-| ② | 待办列表 | ~480 px | 不局限"今日"和"3 件" |
-| ③ | 扩展位 | ~100 px | 阶段 1 留空，阶段 2 接回声短语 |
+| #   | 模块     | 占高    | 说明                           |
+| --- | -------- | ------- | ------------------------------ |
+| ①   | 概览块   | ~220 px | 进度环 + 警戒灯（合并）        |
+| ②   | 待办列表 | ~480 px | 不局限"今日"和"3 件"           |
+| ③   | 扩展位   | ~100 px | 阶段 1 留空，阶段 2 接回声短语 |
 
 总计 800 px。
 
@@ -118,14 +118,14 @@
 
 ### 6.2 通道
 
-| 通道 | 入参 | 出参 | 说明 |
-|------|------|------|------|
-| `tool:wallpaper:dashboard_data` | `{ tz?: string }` | `{ overview, todoList, echo? }` | 一次性返回所有模块数据 |
-| `tool:wallpaper:apply` | `{ informationLayerPath: string }` | `{ wallpaperPath: string }` | 接收信息层 PNG → 合成新图 → 设壁纸 |
-| `tool:wallpaper:restore` | `{}` | `{ ok: boolean }` | 恢复原壁纸 |
-| `tool:wallpaper:pause` | `{}` | `{ ok: boolean }` | 暂停（老板键、自动切净都走这） |
-| `tool:wallpaper:resume` | `{}` | `{ ok: boolean }` | 恢复 |
-| `tool:wallpaper:status` | `{}` | `{ enabled, paused, originalPath, lastRenderedAt, lastError? }` | 工具面板状态卡片用 |
+| 通道                            | 入参                               | 出参                                                            | 说明                               |
+| ------------------------------- | ---------------------------------- | --------------------------------------------------------------- | ---------------------------------- |
+| `tool:wallpaper:dashboard_data` | `{ tz?: string }`                  | `{ overview, todoList, echo? }`                                 | 一次性返回所有模块数据             |
+| `tool:wallpaper:apply`          | `{ informationLayerPath: string }` | `{ wallpaperPath: string }`                                     | 接收信息层 PNG → 合成新图 → 设壁纸 |
+| `tool:wallpaper:restore`        | `{}`                               | `{ ok: boolean }`                                               | 恢复原壁纸                         |
+| `tool:wallpaper:pause`          | `{}`                               | `{ ok: boolean }`                                               | 暂停（老板键、自动切净都走这）     |
+| `tool:wallpaper:resume`         | `{}`                               | `{ ok: boolean }`                                               | 恢复                               |
+| `tool:wallpaper:status`         | `{}`                               | `{ enabled, paused, originalPath, lastRenderedAt, lastError? }` | 工具面板状态卡片用                 |
 
 ### 6.3 数据查询逻辑
 
@@ -175,14 +175,14 @@ pub fn dashboard_data(tz: Option<String>) -> WallpaperDashboardData {
 
 候选（v0.2 spike 后修订，详见 `docs/superpowers/spikes/2026-05-05-wallpaper-screenshot.md`）：
 
-| 方案 | 状态 | 备注 |
-|------|------|------|
-| Tauri 内置 webview screenshot API | **否决** | Tauri 2.10.3 无原生 API，社区 issue 仍在讨论 |
-| `tauri-plugin-screenshots` / `xcap` | **否决** | 显式跳过 hidden / minimized 窗口 |
-| `windows-capture`（WGC） | **否决** | WGC 自身要求窗口被 DWM 合成，hidden 窗口返回黑帧 |
-| `PrintWindow` + `PW_RENDERFULLCONTENT` | **降级备用** | WebView2 occlusion 检测会让 hidden 窗口不渲染；要禁 occlusion + 屏外定位才稳 |
-| **`ICoreWebView2::CapturePreview`** | **选定** | WebView2 原生 API，绕过 DWM 合成依赖；只捕 viewport，但本场景信息层尺寸 = viewport，限制不触发 |
-| Rust 直接画（`image` + `imageproc` + `rusttype`） | **保留为兜底** | 若 PoC 失败立即切换；MVP 3 个固定模块下完全可行，~150 ms 内出图 |
+| 方案                                              | 状态           | 备注                                                                                           |
+| ------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| Tauri 内置 webview screenshot API                 | **否决**       | Tauri 2.10.3 无原生 API，社区 issue 仍在讨论                                                   |
+| `tauri-plugin-screenshots` / `xcap`               | **否决**       | 显式跳过 hidden / minimized 窗口                                                               |
+| `windows-capture`（WGC）                          | **否决**       | WGC 自身要求窗口被 DWM 合成，hidden 窗口返回黑帧                                               |
+| `PrintWindow` + `PW_RENDERFULLCONTENT`            | **降级备用**   | WebView2 occlusion 检测会让 hidden 窗口不渲染；要禁 occlusion + 屏外定位才稳                   |
+| **`ICoreWebView2::CapturePreview`**               | **选定**       | WebView2 原生 API，绕过 DWM 合成依赖；只捕 viewport，但本场景信息层尺寸 = viewport，限制不触发 |
+| Rust 直接画（`image` + `imageproc` + `rusttype`） | **保留为兜底** | 若 PoC 失败立即切换；MVP 3 个固定模块下完全可行，~150 ms 内出图                                |
 
 选定 **WebView2 CapturePreview** 的理由：
 
@@ -226,13 +226,13 @@ window.with_webview(|webview| {
 
 2026-05-05 主仓 dev command 代码 PoC 已验证 `ICoreWebView2::CapturePreview` 可用于 hidden Tauri WebView 截图。PoC 控制台入口为 `wallpaper-poc`，画布入口为 `?view=wallpaper-poc-canvas`。
 
-| 编号 | 验证项 | 验收标准 | 结果 |
-|------|--------|----------|------|
-| P1 | hidden 窗口 + CapturePreview 输出非黑 PNG | 与 visible 窗口截图像素 hash 接近 | 通过 |
-| P2 | 首次截图耗时 | < 500 ms（含 WebView2 冷启动） | 通过 |
-| P3 | 后续截图耗时 | < 200 ms | 通过 |
-| P4 | DPI 200% 下尺寸 | 720×1600 PNG 像素正确 | 通过 |
-| P5 | Win10 22H2 + Win11 23H2/24H2 行为一致 | 三套环境都能输出 | 通过 |
+| 编号 | 验证项                                    | 验收标准                          | 结果 |
+| ---- | ----------------------------------------- | --------------------------------- | ---- |
+| P1   | hidden 窗口 + CapturePreview 输出非黑 PNG | 与 visible 窗口截图像素 hash 接近 | 通过 |
+| P2   | 首次截图耗时                              | < 500 ms（含 WebView2 冷启动）    | 通过 |
+| P3   | 后续截图耗时                              | < 200 ms                          | 通过 |
+| P4   | DPI 200% 下尺寸                           | 720×1600 PNG 像素正确             | 通过 |
+| P5   | Win10 22H2 + Win11 23H2/24H2 行为一致     | 三套环境都能输出                  | 通过 |
 
 **P1 失败的备用顺序**：
 
@@ -252,14 +252,14 @@ window.with_webview(|webview| {
 
 ### 7.5 Hidden WebView 生命周期（v0.2 补充）
 
-| 时机 | 行为 | 理由 |
-|------|------|------|
-| LazyCat 启动且 `wallpaper.enabled=true` | 创建 hidden WebView + 加载 `/wallpaper-canvas` | 避免每次刷新冷启 ~300 ms |
-| 主窗口关闭（系统托盘运行） | **保活**，继续刷新 | 满足"关掉 LazyCat 仍刷新壁纸"目标 |
-| 系统托盘退出 LazyCat | 销毁 + 按 `wallpaper.exit_behavior` 处理壁纸 | 进程结束 |
-| `wallpaper.enabled=false` 切换 | 销毁 hidden WebView | 释放内存（约 50-80 MB） |
-| 暂停（老板键 / 自动切净） | 保活，仅停止刷新调度 | 恢复时秒开 |
-| 渲染失败 3 次 | 销毁并重建 | 防止 WebView 内存泄漏 |
+| 时机                                    | 行为                                           | 理由                              |
+| --------------------------------------- | ---------------------------------------------- | --------------------------------- |
+| LazyCat 启动且 `wallpaper.enabled=true` | 创建 hidden WebView + 加载 `/wallpaper-canvas` | 避免每次刷新冷启 ~300 ms          |
+| 主窗口关闭（系统托盘运行）              | **保活**，继续刷新                             | 满足"关掉 LazyCat 仍刷新壁纸"目标 |
+| 系统托盘退出 LazyCat                    | 销毁 + 按 `wallpaper.exit_behavior` 处理壁纸   | 进程结束                          |
+| `wallpaper.enabled=false` 切换          | 销毁 hidden WebView                            | 释放内存（约 50-80 MB）           |
+| 暂停（老板键 / 自动切净）               | 保活，仅停止刷新调度                           | 恢复时秒开                        |
+| 渲染失败 3 次                           | 销毁并重建                                     | 防止 WebView 内存泄漏             |
 
 资源占用估算：常驻 hidden WebView2 进程 ~60 MB，CPU 空闲时 < 1%。
 
@@ -300,11 +300,11 @@ window.with_webview(|webview| {
 
 ## 10. 多屏
 
-| 阶段 | 行为 |
-|------|------|
+| 阶段       | 行为                                                              |
+| ---------- | ----------------------------------------------------------------- |
 | 阶段 1 MVP | 仅主屏。`IDesktopWallpaper::GetMonitorDevicePathAt(0)` 取第一块屏 |
-| 阶段 2 | 所有屏同步同一张 |
-| 阶段 3 | 每屏独立频道（主屏总览 / 副屏单任务详情） |
+| 阶段 2     | 所有屏同步同一张                                                  |
+| 阶段 3     | 每屏独立频道（主屏总览 / 副屏单任务详情）                         |
 
 ## 11. 配置入口
 
@@ -361,39 +361,39 @@ MVP 阶段使用固定过滤 + 排序规则（见 §5.2），不做用户可配�
 
 不新建表，仅在 `user_settings` 增加 key：
 
-| key | 类型 | 默认值 | 说明 |
-|-----|------|--------|------|
-| `wallpaper.enabled` | boolean | false | 总开关 |
-| `wallpaper.style` | string | `dashboard` | dashboard / sticky / banner |
-| `wallpaper.position` | string | `right` | right / left / top / bottom / tl / tr / bl / br |
-| `wallpaper.refresh_interval_min` | number | 15 | 刷新间隔（分钟） |
-| `wallpaper.original_path` | string | - | 原壁纸备份路径 |
-| `wallpaper.original_set_method` | string | `com` | com / sysparam（恢复时选 API） |
+| key                              | 类型          | 默认值                                                          | 说明                                             |
+| -------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------ |
+| `wallpaper.enabled`              | boolean       | false                                                           | 总开关                                           |
+| `wallpaper.style`                | string        | `dashboard`                                                     | dashboard / sticky / banner                      |
+| `wallpaper.position`             | string        | `right`                                                         | right / left / top / bottom / tl / tr / bl / br  |
+| `wallpaper.refresh_interval_min` | number        | 15                                                              | 刷新间隔（分钟）                                 |
+| `wallpaper.original_path`        | string        | -                                                               | 原壁纸备份路径                                   |
+| `wallpaper.original_set_method`  | string        | `com`                                                           | com / sysparam（恢复时选 API）                   |
 | `wallpaper.fullscreen_blacklist` | string (JSON) | `["obs64.exe","obs32.exe","powerpnt.exe","wpp.exe","zoom.exe"]` | 触发自动切净的进程名列表（仅演示/录屏/会议软件） |
-| `wallpaper.privacy_mask` | boolean | false | 敏感模式 |
-| `wallpaper.privacy_mask_until` | string | - | 敏感模式自动关闭时间（ISO，null=直到手动关） |
-| `wallpaper.exit_behavior` | string | `restore_original` | keep_last / restore_original |
-| `wallpaper.modules` | string (JSON) | `[...]` | 启用的模块（阶段 2 用） |
-| `wallpaper.boss_key` | string | `Ctrl+Alt+W` | 老板键 |
+| `wallpaper.privacy_mask`         | boolean       | false                                                           | 敏感模式                                         |
+| `wallpaper.privacy_mask_until`   | string        | -                                                               | 敏感模式自动关闭时间（ISO，null=直到手动关）     |
+| `wallpaper.exit_behavior`        | string        | `restore_original`                                              | keep_last / restore_original                     |
+| `wallpaper.modules`              | string (JSON) | `[...]`                                                         | 启用的模块（阶段 2 用）                          |
+| `wallpaper.boss_key`             | string        | `Ctrl+Alt+W`                                                    | 老板键                                           |
 
 ## 13. Windows 10 / 11 兼容性
 
 ### 13.1 目标兼容范围
 
-| 系统 | 版本 | 支持 |
-|------|------|------|
-| Windows 10 | ≥ 1809（LTSC 2019 起） | 是 |
-| Windows 11 | 22H2 / 23H2 / 24H2 | 是 |
-| Windows 10 | 1607–1803 | 不主动支持，但 API 兼容（未测） |
-| Windows 10 | < 1607 | 不支持 |
-| Windows 7 / 8.x | 已 EOL | 不支持 |
+| 系统            | 版本                   | 支持                            |
+| --------------- | ---------------------- | ------------------------------- |
+| Windows 10      | ≥ 1809（LTSC 2019 起） | 是                              |
+| Windows 11      | 22H2 / 23H2 / 24H2     | 是                              |
+| Windows 10      | 1607–1803              | 不主动支持，但 API 兼容（未测） |
+| Windows 10      | < 1607                 | 不支持                          |
+| Windows 7 / 8.x | 已 EOL                 | 不支持                          |
 
 ### 13.2 双层 API 策略
 
-| 路径 | 接口 | 用途 | 触发时机 |
-|------|------|------|---------|
-| 主路径 | `IDesktopWallpaper` COM 接口 | 多屏独立壁纸、读写当前壁纸 | 默认 |
-| 兜底 | `SystemParametersInfoW(SPI_SETDESKWALLPAPER)` | 单屏壁纸（所有屏同一张） | COM 初始化失败时 |
+| 路径   | 接口                                          | 用途                       | 触发时机         |
+| ------ | --------------------------------------------- | -------------------------- | ---------------- |
+| 主路径 | `IDesktopWallpaper` COM 接口                  | 多屏独立壁纸、读写当前壁纸 | 默认             |
+| 兜底   | `SystemParametersInfoW(SPI_SETDESKWALLPAPER)` | 单屏壁纸（所有屏同一张）   | COM 初始化失败时 |
 
 `IDesktopWallpaper` 自 Windows 8 起原生支持，Win 10 / Win 11 全部 OK。Win 10 1607+ 实际不会触发兜底，但保留作为安全网。
 
@@ -442,13 +442,13 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 
 ### 13.6 测试矩阵（最小集）
 
-| 环境 | 单 / 多屏 | 缩放 | 验证点 |
-|------|----------|------|--------|
-| Win 10 22H2 (LTSC) | 单屏 | 100% | 主路径 + 原图备份/恢复 |
-| Win 10 22H2 | 双屏 | 150% / 100% | 多屏 set 单屏 + DPI 缩放 |
-| Win 11 23H2 (Spotlight 关) | 单屏 | 100% | 主路径 |
-| Win 11 23H2 (Spotlight 开) | 单屏 | 100% | Spotlight 检测 + 提示 |
-| Win 11 24H2 | 双屏 | 200% / 100% | 高 DPI + 任务栏居中 |
+| 环境                       | 单 / 多屏 | 缩放        | 验证点                   |
+| -------------------------- | --------- | ----------- | ------------------------ |
+| Win 10 22H2 (LTSC)         | 单屏      | 100%        | 主路径 + 原图备份/恢复   |
+| Win 10 22H2                | 双屏      | 150% / 100% | 多屏 set 单屏 + DPI 缩放 |
+| Win 11 23H2 (Spotlight 关) | 单屏      | 100%        | 主路径                   |
+| Win 11 23H2 (Spotlight 开) | 单屏      | 100%        | Spotlight 检测 + 提示    |
+| Win 11 24H2                | 双屏      | 200% / 100% | 高 DPI + 任务栏居中      |
 
 ### 13.7 失败兜底
 
@@ -461,19 +461,19 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 
 ### 14.1 性能预算（v0.2 拆分）
 
-| 阶段 | 单步 | 预算 | 说明 |
-|------|------|------|------|
-| 首次渲染 | 总计 | < 1500 ms | 含 hidden WebView 冷启动 + Vue 挂载 + 字体加载 |
-| | dashboard_data 查询 | < 50 ms | 跨 PM/Todo SQL，复用现有索引 |
-| | WebView 冷启 + Vue 挂载 | 300–500 ms | 一次性 |
-| | 首帧渲染 + 截图 | 200–400 ms | 含字体加载 |
-| | 主色调采样 + 合成 | 100–200 ms | image crate，4K 壁纸 |
-| | PNG 编码 + 写盘 | 200–400 ms | 4K 全屏 PNG，**改用 JPEG 可降至 80–150 ms** |
-| | `IDesktopWallpaper::SetWallpaper` | 50–200 ms | 多屏 / Spotlight 残留时偶发 500 ms+ |
-| 后续渲染 | 总计 | < 600 ms | hidden WebView 已热，无冷启 |
-| | dashboard_data | < 50 ms | |
-| | 渲染 + 截图 | 80–150 ms | hot path |
-| | 合成 + 编码 + set | 350–500 ms | 编码占大头，建议 JPEG |
+| 阶段     | 单步                              | 预算       | 说明                                           |
+| -------- | --------------------------------- | ---------- | ---------------------------------------------- |
+| 首次渲染 | 总计                              | < 1500 ms  | 含 hidden WebView 冷启动 + Vue 挂载 + 字体加载 |
+|          | dashboard_data 查询               | < 50 ms    | 跨 PM/Todo SQL，复用现有索引                   |
+|          | WebView 冷启 + Vue 挂载           | 300–500 ms | 一次性                                         |
+|          | 首帧渲染 + 截图                   | 200–400 ms | 含字体加载                                     |
+|          | 主色调采样 + 合成                 | 100–200 ms | image crate，4K 壁纸                           |
+|          | PNG 编码 + 写盘                   | 200–400 ms | 4K 全屏 PNG，**改用 JPEG 可降至 80–150 ms**    |
+|          | `IDesktopWallpaper::SetWallpaper` | 50–200 ms  | 多屏 / Spotlight 残留时偶发 500 ms+            |
+| 后续渲染 | 总计                              | < 600 ms   | hidden WebView 已热，无冷启                    |
+|          | dashboard_data                    | < 50 ms    |                                                |
+|          | 渲染 + 截图                       | 80–150 ms  | hot path                                       |
+|          | 合成 + 编码 + set                 | 350–500 ms | 编码占大头，建议 JPEG                          |
 
 > **决策**：合成产物默认 JPEG 质量 90（壁纸用途无需无损），保留 PNG 作为高质量选项。
 >
@@ -591,18 +591,18 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 
 ## 18. 边界场景（v0.2 新增）
 
-| 编号 | 场景 | 处理 |
-|------|------|------|
-| E1 | 用户在 LazyCat 运行时手动改了壁纸 | 后端轮询 60 s 检测 `IDesktopWallpaper::GetWallpaper` 路径变化；若非 LazyCat 写入路径，更新 base 图缓存但**不更新** `wallpaper.original_path`（保护首次备份），下次刷新基于新 base 合成 |
-| E2 | 多次启用 / 禁用 | `wallpaper.original_path` 仅在首次启用时写入；禁用时按 `exit_behavior` 处理；再次启用时若 `original_path` 仍存在且文件可读，直接复用 |
-| E3 | 外接显示器分辨率变化 / 拔插 | 监听 `WM_DISPLAYCHANGE`，清空 base 图缓存 + 已合成图缓存，下次刷新时重新拉取 monitor device path 与 DPI |
-| E4 | `original_path` 文件被用户删除 | 渲染前 `Path::exists` 检查；不存在则状态卡片提示"原壁纸文件已丢失，请手动选一张"，恢复操作降级为设纯色壁纸 |
-| E5 | 全局热键注册失败 | 见 §9，状态卡片提示 + 不阻塞功能 |
-| E6 | hidden WebView 进程被外部强制结束 | 渲染失败计入 3 次熔断；熔断后状态卡片显示"⚠ 渲染进程异常，已暂停。点击重试" |
-| E7 | 数据目录磁盘满 | 写盘失败 → 跳过本次刷新 + 记日志；连续 3 次失败触发 §13.7 熔断 |
-| E8 | 系统休眠 / 唤醒 | `WM_POWERBROADCAST` 监听 `PBT_APMRESUMEAUTOMATIC`，唤醒后立即触发一次刷新（数据可能已过期） |
-| E9 | 跨日（0:00 切换）时正在渲染 | 0 点立刷被 30 s 节流吃掉时，下次心跳自然带入新日期；不做特殊处理 |
-| E10 | Spotlight / 第三方引擎在 LazyCat 运行中开启 | E1 检测到外部覆盖会触发提示，但不主动停止刷新（用户可手动暂停） |
+| 编号 | 场景                                        | 处理                                                                                                                                                                                   |
+| ---- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1   | 用户在 LazyCat 运行时手动改了壁纸           | 后端轮询 60 s 检测 `IDesktopWallpaper::GetWallpaper` 路径变化；若非 LazyCat 写入路径，更新 base 图缓存但**不更新** `wallpaper.original_path`（保护首次备份），下次刷新基于新 base 合成 |
+| E2   | 多次启用 / 禁用                             | `wallpaper.original_path` 仅在首次启用时写入；禁用时按 `exit_behavior` 处理；再次启用时若 `original_path` 仍存在且文件可读，直接复用                                                   |
+| E3   | 外接显示器分辨率变化 / 拔插                 | 监听 `WM_DISPLAYCHANGE`，清空 base 图缓存 + 已合成图缓存，下次刷新时重新拉取 monitor device path 与 DPI                                                                                |
+| E4   | `original_path` 文件被用户删除              | 渲染前 `Path::exists` 检查；不存在则状态卡片提示"原壁纸文件已丢失，请手动选一张"，恢复操作降级为设纯色壁纸                                                                             |
+| E5   | 全局热键注册失败                            | 见 §9，状态卡片提示 + 不阻塞功能                                                                                                                                                       |
+| E6   | hidden WebView 进程被外部强制结束           | 渲染失败计入 3 次熔断；熔断后状态卡片显示"⚠ 渲染进程异常，已暂停。点击重试"                                                                                                            |
+| E7   | 数据目录磁盘满                              | 写盘失败 → 跳过本次刷新 + 记日志；连续 3 次失败触发 §13.7 熔断                                                                                                                         |
+| E8   | 系统休眠 / 唤醒                             | `WM_POWERBROADCAST` 监听 `PBT_APMRESUMEAUTOMATIC`，唤醒后立即触发一次刷新（数据可能已过期）                                                                                            |
+| E9   | 跨日（0:00 切换）时正在渲染                 | 0 点立刷被 30 s 节流吃掉时，下次心跳自然带入新日期；不做特殊处理                                                                                                                       |
+| E10  | Spotlight / 第三方引擎在 LazyCat 运行中开启 | E1 检测到外部覆盖会触发提示，但不主动停止刷新（用户可手动暂停）                                                                                                                        |
 
 ## 19. 测试边界（v0.2 新增）
 
@@ -611,6 +611,7 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 ### 19.1 单元测试（`*.test.ts` / Rust `#[cfg(test)]`）
 
 纯函数：
+
 - `mergeAndDedupItems`：PM + Todo 合并去重逻辑（覆盖 pmItemId 关联、纯 Todo、纯 PM、空集）
 - `sortDashboardItems`：排序稳定性（pinned 优先、同优先级按截止、无截止落最后）
 - `formatDeadlineLabel`：今天 / 明天 / N 天后 / 已逾期 N 天 / 跨年（覆盖时区边界）
@@ -621,16 +622,16 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 
 ### 19.2 手动测试矩阵（沿用 §13.6 + 补充）
 
-| 场景 | 验证点 |
-|------|--------|
-| 启用 → 设壁纸 → 恢复 | 原图能 100% 还原（hash 比对） |
-| 启用 → 系统重启 → 启动 LazyCat | 自动恢复刷新；`original_path` 仍指向用户原图 |
-| 老板键连按 | toggle 状态正确，不重复合成 |
-| Spotlight 开启时启用 | 提示弹窗出现 |
-| 拔插外接显示器 | base 图缓存清空 + 下次刷新基于新 monitor 数据 |
-| 全屏 OBS / Chrome 视频 / PPT 演示 | 自动暂停 |
-| 锁屏 → 解锁 | 解锁后立即刷新一次 |
-| 系统休眠 → 唤醒 | 唤醒后触发刷新 |
+| 场景                              | 验证点                                        |
+| --------------------------------- | --------------------------------------------- |
+| 启用 → 设壁纸 → 恢复              | 原图能 100% 还原（hash 比对）                 |
+| 启用 → 系统重启 → 启动 LazyCat    | 自动恢复刷新；`original_path` 仍指向用户原图  |
+| 老板键连按                        | toggle 状态正确，不重复合成                   |
+| Spotlight 开启时启用              | 提示弹窗出现                                  |
+| 拔插外接显示器                    | base 图缓存清空 + 下次刷新基于新 monitor 数据 |
+| 全屏 OBS / Chrome 视频 / PPT 演示 | 自动暂停                                      |
+| 锁屏 → 解锁                       | 解锁后立即刷新一次                            |
+| 系统休眠 → 唤醒                   | 唤醒后触发刷新                                |
 
 ### 19.3 不做自动化的部分
 
@@ -649,44 +650,44 @@ Win 10 / 11 都强制启用，行为一致，无需特殊处理。
 
 ### v0.2（2026-05-05 spec review 后）
 
-| 章节 | 变更 |
-|------|------|
-| §5.2 | 自适应行数公式 + 完成迟滞实现位置 |
-| §7.2 | DR-4 反向论证 + 回退方案 |
-| §7.3 | 加入 B1 spike 任务定义 |
-| §7.5 | 新增：Hidden WebView 生命周期表 |
-| §8 | 空闲 / 锁屏 / 0 点的具体 Windows API |
-| §9 | 老板键、自动切净的具体 API + 注册失败降级 |
+| 章节  | 变更                                                  |
+| ----- | ----------------------------------------------------- |
+| §5.2  | 自适应行数公式 + 完成迟滞实现位置                     |
+| §7.2  | DR-4 反向论证 + 回退方案                              |
+| §7.3  | 加入 B1 spike 任务定义                                |
+| §7.5  | 新增：Hidden WebView 生命周期表                       |
+| §8    | 空闲 / 锁屏 / 0 点的具体 Windows API                  |
+| §9    | 老板键、自动切净的具体 API + 注册失败降级             |
 | §11.2 | 重置确认 UX + 合成格式选项 + 位置 MVP/阶段 2 范围统一 |
-| §13.4 | Spotlight 检测改三重判定 |
-| §14 | 性能预算拆首次 / 后续 + JPEG 决策 + base 图缓存 |
-| §15.1 | 新增 阶段 0 spike |
-| §18 | 新增：边界场景表（10 项） |
-| §19 | 新增：测试边界（单测 / 手测 / 推送前最低要求） |
-| §20 | 本表 |
+| §13.4 | Spotlight 检测改三重判定                              |
+| §14   | 性能预算拆首次 / 后续 + JPEG 决策 + base 图缓存       |
+| §15.1 | 新增 阶段 0 spike                                     |
+| §18   | 新增：边界场景表（10 项）                             |
+| §19   | 新增：测试边界（单测 / 手测 / 推送前最低要求）        |
+| §20   | 本表                                                  |
 
 ### v0.4（2026-05-05 B1 代码 PoC 后）
 
-| 章节 | 变更 |
-|------|------|
-| §7.2 | 记录 P1-P5 代码 PoC 已通过，首选 `ICoreWebView2::CapturePreview` 可进入实现 |
-| §7.3 | PoC 必测项从待执行改为已通过；依赖版本固定为 `webview2-com 0.38` + `windows 0.61` |
-| §15.1 | 阶段 0 更新为 spike + 代码 PoC 均完成，阶段 1 可进入实现 plan |
-| §16 | DR-4 / DR-7 补充 PoC 通过结论 |
-| 状态行 | 标记 v0.4 |
+| 章节   | 变更                                                                              |
+| ------ | --------------------------------------------------------------------------------- |
+| §7.2   | 记录 P1-P5 代码 PoC 已通过，首选 `ICoreWebView2::CapturePreview` 可进入实现       |
+| §7.3   | PoC 必测项从待执行改为已通过；依赖版本固定为 `webview2-com 0.38` + `windows 0.61` |
+| §15.1  | 阶段 0 更新为 spike + 代码 PoC 均完成，阶段 1 可进入实现 plan                     |
+| §16    | DR-4 / DR-7 补充 PoC 通过结论                                                     |
+| 状态行 | 标记 v0.4                                                                         |
 
 ### v0.5（2026-05-05 用户体验对齐修订）
 
-| 章节 | 变更 | 动机 |
-|------|------|------|
-| §5.2 | 排序：`pinned → 已逾期 → P0..P3 → 截止 → 创建` | 逾期 P3 不应排在未逾期 P0 之后 |
-| §5.2 | 排序逻辑复用 PM `priority_rank` + `is_open_status`，新增 `wallpaper/dashboard_logic.rs` | 与现有任务清单口径对齐，不重写一份 |
-| §5.2 | 移除完成迟滞机制；删除 `recentlyCompleted` 字段 | 用户点完成后预期立即消失，跨周期保留违反直觉 |
-| §5.2 | "默认配置约 7 行" 改为 "约 10 行" | 与公式 `floor((480-32)/44)` 一致 |
-| §8 | 节流改为 trailing-edge debounce 5 s，删 leading + 30 s 锁定 | 30 s 锁定让连续完成无视觉反馈 |
-| §8 | 新增空闲恢复立刷（idle ≥ 5 min 后回归立刷） | 用户离开 30 min 回桌看到陈旧数据 |
-| §9 | 全屏切净触发列表去掉 chrome / vlc，仅留演示 / 录屏 / 会议软件 | chrome.exe 整进程进黑名单导致日常窗口化使用长期切净 |
-| §9 / §11.2 | 统一术语为"全屏切净触发列表"，删除"白名单"措辞 | §9 写白名单 §12 字段叫 blacklist 语义反向 |
-| §9 / §11.2 / §12 | 敏感模式新增过期时间（默认 2h）+ 状态卡片显眼提示 | 防止用户忘记关闭后长期看到打码壁纸 |
-| §14.1 | 新增 dashboard hash 短路：内容无变化时跳过 SetWallpaper | 缓解 SetWallpaper 100-300 ms 桌面黑闪 |
-| 状态行 | 标记 v0.5 |
+| 章节             | 变更                                                                                    | 动机                                                |
+| ---------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| §5.2             | 排序：`pinned → 已逾期 → P0..P3 → 截止 → 创建`                                          | 逾期 P3 不应排在未逾期 P0 之后                      |
+| §5.2             | 排序逻辑复用 PM `priority_rank` + `is_open_status`，新增 `wallpaper/dashboard_logic.rs` | 与现有任务清单口径对齐，不重写一份                  |
+| §5.2             | 移除完成迟滞机制；删除 `recentlyCompleted` 字段                                         | 用户点完成后预期立即消失，跨周期保留违反直觉        |
+| §5.2             | "默认配置约 7 行" 改为 "约 10 行"                                                       | 与公式 `floor((480-32)/44)` 一致                    |
+| §8               | 节流改为 trailing-edge debounce 5 s，删 leading + 30 s 锁定                             | 30 s 锁定让连续完成无视觉反馈                       |
+| §8               | 新增空闲恢复立刷（idle ≥ 5 min 后回归立刷）                                             | 用户离开 30 min 回桌看到陈旧数据                    |
+| §9               | 全屏切净触发列表去掉 chrome / vlc，仅留演示 / 录屏 / 会议软件                           | chrome.exe 整进程进黑名单导致日常窗口化使用长期切净 |
+| §9 / §11.2       | 统一术语为"全屏切净触发列表"，删除"白名单"措辞                                          | §9 写白名单 §12 字段叫 blacklist 语义反向           |
+| §9 / §11.2 / §12 | 敏感模式新增过期时间（默认 2h）+ 状态卡片显眼提示                                       | 防止用户忘记关闭后长期看到打码壁纸                  |
+| §14.1            | 新增 dashboard hash 短路：内容无变化时跳过 SetWallpaper                                 | 缓解 SetWallpaper 100-300 ms 桌面黑闪               |
+| 状态行           | 标记 v0.5                                                                               |

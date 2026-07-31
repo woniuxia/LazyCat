@@ -247,9 +247,9 @@ interface ReleasePackageDeployStartInput {
 事件阶段增加 `upload`。整体状态增加：
 
 ```ts
-"prechecking"
-"uploading"
-"package_succeeded_upload_failed"
+"prechecking";
+"uploading";
+"package_succeeded_upload_failed";
 ```
 
 其他现有状态保持兼容。`package_succeeded_upload_failed` 携带本地 `archivePath`、脱敏上传错误和可重试描述符。

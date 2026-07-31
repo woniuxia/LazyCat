@@ -7,12 +7,12 @@
 
 ## 总览
 
-| 阶段 | 产出 | 新增/修改文件 |
-|------|------|---------------|
-| 1 | payload 合成纯函数 + 单测 | 新增 `utils/todoQuickAdd.ts`、`utils/todoQuickAdd.test.ts`；微调 `utils/todoSchedule.ts` |
-| 2 | 快速添加栏组件 + 组件测试 | 新增 `components/TodoQuickAddBar.vue`、`components/TodoQuickAddBar.test.ts` |
-| 3 | 面板接线（上下文/挂载/反馈）+ 面板测试 | 修改 `components/TodoPanel.vue`；新增 `components/TodoPanel.quick-add.test.ts` |
-| 4 | 全量验证与经验沉淀 | `process.md` |
+| 阶段 | 产出                                   | 新增/修改文件                                                                            |
+| ---- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1    | payload 合成纯函数 + 单测              | 新增 `utils/todoQuickAdd.ts`、`utils/todoQuickAdd.test.ts`；微调 `utils/todoSchedule.ts` |
+| 2    | 快速添加栏组件 + 组件测试              | 新增 `components/TodoQuickAddBar.vue`、`components/TodoQuickAddBar.test.ts`              |
+| 3    | 面板接线（上下文/挂载/反馈）+ 面板测试 | 修改 `components/TodoPanel.vue`；新增 `components/TodoPanel.quick-add.test.ts`           |
+| 4    | 全量验证与经验沉淀                     | `process.md`                                                                             |
 
 以下路径均相对 `apps/desktop/src/`。
 
@@ -44,7 +44,7 @@ import { combineLocalDateTime, DEFAULT_TIME } from "./todoSchedule";
 export type QuickAddDateChoice =
   | { kind: "today" }
   | { kind: "tomorrow" }
-  | { kind: "date"; date: string }   // YYYY-MM-DD
+  | { kind: "date"; date: string } // YYYY-MM-DD
   | null;
 
 export interface QuickAddInput {
@@ -63,7 +63,7 @@ export function buildQuickAddPayload(
   input: QuickAddInput,
   context: QuickAddContext,
   now = new Date(),
-): Record<string, unknown> | null
+): Record<string, unknown> | null;
 ```
 
 - “今天”的实现要点：基于 `now` 用 `new Date(y, m, d, h, floor(min/5)*5 + 5)` 构造——Date 构造器分钟溢出自动进位跨日，天然覆盖 23:58 → 次日 00:00（勿复用 `getCreateDraftDefaultDateTime` 的 `% 1440` 分钟回绕，它不带日期进位）。

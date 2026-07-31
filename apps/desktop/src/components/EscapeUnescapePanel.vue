@@ -20,13 +20,7 @@
     </div>
 
     <div class="textarea-wrap">
-      <el-input
-        v-model="output"
-        type="textarea"
-        resize="none"
-        readonly
-        placeholder="结果"
-      />
+      <el-input v-model="output" type="textarea" resize="none" readonly placeholder="结果" />
       <span class="char-count">{{ output.length }} 字符</span>
     </div>
 
@@ -65,7 +59,7 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",
   ">": "&gt;",
-  "\"": "&quot;",
+  '"': "&quot;",
   "'": "&#39;",
 };
 
@@ -73,7 +67,7 @@ const HTML_UNESCAPE_MAP: Record<string, string> = {
   "&amp;": "&",
   "&lt;": "<",
   "&gt;": ">",
-  "&quot;": "\"",
+  "&quot;": '"',
   "&#39;": "'",
   "&apos;": "'",
 };
@@ -83,7 +77,7 @@ function escapeForJsonString(value: string): string {
 }
 
 function unescapeForJsonString(value: string): string {
-  const quoted = `"${value.replaceAll("\"", "\\\"")}"`;
+  const quoted = `"${value.replaceAll('"', '\\"')}"`;
   return JSON.parse(quoted) as string;
 }
 
@@ -108,7 +102,7 @@ function unescapeForSqlString(value: string): string {
 function escapeForJsString(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
-    .replaceAll("\"", "\\\"")
+    .replaceAll('"', '\\"')
     .replaceAll("'", "\\'")
     .replaceAll("\n", "\\n")
     .replaceAll("\r", "\\r")
@@ -118,27 +112,30 @@ function escapeForJsString(value: string): string {
 }
 
 function unescapeForJsString(value: string): string {
-  return value.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|["'\\bfnrt])/g, (match, token: string) => {
-    if (token === "\"") return "\"";
-    if (token === "'") return "'";
-    if (token === "\\") return "\\";
-    if (token === "b") return "\b";
-    if (token === "f") return "\f";
-    if (token === "n") return "\n";
-    if (token === "r") return "\r";
-    if (token === "t") return "\t";
-    if (token.startsWith("x")) {
-      return String.fromCharCode(parseInt(token.slice(1), 16));
-    }
-    if (token.startsWith("u{")) {
-      const codePoint = parseInt(token.slice(2, -1), 16);
-      return String.fromCodePoint(codePoint);
-    }
-    if (token.startsWith("u")) {
-      return String.fromCharCode(parseInt(token.slice(1), 16));
-    }
-    return match;
-  });
+  return value.replace(
+    /\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|["'\\bfnrt])/g,
+    (match, token: string) => {
+      if (token === '"') return '"';
+      if (token === "'") return "'";
+      if (token === "\\") return "\\";
+      if (token === "b") return "\b";
+      if (token === "f") return "\f";
+      if (token === "n") return "\n";
+      if (token === "r") return "\r";
+      if (token === "t") return "\t";
+      if (token.startsWith("x")) {
+        return String.fromCharCode(parseInt(token.slice(1), 16));
+      }
+      if (token.startsWith("u{")) {
+        const codePoint = parseInt(token.slice(2, -1), 16);
+        return String.fromCodePoint(codePoint);
+      }
+      if (token.startsWith("u")) {
+        return String.fromCharCode(parseInt(token.slice(1), 16));
+      }
+      return match;
+    },
+  );
 }
 
 function runEscape() {

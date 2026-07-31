@@ -23,12 +23,22 @@
           v-model="searchQuery"
           placeholder="搜索应用..."
           clearable
-          style="flex: 1; min-width: 160px; max-width: 320px;"
+          style="flex: 1; min-width: 160px; max-width: 320px"
         />
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center">
           <el-button-group>
-            <el-button :type="viewType === 'grid' ? 'primary' : ''" size="small" @click="viewType = 'grid'">网格</el-button>
-            <el-button :type="viewType === 'list' ? 'primary' : ''" size="small" @click="viewType = 'list'">列表</el-button>
+            <el-button
+              :type="viewType === 'grid' ? 'primary' : ''"
+              size="small"
+              @click="viewType = 'grid'"
+              >网格</el-button
+            >
+            <el-button
+              :type="viewType === 'list' ? 'primary' : ''"
+              size="small"
+              @click="viewType = 'list'"
+              >列表</el-button
+            >
           </el-button-group>
           <el-button @click="settingsDialogVisible = true">设置</el-button>
         </div>
@@ -134,9 +144,19 @@
       </div>
     </teleport>
     <!-- Scan Dialog -->
-    <el-dialog v-model="scanDialogVisible" title="扫描快捷方式" width="680px" :close-on-click-modal="false">
-      <div style="margin-bottom: 12px;">
-        <el-input v-model="scanSearch" placeholder="过滤扫描结果..." clearable style="width: 260px;" />
+    <el-dialog
+      v-model="scanDialogVisible"
+      title="扫描快捷方式"
+      width="680px"
+      :close-on-click-modal="false"
+    >
+      <div style="margin-bottom: 12px">
+        <el-input
+          v-model="scanSearch"
+          placeholder="过滤扫描结果..."
+          clearable
+          style="width: 260px"
+        />
       </div>
       <el-table
         :data="filteredScanItems"
@@ -145,7 +165,11 @@
         @selection-change="onScanSelectionChange"
         ref="scanTableRef"
       >
-        <el-table-column type="selection" width="45" :selectable="(row: ScanItem) => !row._exists" />
+        <el-table-column
+          type="selection"
+          width="45"
+          :selectable="(row: ScanItem) => !row._exists"
+        />
         <el-table-column prop="name" label="名称" min-width="180" />
         <el-table-column prop="exe_path" label="路径" min-width="300" show-overflow-tooltip />
         <el-table-column label="状态" width="80">
@@ -169,7 +193,13 @@
           <el-input v-model="editForm.name" />
         </el-form-item>
         <el-form-item label="分组">
-          <el-select v-model="editForm.group_name" filterable allow-create default-first-option style="width: 100%;">
+          <el-select
+            v-model="editForm.group_name"
+            filterable
+            allow-create
+            default-first-option
+            style="width: 100%"
+          >
             <el-option v-for="g in userGroups" :key="g" :label="g" :value="g" />
           </el-select>
         </el-form-item>
@@ -196,24 +226,29 @@
     </el-dialog>
 
     <!-- Settings Dialog -->
-    <el-dialog v-model="settingsDialogVisible" title="快捷启动设置" width="680px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="settingsDialogVisible"
+      title="快捷启动设置"
+      width="680px"
+      :close-on-click-modal="false"
+    >
       <el-tabs v-model="settingsTab">
         <el-tab-pane label="添加应用" name="add">
-          <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; flex-direction: column; gap: 16px">
             <div>
-              <h4 style="margin: 0 0 8px;">扫描快捷方式</h4>
-              <p style="margin: 0 0 8px; color: var(--el-text-color-secondary); font-size: 13px;">
+              <h4 style="margin: 0 0 8px">扫描快捷方式</h4>
+              <p style="margin: 0 0 8px; color: var(--el-text-color-secondary); font-size: 13px">
                 自动扫描开始菜单和桌面的快捷方式
               </p>
               <el-button type="primary" @click="openScanDialog">扫描添加</el-button>
             </div>
-            <el-divider style="margin: 4px 0;" />
+            <el-divider style="margin: 4px 0" />
             <div>
-              <h4 style="margin: 0 0 8px;">手动添加</h4>
-              <p style="margin: 0 0 8px; color: var(--el-text-color-secondary); font-size: 13px;">
+              <h4 style="margin: 0 0 8px">手动添加</h4>
+              <p style="margin: 0 0 8px; color: var(--el-text-color-secondary); font-size: 13px">
                 选择可执行文件或文件夹添加到启动列表
               </p>
-              <div style="display: flex; gap: 8px;">
+              <div style="display: flex; gap: 8px">
                 <el-button @click="handleManualAddFile">添加程序</el-button>
                 <el-button @click="handleManualAddFolder">添加文件夹</el-button>
               </div>
@@ -221,19 +256,31 @@
           </div>
         </el-tab-pane>
         <el-tab-pane label="分组管理" name="groups">
-          <div style="margin-bottom: 12px;">
+          <div style="margin-bottom: 12px">
             <el-button type="primary" size="small" @click="createGroup">新建分组</el-button>
           </div>
-          <div v-if="userGroups.length === 0" style="color: var(--el-text-color-secondary); font-size: 13px; padding: 20px 0; text-align: center;">
+          <div
+            v-if="userGroups.length === 0"
+            style="
+              color: var(--el-text-color-secondary);
+              font-size: 13px;
+              padding: 20px 0;
+              text-align: center;
+            "
+          >
             暂无自定义分组
           </div>
-          <el-table v-else :data="groupTableData" style="width: 100%;">
+          <el-table v-else :data="groupTableData" style="width: 100%">
             <el-table-column prop="name" label="分组名称" min-width="200" />
             <el-table-column prop="count" label="应用数量" width="100" align="center" />
             <el-table-column label="操作" width="180" align="center">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click="startRenameGroup(row.name)">重命名</el-button>
-                <el-button size="small" text type="danger" @click="deleteGroup(row.name)">删除分组</el-button>
+                <el-button size="small" text type="primary" @click="startRenameGroup(row.name)"
+                  >重命名</el-button
+                >
+                <el-button size="small" text type="danger" @click="deleteGroup(row.name)"
+                  >删除分组</el-button
+                >
               </template>
             </el-table-column>
           </el-table>
@@ -315,7 +362,10 @@ const groupList = computed(() => {
 const userGroups = computed(() => {
   const groups = new Set<string>();
   customGroups.value.forEach((g) => groups.add(g));
-  entries.value.map((e) => e.group_name).filter(Boolean).forEach((g) => groups.add(g));
+  entries.value
+    .map((e) => e.group_name)
+    .filter(Boolean)
+    .forEach((g) => groups.add(g));
   return Array.from(groups).sort();
 });
 
@@ -343,7 +393,9 @@ const {
 const filteredScanItems = computed(() => {
   const q = scanSearch.value.trim().toLowerCase();
   if (!q) return scanItems.value;
-  return scanItems.value.filter((s) => s.name.toLowerCase().includes(q) || s.exe_path.toLowerCase().includes(q));
+  return scanItems.value.filter(
+    (s) => s.name.toLowerCase().includes(q) || s.exe_path.toLowerCase().includes(q),
+  );
 });
 
 // Load
@@ -362,12 +414,21 @@ async function loadGroups() {
   if (res) customGroups.value = res.groups;
 }
 
-onMounted(() => { void loadEntries(); void loadGroups(); document.addEventListener("click", hideCtx); });
-onBeforeUnmount(() => { document.removeEventListener("click", hideCtx); });
+onMounted(() => {
+  void loadEntries();
+  void loadGroups();
+  document.addEventListener("click", hideCtx);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", hideCtx);
+});
 
 // Launch
 async function launchApp(entry: LauncherEntry, admin = false) {
-  if (justDragged.value) { justDragged.value = false; return; }
+  if (justDragged.value) {
+    justDragged.value = false;
+    return;
+  }
   if (!entry.path_exists) {
     ElMessage.warning("程序路径已失效，请右键编辑后重新选择");
     return;
@@ -382,7 +443,7 @@ async function launchApp(entry: LauncherEntry, admin = false) {
     { errorPrefix: "启动失败：" },
   );
   if (!launched) return;
-  ElMessage.success({ message: '已启动', duration: 1500 });
+  ElMessage.success({ message: "已启动", duration: 1500 });
 }
 
 // Scan
@@ -478,7 +539,9 @@ function onContextMenu(entry: LauncherEntry, e: MouseEvent) {
   ctxVisible.value = true;
 }
 
-function hideCtx() { ctxVisible.value = false; }
+function hideCtx() {
+  ctxVisible.value = false;
+}
 
 function ctxLaunch(admin: boolean) {
   if (ctxEntry.value) launchApp(ctxEntry.value, admin);
@@ -639,7 +702,7 @@ const groupTableData = computed(() =>
   userGroups.value.map((g) => ({
     name: g,
     count: entries.value.filter((e) => e.group_name === g).length,
-  }))
+  })),
 );
 
 async function createGroup() {
@@ -744,7 +807,9 @@ async function deleteGroup(groupName: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .group-item:hover {
   background: var(--lc-accent-dim);
@@ -813,7 +878,9 @@ async function deleteGroup(groupName: string) {
   padding: 16px 8px;
   border-radius: var(--lc-radius-md);
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition:
+    background 0.15s,
+    transform 0.1s;
 }
 .grid-card:hover {
   background: var(--lc-accent-dim);

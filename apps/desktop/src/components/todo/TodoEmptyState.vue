@@ -7,15 +7,34 @@
           <circle cx="30" cy="120" r="15" fill="var(--lc-success)" opacity="0.06" />
           <circle cx="170" cy="130" r="10" fill="var(--lc-warning)" opacity="0.08" />
           <rect
-            x="50" y="20" width="100" height="120" rx="12"
-            fill="var(--lc-surface-1)" stroke="var(--lc-border)" stroke-width="2"
+            x="50"
+            y="20"
+            width="100"
+            height="120"
+            rx="12"
+            fill="var(--lc-surface-1)"
+            stroke="var(--lc-border)"
+            stroke-width="2"
           />
           <rect x="65" y="45" width="70" height="6" rx="3" fill="var(--lc-border)" opacity="0.6" />
           <rect x="65" y="60" width="50" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
           <rect x="65" y="75" width="60" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
           <rect x="65" y="90" width="40" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
-          <circle cx="140" cy="115" r="22" fill="var(--lc-surface-0)" stroke="var(--lc-accent)" stroke-width="2.5" />
-          <path d="M130 115L137 122L152 107" stroke="var(--lc-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+          <circle
+            cx="140"
+            cy="115"
+            r="22"
+            fill="var(--lc-surface-0)"
+            stroke="var(--lc-accent)"
+            stroke-width="2.5"
+          />
+          <path
+            d="M130 115L137 122L152 107"
+            stroke="var(--lc-accent)"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
           <circle cx="60" cy="30" r="4" fill="var(--lc-danger)" opacity="0.6" />
           <circle cx="75" cy="30" r="4" fill="var(--lc-warning)" opacity="0.6" />
           <circle cx="90" cy="30" r="4" fill="var(--lc-success)" opacity="0.6" />
@@ -25,9 +44,7 @@
     </div>
     <div class="detail-empty-content">
       <div class="detail-empty-title">选择事项查看详情</div>
-      <div class="detail-empty-text">
-        在列表中点击任意任务，或快速创建新任务开始管理您的工作。
-      </div>
+      <div class="detail-empty-text">在列表中点击任意任务，或快速创建新任务开始管理您的工作。</div>
     </div>
     <div class="detail-empty-actions">
       <el-button type="primary" size="large" @click="emit('create')">
@@ -114,12 +131,24 @@ const emit = defineEmits<{
   animation: pulse 4s ease-in-out infinite;
 }
 @keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 @keyframes pulse {
-  0%, 100% { opacity: 0.08; transform: scale(1); }
-  50% { opacity: 0.15; transform: scale(1.1); }
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(1.1);
+  }
 }
 .detail-empty-content {
   max-width: 280px;
@@ -228,7 +257,13 @@ const emit = defineEmits<{
   color: var(--lc-danger);
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

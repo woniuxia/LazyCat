@@ -19,7 +19,7 @@
     <div v-if="loading" class="inline-todo-hint">加载中...</div>
     <template v-else>
       <div v-if="displayItems.length === 0" class="inline-todo-hint inline-todo-hint--empty">
-        {{ isCreateMode ? '暂无待关联的执行任务' : '暂无关联的执行任务' }}
+        {{ isCreateMode ? "暂无待关联的执行任务" : "暂无关联的执行任务" }}
       </div>
       <div v-else class="inline-todo-items">
         <div
@@ -70,11 +70,7 @@
           :placeholder="isCreateMode ? '输入任务标题，回车添加...' : '输入任务标题，回车创建...'"
           @keyup.enter="handleQuickCreate"
         />
-        <el-select
-          v-model="createPriority"
-          size="small"
-          class="inline-todo-create-priority"
-        >
+        <el-select v-model="createPriority" size="small" class="inline-todo-create-priority">
           <el-option label="P0" value="P0" />
           <el-option label="P1" value="P1" />
           <el-option label="P2" value="P2" />
@@ -110,7 +106,9 @@
                 <div v-for="c in candidates" :key="c.id" class="inline-todo-candidate-row">
                   <el-checkbox :value="c.id">
                     <span class="inline-todo-candidate-title">{{ c.title }}</span>
-                    <span v-if="c.isUnassignedProject" class="inline-todo-candidate-tag is-warning">未归项目</span>
+                    <span v-if="c.isUnassignedProject" class="inline-todo-candidate-tag is-warning"
+                      >未归项目</span
+                    >
                     <span
                       class="inline-todo-candidate-tag"
                       :class="c.status === 'completed' ? 'is-success' : 'is-info'"
@@ -160,7 +158,10 @@ const emit = defineEmits<{
   unlink: [id: number];
   link: [ids: number[]];
   "search-candidates": [keyword: string];
-  "pending-change": [pendingCreates: Array<{ title: string; priority: string; description: string }>, pendingLinks: number[]];
+  "pending-change": [
+    pendingCreates: Array<{ title: string; priority: string; description: string }>,
+    pendingLinks: number[],
+  ];
 }>();
 
 const createTitle = ref("");
@@ -199,7 +200,11 @@ const progressPercent = computed(() => {
 });
 
 const allCompleted = computed(() => {
-  return props.summary != null && props.summary.totalCount > 0 && props.summary.completedCount === props.summary.totalCount;
+  return (
+    props.summary != null &&
+    props.summary.totalCount > 0 &&
+    props.summary.completedCount === props.summary.totalCount
+  );
 });
 
 function statusLabel(status: string): string {
@@ -219,7 +224,11 @@ function priorityPillClass(priority: string | null | undefined): string {
 function handleQuickCreate() {
   if (!createTitle.value.trim()) return;
   if (isCreateMode.value) {
-    localCreates.value.push({ title: createTitle.value.trim(), priority: createPriority.value, description: "" });
+    localCreates.value.push({
+      title: createTitle.value.trim(),
+      priority: createPriority.value,
+      description: "",
+    });
     emitPendingChange();
   } else {
     emit("create", createTitle.value.trim(), createPriority.value);
@@ -345,7 +354,10 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   border: 1px solid var(--pm-edge-soft);
   border-radius: 10px;
   background: #ffffff;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
 .inline-todo-row:hover {
@@ -493,7 +505,10 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   border: 1px dashed rgba(14, 165, 233, 0.35);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.7);
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.15s;
 }
 .inline-todo-create-row:focus-within {
   border-style: solid;

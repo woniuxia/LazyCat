@@ -10,10 +10,34 @@
       />
 
       <div class="filter-group">
-        <button class="filter-chip" :class="{ active: viewPreset === 'all' }" @click="setPreset('all')">全部</button>
-        <button class="filter-chip" :class="{ active: viewPreset === 'favorite' }" @click="setPreset('favorite')">收藏</button>
-        <button class="filter-chip" :class="{ active: viewPreset === 'recent7' }" @click="setPreset('recent7')">最近 7 天</button>
-        <button class="filter-chip" :class="{ active: viewPreset === 'untagged' }" @click="setPreset('untagged')">无标签</button>
+        <button
+          class="filter-chip"
+          :class="{ active: viewPreset === 'all' }"
+          @click="setPreset('all')"
+        >
+          全部
+        </button>
+        <button
+          class="filter-chip"
+          :class="{ active: viewPreset === 'favorite' }"
+          @click="setPreset('favorite')"
+        >
+          收藏
+        </button>
+        <button
+          class="filter-chip"
+          :class="{ active: viewPreset === 'recent7' }"
+          @click="setPreset('recent7')"
+        >
+          最近 7 天
+        </button>
+        <button
+          class="filter-chip"
+          :class="{ active: viewPreset === 'untagged' }"
+          @click="setPreset('untagged')"
+        >
+          无标签
+        </button>
       </div>
 
       <section class="left-section">
@@ -22,7 +46,10 @@
           <button
             class="tag-item"
             :class="{ active: selectedTag === '' }"
-            @click="selectedTag = ''; loadSnippets()"
+            @click="
+              selectedTag = '';
+              loadSnippets();
+            "
           >
             全部标签
           </button>
@@ -31,14 +58,16 @@
             :key="item.tag"
             class="tag-item"
             :class="{ active: selectedTag === item.tag }"
-            @click="selectedTag = item.tag; loadSnippets()"
+            @click="
+              selectedTag = item.tag;
+              loadSnippets();
+            "
           >
             <span>{{ item.tag }}</span>
             <span class="count">{{ item.count }}</span>
           </button>
         </div>
       </section>
-
     </aside>
 
     <section class="middle-pane">
@@ -72,7 +101,7 @@
             <span class="snippet-title">{{ item.title || "（空白标题）" }}</span>
             <span class="snippet-meta">{{ item.primaryLanguage }}</span>
           </div>
-          <div class="snippet-item-desc">{{ item.description || '暂无描述' }}</div>
+          <div class="snippet-item-desc">{{ item.description || "暂无描述" }}</div>
           <div class="snippet-item-footer">
             <span>{{ formatTime(item.lastUsedAt || item.updatedAt) }}</span>
             <span>{{ item.fragmentCount }} 段</span>
@@ -91,7 +120,7 @@
           <el-input v-model="current.title" placeholder="片段标题" @input="scheduleSave" />
           <div class="editor-actions">
             <el-button text :type="current.isFavorite ? 'warning' : 'info'" @click="toggleFavorite">
-              {{ current.isFavorite ? '取消收藏' : '收藏' }}
+              {{ current.isFavorite ? "取消收藏" : "收藏" }}
             </el-button>
             <el-button text type="primary" @click="copyCurrentCode">复制代码</el-button>
             <el-popconfirm title="确定删除该片段？" @confirm="deleteSnippet">
@@ -133,7 +162,8 @@
                 size="small"
                 closable
                 @close="removeTag(tag)"
-              >{{ tag }}</el-tag>
+                >{{ tag }}</el-tag
+              >
             </div>
           </div>
         </div>
@@ -150,7 +180,9 @@
             >
               <el-tab-pane v-for="(frag, idx) in current.fragments" :key="idx" :name="String(idx)">
                 <template #label>
-                  <span v-if="renamingIdx !== idx" @dblclick.stop="startRename(idx)">{{ frag.label }}</span>
+                  <span v-if="renamingIdx !== idx" @dblclick.stop="startRename(idx)">{{
+                    frag.label
+                  }}</span>
                   <el-input
                     v-else
                     v-model="renameValue"
@@ -162,7 +194,9 @@
                 </template>
               </el-tab-pane>
             </el-tabs>
-            <el-button class="add-fragment-btn" text size="small" @click="addFragment">+片段</el-button>
+            <el-button class="add-fragment-btn" text size="small" @click="addFragment"
+              >+片段</el-button
+            >
           </div>
           <el-select
             v-if="activeFragment"
@@ -262,7 +296,10 @@ const activeFragment = computed(() => {
 
 const languageOptions = computed(() => {
   const used = new Set(current.value?.fragments.map((fragment) => fragment.language) ?? []);
-  return [...Array.from(used), ...MONACO_LANGUAGE_OPTIONS.filter((language) => !used.has(language))];
+  return [
+    ...Array.from(used),
+    ...MONACO_LANGUAGE_OPTIONS.filter((language) => !used.has(language)),
+  ];
 });
 
 function buildQuery() {
@@ -284,11 +321,9 @@ async function loadSnippets() {
         { ...query, keyword: searchKeyword },
         { errorPrefix: "列表加载失败：" },
       )
-    : await invokeWithLoading<SnippetSummary[]>(
-        "tool:snippets:v2:list",
-        query,
-        { errorPrefix: "列表加载失败：" },
-      );
+    : await invokeWithLoading<SnippetSummary[]>("tool:snippets:v2:list", query, {
+        errorPrefix: "列表加载失败：",
+      });
   if (!data) return;
 
   snippets.value = data;
@@ -458,7 +493,9 @@ function onTabRemove(targetName: string | number) {
   const idx = Number(targetName);
   if (!Number.isFinite(idx) || current.value.fragments.length <= 1) return;
   current.value.fragments.splice(idx, 1);
-  current.value.fragments.forEach((frag, i) => { frag.sortOrder = i; });
+  current.value.fragments.forEach((frag, i) => {
+    frag.sortOrder = i;
+  });
   activeFragmentName.value = String(Math.max(0, idx - 1));
   scheduleSave();
 }
@@ -469,7 +506,9 @@ function onFragmentLanguageChange() {
   const currentLabel = fragment.label.trim();
 
   if (currentLabel && !/\.[a-z0-9]+$/i.test(currentLabel)) {
-    const ext = MONACO_LANGUAGE_EXTENSIONS[fragment.language.toLowerCase()] ?? fragment.language.toLowerCase();
+    const ext =
+      MONACO_LANGUAGE_EXTENSIONS[fragment.language.toLowerCase()] ??
+      fragment.language.toLowerCase();
     fragment.label = `${currentLabel}.${ext}`;
   }
 

@@ -37,25 +37,29 @@ let sortable: Sortable | null = null;
 
 type StepTargetState = ReturnType<typeof resolveCombinationStepTargets>;
 const EMPTY_TARGET_STATE: StepTargetState = { options: [] };
-const stepTargetStates = computed(() => new Map(
-  props.modelValue.steps.map((step) => [
-    step.localId,
-    resolveCombinationStepTargets(step, props.targets.get(step.localId) ?? []),
-  ]),
-));
+const stepTargetStates = computed(
+  () =>
+    new Map(
+      props.modelValue.steps.map((step) => [
+        step.localId,
+        resolveCombinationStepTargets(step, props.targets.get(step.localId) ?? []),
+      ]),
+    ),
+);
 
 function targetState(localStepId: string): StepTargetState {
   return stepTargetStates.value.get(localStepId) ?? EMPTY_TARGET_STATE;
 }
 
-const canRun = computed(() =>
-  Boolean(props.modelValue.id)
-  && Boolean(props.modelValue.name.trim())
-  && props.modelValue.steps.length > 0
-  && props.modelValue.steps.every((step) => {
-    if (!step.actionType || !step.targetId) return false;
-    return targetState(step.localId).selected?.available === true;
-  }),
+const canRun = computed(
+  () =>
+    Boolean(props.modelValue.id) &&
+    Boolean(props.modelValue.name.trim()) &&
+    props.modelValue.steps.length > 0 &&
+    props.modelValue.steps.every((step) => {
+      if (!step.actionType || !step.targetId) return false;
+      return targetState(step.localId).selected?.available === true;
+    }),
 );
 
 function updateDraft(patch: Partial<ActionCombinationDraft>): void {
@@ -159,7 +163,11 @@ onUnmounted(() => {
         <span v-if="dirty" class="combination-editor__dirty">未保存</span>
       </div>
       <div class="combination-editor__actions">
-        <el-button :icon="CopyDocument" :disabled="runActive || !modelValue.name" @click="$emit('copy')">
+        <el-button
+          :icon="CopyDocument"
+          :disabled="runActive || !modelValue.name"
+          @click="$emit('copy')"
+        >
           复制
         </el-button>
         <el-button
@@ -170,12 +178,7 @@ onUnmounted(() => {
         >
           删除
         </el-button>
-        <el-button
-          type="primary"
-          plain
-          :disabled="!dirty || runActive"
-          @click="$emit('save')"
-        >
+        <el-button type="primary" plain :disabled="!dirty || runActive" @click="$emit('save')">
           保存
         </el-button>
         <el-button
@@ -218,11 +221,7 @@ onUnmounted(() => {
     </div>
 
     <div ref="stepListRef" class="combination-editor__steps">
-      <div
-        v-for="(step, index) in modelValue.steps"
-        :key="step.localId"
-        class="action-step"
-      >
+      <div v-for="(step, index) in modelValue.steps" :key="step.localId" class="action-step">
         <button
           type="button"
           class="action-step-drag"
@@ -252,7 +251,9 @@ onUnmounted(() => {
             :model-value="step.targetId"
             placeholder="选择目标"
             :disabled="runActive || !step.actionType"
-            @visible-change="$event && step.actionType && $emit('load-targets', step.localId, step.actionType)"
+            @visible-change="
+              $event && step.actionType && $emit('load-targets', step.localId, step.actionType)
+            "
             @update:model-value="changeTarget(index, $event)"
           >
             <el-option
@@ -265,17 +266,17 @@ onUnmounted(() => {
           </el-select>
           <div
             v-if="
-              targets.has(step.localId)
-              && (
-                targetState(step.localId).selected?.available === false
-                || targetState(step.localId).options.length === 0
-              )
+              targets.has(step.localId) &&
+              (targetState(step.localId).selected?.available === false ||
+                targetState(step.localId).options.length === 0)
             "
             class="action-step__unavailable"
           >
             <span>
-              {{ targetState(step.localId).selected?.unavailableReason
-                ?? "暂无可用目标，请先在对应工具中完成配置" }}
+              {{
+                targetState(step.localId).selected?.unavailableReason ??
+                "暂无可用目标，请先在对应工具中完成配置"
+              }}
             </span>
             <el-button
               link
@@ -327,8 +328,12 @@ onUnmounted(() => {
   color: var(--lc-text);
 }
 
-.combination-editor__header h2 { font-size: 17px; }
-.combination-editor__steps-header h3 { font-size: 14px; }
+.combination-editor__header h2 {
+  font-size: 17px;
+}
+.combination-editor__steps-header h3 {
+  font-size: 14px;
+}
 
 .combination-editor__dirty {
   margin-left: 8px;
@@ -343,7 +348,9 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.combination-editor__actions :deep(.el-button + .el-button) { margin-left: 0; }
+.combination-editor__actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
 
 .combination-editor__form {
   display: grid;
@@ -414,7 +421,9 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.action-step__target > :deep(.el-select) { width: 100%; }
+.action-step__target > :deep(.el-select) {
+  width: 100%;
+}
 
 .action-step__unavailable {
   margin-top: 4px;
@@ -456,8 +465,15 @@ onUnmounted(() => {
 }
 
 @media (max-width: 560px) {
-  .combination-editor { padding: 14px; }
-  .combination-editor__form { grid-template-columns: 1fr; gap: 6px; }
-  .combination-editor__actions { width: 100%; }
+  .combination-editor {
+    padding: 14px;
+  }
+  .combination-editor__form {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .combination-editor__actions {
+    width: 100%;
+  }
 }
 </style>

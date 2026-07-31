@@ -13,6 +13,7 @@
 ### Task 1: 同步新增默认 main 分支规则
 
 **Files:**
+
 - Modify: `AGENTS.md:360-370`
 - Modify: `CLAUDE.md:360-370`
 

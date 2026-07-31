@@ -1,12 +1,7 @@
 <template>
   <header class="top-bar">
     <div class="top-bar-left">
-      <button
-        class="top-bar-brand"
-        type="button"
-        title="点击返回首页"
-        @click="goHome"
-      >
+      <button class="top-bar-brand" type="button" title="点击返回首页" @click="goHome">
         <img class="brand-logo" src="../assets/icon.png" alt="Lazycat" />
         <span class="brand-name">Lazycat</span>
       </button>
@@ -53,20 +48,12 @@
               </template>
             </div>
           </template>
-          <div v-else-if="searchQuery.trim()" class="search-empty">
-            无匹配结果
-          </div>
+          <div v-else-if="searchQuery.trim()" class="search-empty">无匹配结果</div>
         </div>
         <div class="search-hint">
-          <div class="search-hint-item">
-            <kbd>↑</kbd> <kbd>↓</kbd> 导航
-          </div>
-          <div class="search-hint-item">
-            <kbd>Enter</kbd> 选择
-          </div>
-          <div class="search-hint-item">
-            <kbd>Esc</kbd> 关闭
-          </div>
+          <div class="search-hint-item"><kbd>↑</kbd> <kbd>↓</kbd> 导航</div>
+          <div class="search-hint-item"><kbd>Enter</kbd> 选择</div>
+          <div class="search-hint-item"><kbd>Esc</kbd> 关闭</div>
         </div>
       </div>
     </div>
@@ -224,10 +211,7 @@ const recommendations = computed<SearchRow[]>(() => {
     }));
 
   if (tools.length === 0) return [];
-  return [
-    { kind: "header" as const, key: "header-recent", label: "最近常用" },
-    ...tools,
-  ];
+  return [{ kind: "header" as const, key: "header-recent", label: "最近常用" }, ...tools];
 });
 
 const flattenedResults = computed<SearchRow[]>(() => {

@@ -23,38 +23,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import type { JSONContent } from '@tiptap/vue-3';
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { ElMessage } from 'element-plus';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import type { JSONContent } from "@tiptap/vue-3";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { ElMessage } from "element-plus";
 
-import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from '../rich/legacy';
-import { renderRichDescription } from '../rich/render';
-import { ensureDataDir } from '../rich/data-dir';
-import type { FileRefKind } from '../rich/data-dir';
-import { invokeToolByChannel } from '../bridge/tauri';
-import RteFileRefMenu from './RteFileRefMenu.vue';
-import RteImagePreview from './RteImagePreview.vue';
+import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from "../rich/legacy";
+import { renderRichDescription } from "../rich/render";
+import { ensureDataDir } from "../rich/data-dir";
+import type { FileRefKind } from "../rich/data-dir";
+import { invokeToolByChannel } from "../bridge/tauri";
+import RteFileRefMenu from "./RteFileRefMenu.vue";
+import RteImagePreview from "./RteImagePreview.vue";
 
 const props = withDefaults(
   defineProps<{
     value: string;
     emptyText?: string;
   }>(),
-  { emptyText: '' }
+  { emptyText: "" },
 );
 
 const containerRef = ref<HTMLElement | null>(null);
-const previewSrc = ref('');
+const previewSrc = ref("");
 
 const parsedDoc = computed(() => tryParseDoc(props.value));
 const fallbackText = computed(() => {
   // 无法解析 JSON 且原值非空：走 legacy 纯文本渲染
-  const t = props.value?.trim?.() ?? '';
-  return parsedDoc.value ? '' : t;
+  const t = props.value?.trim?.() ?? "";
+  return parsedDoc.value ? "" : t;
 });
 
-const dataDir = ref('');
+const dataDir = ref("");
 onMounted(async () => {
   dataDir.value = await ensureDataDir();
 });
@@ -75,11 +75,11 @@ const rewrittenDoc = computed<JSONContent | null>(() => {
 });
 
 const html = computed(() => {
-  if (!rewrittenDoc.value) return '';
+  if (!rewrittenDoc.value) return "";
   try {
     return renderRichDescription(rewrittenDoc.value);
   } catch {
-    return '';
+    return "";
   }
 });
 
@@ -99,7 +99,7 @@ async function detectMissingPaths(): Promise<void> {
     return;
   }
   try {
-    const res = (await invokeToolByChannel('tool:system:check-paths-exist', {
+    const res = (await invokeToolByChannel("tool:system:check-paths-exist", {
       paths,
     })) as { missing?: string[] };
     const list = Array.isArray(res?.missing) ? res.missing : [];
@@ -116,13 +116,13 @@ function applyMissingClass(): void {
   if (!root) return;
   const nodes = root.querySelectorAll<HTMLElement>('.rte-file-ref[data-kind="path"]');
   nodes.forEach((el) => {
-    const src = el.getAttribute('data-src') ?? '';
+    const src = el.getAttribute("data-src") ?? "";
     if (missingPaths.value.has(src)) {
-      el.classList.add('is-missing');
-      el.setAttribute('title', '文件不存在');
+      el.classList.add("is-missing");
+      el.setAttribute("title", "文件不存在");
     } else {
-      el.classList.remove('is-missing');
-      el.removeAttribute('title');
+      el.classList.remove("is-missing");
+      el.removeAttribute("title");
     }
   });
 }
@@ -135,7 +135,7 @@ watch(
   () => props.value,
   () => {
     void detectMissingPaths();
-  }
+  },
 );
 
 watch(
@@ -143,19 +143,19 @@ watch(
   async () => {
     await nextTick();
     applyMissingClass();
-  }
+  },
 );
 
 function joinPath(dir: string, sub: string): string {
-  const d = dir.replace(/[/\\]+$/, '');
-  const s = sub.replace(/^[/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, "");
+  const s = sub.replace(/^[/\\]+/, "");
   // convertFileSrc 对斜杠不敏感，统一正斜杠可读性更好
-  return `${d}/${s}`.replace(/\\/g, '/');
+  return `${d}/${s}`.replace(/\\/g, "/");
 }
 
 function joinLocalPath(dir: string, sub: string): string {
-  const d = dir.replace(/[/\\]+$/, '');
-  const s = sub.replace(/^[/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, "");
+  const s = sub.replace(/^[/\\]+/, "");
   return `${d}/${s}`;
 }
 
@@ -170,51 +170,53 @@ const menu = reactive({
   visible: false,
   x: 0,
   y: 0,
-  kind: 'attachment' as FileRefKind,
+  kind: "attachment" as FileRefKind,
   target: null as MenuTarget | null,
 });
 
 function onClick(e: MouseEvent): void {
   const target = e.target as Element | null;
-  const fileEl = target?.closest?.('.rte-file-ref') as HTMLElement | null;
+  const fileEl = target?.closest?.(".rte-file-ref") as HTMLElement | null;
   if (fileEl) {
     e.preventDefault();
-    const kind = (fileEl.getAttribute('data-kind') === 'path' ? 'path' : 'attachment') as FileRefKind;
-    const src = fileEl.getAttribute('data-src') ?? '';
+    const kind = (
+      fileEl.getAttribute("data-kind") === "path" ? "path" : "attachment"
+    ) as FileRefKind;
+    const src = fileEl.getAttribute("data-src") ?? "";
     if (!src) return;
     void openFileRef(kind, src);
     return;
   }
-  const a = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+  const a = target?.closest?.("a[href]") as HTMLAnchorElement | null;
   if (!a) return;
   e.preventDefault();
-  const href = (a.getAttribute('href') ?? '').trim();
+  const href = (a.getAttribute("href") ?? "").trim();
   if (!/^(https?:|mailto:)/i.test(href)) return;
-  invokeToolByChannel('tool:system:open-external', { url: href }).catch(() => {
+  invokeToolByChannel("tool:system:open-external", { url: href }).catch(() => {
     /* 忽略：后端会二次校验协议并返回错误，这里不弹窗打扰 */
   });
 }
 
 function onImageDblClick(e: MouseEvent): void {
   const target = e.target as Element | null;
-  const img = target?.closest?.('img') as HTMLImageElement | null;
+  const img = target?.closest?.("img") as HTMLImageElement | null;
   if (!img) return;
   e.preventDefault();
   previewSrc.value = img.src;
 }
 
 function closePreview(): void {
-  previewSrc.value = '';
+  previewSrc.value = "";
 }
 
 function onContextMenu(e: MouseEvent): void {
   const target = e.target as Element | null;
-  const el = target?.closest?.('.rte-file-ref') as HTMLElement | null;
+  const el = target?.closest?.(".rte-file-ref") as HTMLElement | null;
   if (!el) return;
   e.preventDefault();
-  const kind = (el.getAttribute('data-kind') === 'path' ? 'path' : 'attachment') as FileRefKind;
-  const src = el.getAttribute('data-src') ?? '';
-  const name = el.getAttribute('data-name') ?? '';
+  const kind = (el.getAttribute("data-kind") === "path" ? "path" : "attachment") as FileRefKind;
+  const src = el.getAttribute("data-src") ?? "";
+  const name = el.getAttribute("data-name") ?? "";
   menu.target = { src, name, kind };
   menu.kind = kind;
   menu.x = e.clientX;
@@ -222,45 +224,45 @@ function onContextMenu(e: MouseEvent): void {
   menu.visible = true;
 }
 
-async function onMenuAction(action: 'open' | 'reveal' | 'copy-path' | 'delete'): Promise<void> {
-  if (action === 'delete') return; // Viewer 不支持删除
+async function onMenuAction(action: "open" | "reveal" | "copy-path" | "delete"): Promise<void> {
+  if (action === "delete") return; // Viewer 不支持删除
   const target = menu.target;
   if (!target) return;
   const abs = await resolveAbsPath(target.kind, target.src);
   if (!abs) {
-    ElMessage.error('附件路径解析失败');
+    ElMessage.error("附件路径解析失败");
     return;
   }
-  if (action === 'open') {
+  if (action === "open") {
     void openAbsPath(abs);
-  } else if (action === 'reveal') {
+  } else if (action === "reveal") {
     try {
-      await invokeToolByChannel('tool:system:reveal-in-folder', { path: abs });
+      await invokeToolByChannel("tool:system:reveal-in-folder", { path: abs });
     } catch (err) {
-      ElMessage.error((err as Error).message || '无法定位文件');
+      ElMessage.error((err as Error).message || "无法定位文件");
     }
-  } else if (action === 'copy-path') {
+  } else if (action === "copy-path") {
     try {
       await navigator.clipboard.writeText(abs);
-      ElMessage.success('路径已复制');
+      ElMessage.success("路径已复制");
     } catch {
-      ElMessage.error('复制失败');
+      ElMessage.error("复制失败");
     }
   }
 }
 
 async function resolveAbsPath(kind: FileRefKind, src: string): Promise<string> {
-  if (!src) return '';
-  if (kind === 'path') return src;
+  if (!src) return "";
+  if (kind === "path") return src;
   const dir = await ensureDataDir();
-  if (!dir) return '';
+  if (!dir) return "";
   return joinLocalPath(dir, src);
 }
 
 async function openFileRef(kind: FileRefKind, src: string): Promise<void> {
   const abs = await resolveAbsPath(kind, src);
   if (!abs) {
-    ElMessage.error('附件路径解析失败');
+    ElMessage.error("附件路径解析失败");
     return;
   }
   await openAbsPath(abs);
@@ -268,13 +270,13 @@ async function openFileRef(kind: FileRefKind, src: string): Promise<void> {
 
 async function openAbsPath(absPath: string): Promise<void> {
   try {
-    await invokeToolByChannel('tool:system:open-local-path', { path: absPath });
+    await invokeToolByChannel("tool:system:open-local-path", { path: absPath });
   } catch (err) {
-    const msg = (err as Error).message || '';
-    if (msg.includes('file not found')) {
-      ElMessage.error('文件不存在');
+    const msg = (err as Error).message || "";
+    if (msg.includes("file not found")) {
+      ElMessage.error("文件不存在");
     } else {
-      ElMessage.error(msg || '无法打开文件');
+      ElMessage.error(msg || "无法打开文件");
     }
   }
 }
@@ -301,9 +303,15 @@ onUnmounted(() => {
   color: var(--el-text-color-primary);
   font-weight: 600;
 }
-.rte-viewer :deep(h1) { font-size: 18px; }
-.rte-viewer :deep(h2) { font-size: 16px; }
-.rte-viewer :deep(h3) { font-size: 14.5px; }
+.rte-viewer :deep(h1) {
+  font-size: 18px;
+}
+.rte-viewer :deep(h2) {
+  font-size: 16px;
+}
+.rte-viewer :deep(h3) {
+  font-size: 14.5px;
+}
 .rte-viewer :deep(ul),
 .rte-viewer :deep(ol) {
   padding-left: 22px;

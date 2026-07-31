@@ -141,13 +141,13 @@ LazyCat 别名 > Edge 显示名 > Profile 目录名
 
 ### IPC action
 
-| Channel | Action | 说明 |
-|---|---|---|
-| `tool:browser-profiles:list` | `list` | 扫描 Edge Profile 并合并用户配置 |
-| `tool:browser-profiles:save-alias` | `save_alias` | 保存 Profile 别名 |
-| `tool:browser-profiles:set-hidden` | `set_hidden` | 隐藏或恢复 Profile |
-| `tool:browser-profiles:set-edge-path` | `set_edge_path` | 保存手动选择的 Edge 可执行文件路径 |
-| `tool:browser-profiles:launch` | `launch` | 启动指定 Edge Profile 并更新使用统计 |
+| Channel                               | Action          | 说明                                 |
+| ------------------------------------- | --------------- | ------------------------------------ |
+| `tool:browser-profiles:list`          | `list`          | 扫描 Edge Profile 并合并用户配置     |
+| `tool:browser-profiles:save-alias`    | `save_alias`    | 保存 Profile 别名                    |
+| `tool:browser-profiles:set-hidden`    | `set_hidden`    | 隐藏或恢复 Profile                   |
+| `tool:browser-profiles:set-edge-path` | `set_edge_path` | 保存手动选择的 Edge 可执行文件路径   |
+| `tool:browser-profiles:launch`        | `launch`        | 启动指定 Edge Profile 并更新使用统计 |
 
 `list` 每次都重新扫描本机状态，不单独设计 `refresh` action。
 
@@ -471,18 +471,18 @@ pnpm --filter @lazycat/desktop build:web
 
 预计涉及：
 
-| 文件 | 类型 | 说明 |
-|---|---|---|
-| `apps/desktop/src/composables/toolCatalog.ts` | 修改 | 新增工具入口 |
-| `apps/desktop/src/tool-registry.ts` | 修改 | 注册面板组件 |
-| `apps/desktop/src/bridge/tauri.ts` | 修改 | 新增 channel |
-| `apps/desktop/src/components/BrowserProfilesPanel.vue` | 新增 | 工具 UI |
-| `apps/desktop/src/types/browser-profiles.ts` | 新增 | 类型定义 |
-| `apps/desktop/src/utils/browserProfiles.ts` | 新增 | 前端纯函数 |
-| `apps/desktop/src/utils/browserProfiles.test.ts` | 新增 | 前端单测 |
-| `apps/desktop/src/spotlight/providers/browser-profiles.ts` | 新增 | Spotlight provider |
-| `apps/desktop/src-tauri/src/tools/browser_profiles.rs` | 新增 | 后端扫描、配置、启动 |
-| `apps/desktop/src-tauri/src/tools/mod.rs` | 修改 | 注册 domain |
+| 文件                                                       | 类型 | 说明                 |
+| ---------------------------------------------------------- | ---- | -------------------- |
+| `apps/desktop/src/composables/toolCatalog.ts`              | 修改 | 新增工具入口         |
+| `apps/desktop/src/tool-registry.ts`                        | 修改 | 注册面板组件         |
+| `apps/desktop/src/bridge/tauri.ts`                         | 修改 | 新增 channel         |
+| `apps/desktop/src/components/BrowserProfilesPanel.vue`     | 新增 | 工具 UI              |
+| `apps/desktop/src/types/browser-profiles.ts`               | 新增 | 类型定义             |
+| `apps/desktop/src/utils/browserProfiles.ts`                | 新增 | 前端纯函数           |
+| `apps/desktop/src/utils/browserProfiles.test.ts`           | 新增 | 前端单测             |
+| `apps/desktop/src/spotlight/providers/browser-profiles.ts` | 新增 | Spotlight provider   |
+| `apps/desktop/src-tauri/src/tools/browser_profiles.rs`     | 新增 | 后端扫描、配置、启动 |
+| `apps/desktop/src-tauri/src/tools/mod.rs`                  | 修改 | 注册 domain          |
 
 ## 风险与取舍
 

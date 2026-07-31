@@ -68,7 +68,7 @@ export interface WidgetDashboardData {
   echo: string | null;
   generatedAt: string;
   privacyMask?: boolean;
-  hotTools: WidgetHotTool[];  // 新增：仅含 id + count，name 由前端查 toolCatalog
+  hotTools: WidgetHotTool[]; // 新增：仅含 id + count，name 由前端查 toolCatalog
 }
 ```
 
@@ -87,6 +87,7 @@ export interface WidgetDashboardData {
 5. 返回 `Vec<WidgetHotTool>`
 
 **错误处理**：
+
 - `tool_clicks` key 不存在 / 值为 null → 返回空数组，不报错
 - JSON 解析失败 → `log::warn` + 返回空数组，不阻断 dashboard 主流程
 
@@ -100,8 +101,8 @@ import { getAllToolMap } from "../composables/toolCatalog";
 function resolveHotToolNames(hotTools: WidgetHotTool[]): Array<WidgetHotTool & { name: string }> {
   const map = getAllToolMap();
   return hotTools
-    .map(t => ({ ...t, name: map.get(t.id)?.name }))
-    .filter(t => t.name !== undefined);
+    .map((t) => ({ ...t, name: map.get(t.id)?.name }))
+    .filter((t) => t.name !== undefined);
 }
 ```
 
@@ -149,10 +150,10 @@ function resolveHotToolNames(hotTools: WidgetHotTool[]): Array<WidgetHotTool & {
 
 ### canvas-action 类型定义
 
-| kind | payload | 行为 |
-|------|---------|------|
-| `open-tool` | `{ kind, toolId: string }` | 主窗口聚焦到指定工具面板 |
-| `open-todo-create` | `{ kind }` | 主窗口切换到 Todo 面板并打开创建对话框 |
+| kind               | payload                    | 行为                                   |
+| ------------------ | -------------------------- | -------------------------------------- |
+| `open-tool`        | `{ kind, toolId: string }` | 主窗口聚焦到指定工具面板               |
+| `open-todo-create` | `{ kind }`                 | 主窗口切换到 Todo 面板并打开创建对话框 |
 
 ### 主窗口响应
 

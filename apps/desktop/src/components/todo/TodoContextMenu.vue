@@ -10,12 +10,7 @@
       @click.stop
       @contextmenu.prevent.stop
     >
-      <button
-        type="button"
-        class="todo-context-menu-item"
-        role="menuitem"
-        @click="onSelect('pin')"
-      >
+      <button type="button" class="todo-context-menu-item" role="menuitem" @click="onSelect('pin')">
         {{ pinned ? "取消置顶" : "置顶" }}
       </button>
       <button

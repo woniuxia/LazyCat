@@ -879,7 +879,9 @@ it("moves steps without mutating the original array", () => {
 
 it("ignores target responses for an old action selection", async () => {
   const first = deferredTargets();
-  invokeMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ targets: [target("edge")] });
+  invokeMock
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValueOnce({ targets: [target("edge")] });
   const state = useActionCombinations({ pollIntervalMs: 10_000 });
   const oldRequest = state.loadStepTargets("step-1", "hosts.activate");
   await state.loadStepTargets("step-1", "browser_profile.launch");
@@ -893,7 +895,9 @@ it("reloads the active run from an event and stops polling at terminal state", a
   await state.trackRun(runningRun("run-1"));
   emitRunUpdate({ runId: "run-1", status: "succeeded" });
   await flushPromises();
-  expect(invokeMock).toHaveBeenCalledWith("tool:action-center:combination-run-get", { runId: "run-1" });
+  expect(invokeMock).toHaveBeenCalledWith("tool:action-center:combination-run-get", {
+    runId: "run-1",
+  });
   expect(state.activeRun.value?.status).toBe("succeeded");
 });
 ```
@@ -1083,10 +1087,7 @@ Expected: FAIL，页面和工具注册不存在。
         @reorder="reorderSteps"
         @open-tool="$emit('open-tool', $event)"
       />
-      <ActionRunHistory
-        :active-run="activeRun"
-        :history="runHistory"
-      />
+      <ActionRunHistory :active-run="activeRun" :history="runHistory" />
     </main>
   </section>
 </template>

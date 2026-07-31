@@ -875,22 +875,24 @@ Add a new top entry to `process.md`:
 **场景**: 数据字典“全部”查询需要先按左侧字典顺序，再按每个字典自己的记录排序配置返回结果。
 **使用次数**: 0
 **问题**:
+
 1. 只在查询阶段解析 `raw_json` 排序会让全局搜索排序链路复杂，也不利于截断前排序。
 2. 直接用 `normalized_value` 排序会混淆等值匹配和排序语义，数字排序也容易出错。
 3. 降序如果反转整个排序键，会把缺失值或同值记录的兜底顺序也反转。
-**解决**:
-1. 在 `data_dictionary_records` 增加非空派生 `sort_key`，由当前 `sort_field_path`、`sort_direction` 和 `row_index` 编码生成。
-2. 未配置排序字段或记录缺失排序字段时，把 `row_index` 编入 `sort_key` 作为兜底排序，不在查询 SQL 里额外补 CASE。
-3. 降序只反转业务值编码段，不反转 bucket 和 row_index 兜底段，查询始终 `ORDER BY sort_key COLLATE BINARY ASC`。
-**关键点**:
-1. 派生排序键必须在导入、替换、字段配置保存、重建索引和历史数据回填路径同步维护。
-2. 排序键是可重建索引，不是业务事实源；`raw_json` 仍是唯一事实源。
-3. 排序必须发生在结果截断前，不能先取 100 条再在前端排序。
-**涉及文件**:
+   **解决**:
+4. 在 `data_dictionary_records` 增加非空派生 `sort_key`，由当前 `sort_field_path`、`sort_direction` 和 `row_index` 编码生成。
+5. 未配置排序字段或记录缺失排序字段时，把 `row_index` 编入 `sort_key` 作为兜底排序，不在查询 SQL 里额外补 CASE。
+6. 降序只反转业务值编码段，不反转 bucket 和 row_index 兜底段，查询始终 `ORDER BY sort_key COLLATE BINARY ASC`。
+   **关键点**:
+7. 派生排序键必须在导入、替换、字段配置保存、重建索引和历史数据回填路径同步维护。
+8. 排序键是可重建索引，不是业务事实源；`raw_json` 仍是唯一事实源。
+9. 排序必须发生在结果截断前，不能先取 100 条再在前端排序。
+   **涉及文件**:
+
 - `apps/desktop/src-tauri/src/tools/helpers.rs`
 - `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 - `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
-**验证**:
+  **验证**:
 - `cargo test data_dictionary -- --nocapture`
 - `cargo check`
 - `pnpm test src/components/DataDictionaryPanel.context-menu.test.ts src/utils/dataDictionary.test.ts`

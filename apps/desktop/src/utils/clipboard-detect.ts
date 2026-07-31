@@ -1,7 +1,16 @@
 export type ClipboardContentType =
-  | "json" | "xml" | "html" | "sql" | "java"
-  | "jwt" | "timestamp" | "base64" | "url-encoded" | "bcrypt"
-  | "path" | "unknown";
+  | "json"
+  | "xml"
+  | "html"
+  | "sql"
+  | "java"
+  | "jwt"
+  | "timestamp"
+  | "base64"
+  | "url-encoded"
+  | "bcrypt"
+  | "path"
+  | "unknown";
 
 export interface ClipboardToolAction {
   kind: "tool";
@@ -99,8 +108,10 @@ export function detectClipboardPath(text: string): ClipboardPathDetectResult | n
   const trimmed = text.trim();
   if (!trimmed || trimmed.includes("\n") || trimmed.includes("\r")) return null;
 
-  const hadOuterQuotes = trimmed.length >= 2
-    && ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")));
+  const hadOuterQuotes =
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")));
   const unquoted = stripOuterQuotes(trimmed);
   if (!unquoted || /[%][A-Za-z_][A-Za-z0-9_]*%/.test(unquoted)) return null;
   if (/[<>|]/.test(unquoted) || /\s(?:[-/][A-Za-z][\w-]*)(?:\s|$)/.test(unquoted)) return null;
@@ -118,17 +129,21 @@ export function detectClipboardPath(text: string): ClipboardPathDetectResult | n
   };
 }
 
-export function buildClipboardPathSuggestion(match: ClipboardPathDetectResult): ClipboardDetectResult {
+export function buildClipboardPathSuggestion(
+  match: ClipboardPathDetectResult,
+): ClipboardDetectResult {
   return {
     type: "path",
     label: inferPathLabel(match.path, match.reveal),
     preview: truncatePreview(match.path),
-    actions: [{
-      kind: "open-path",
-      label: "直接打开",
-      path: match.path,
-      reveal: match.reveal,
-    }],
+    actions: [
+      {
+        kind: "open-path",
+        label: "直接打开",
+        path: match.path,
+        reveal: match.reveal,
+      },
+    ],
   };
 }
 
@@ -177,7 +192,9 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
         ],
       };
     }
-  } catch { /* not json */ }
+  } catch {
+    /* not json */
+  }
 
   // 4. HTML (starts with < and contains html-specific tags)
   if (trimmed.startsWith("<")) {
@@ -185,7 +202,9 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
     if (
       lower.includes("<!doctype html") ||
       /<html[\s>]/i.test(trimmed) ||
-      /<(head|body|div|span|script|style|main|section|article|nav|footer|header)[\s>]/i.test(trimmed)
+      /<(head|body|div|span|script|style|main|section|article|nav|footer|header)[\s>]/i.test(
+        trimmed,
+      )
     ) {
       return {
         type: "html",

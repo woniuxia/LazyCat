@@ -20,6 +20,7 @@
 ### Task 1: 后端持久化服务器端口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs:1211`
 - Test: `apps/desktop/src-tauri/src/tools/vault.rs:1681`
 - Test: `apps/desktop/src-tauri/src/tools/vault.rs:1831`
@@ -109,6 +110,7 @@ git commit -m "feat: 保存密码库服务器端口"
 ### Task 2: 前端表单展示、默认和提交端口
 
 **Files:**
+
 - Create: `apps/desktop/src/components/VaultEntryDialog.test.ts`
 - Modify: `apps/desktop/src/components/VaultEntryDialog.vue:100`
 - Modify: `apps/desktop/src/components/VaultEntryDialog.vue:260`
@@ -228,51 +230,57 @@ port: SERVER_DEFAULT_PORT,
 分类监听先处理编辑态字段迁移，再按目标类型设置端口，并使用同步监听确保 `show()` 随后写入的已保存端口不会被异步默认值覆盖：
 
 ```ts
-watch(() => form.category, (newCat, oldCat) => {
-  if (isEdit.value) {
-    if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
-      if (!form.address && form.url) form.address = form.url;
-    } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
-      if (!form.url && form.address) form.url = form.address;
+watch(
+  () => form.category,
+  (newCat, oldCat) => {
+    if (isEdit.value) {
+      if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
+        if (!form.address && form.url) form.address = form.url;
+      } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
+        if (!form.url && form.address) form.url = form.address;
+      }
     }
-  }
-  if (newCat === "server") {
-    form.port = SERVER_DEFAULT_PORT;
-  } else if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
-    form.port = DB_DEFAULT_PORT[form.dbType];
-  }
-}, { flush: "sync" });
+    if (newCat === "server") {
+      form.port = SERVER_DEFAULT_PORT;
+    } else if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
+      form.port = DB_DEFAULT_PORT[form.dbType];
+    }
+  },
+  { flush: "sync" },
+);
 ```
 
 数据库类型监听同样增加 `{ flush: "sync" }`，保证编辑已有数据库记录时最终以记录端口为准：
 
 ```ts
-watch(() => form.dbType, (newType) => {
-  if (form.category === "database" && newType in DB_DEFAULT_PORT) {
-    form.port = DB_DEFAULT_PORT[newType];
-  }
-}, { flush: "sync" });
+watch(
+  () => form.dbType,
+  (newType) => {
+    if (form.category === "database" && newType in DB_DEFAULT_PORT) {
+      form.port = DB_DEFAULT_PORT[newType];
+    }
+  },
+  { flush: "sync" },
+);
 ```
 
 编辑记录读取端口时使用分类默认值：
 
 ```ts
-form.port = typeof f.port === "number"
-  ? f.port
-  : form.category === "server"
-    ? SERVER_DEFAULT_PORT
-    : 3306;
+form.port =
+  typeof f.port === "number" ? f.port : form.category === "server" ? SERVER_DEFAULT_PORT : 3306;
 ```
 
 种子读取端口时保留数字或数字字符串，缺失时服务器回退 22：
 
 ```ts
 const seedPort = Number(fields.port);
-form.port = Number.isInteger(seedPort) && seedPort >= 1 && seedPort <= 65535
-  ? seedPort
-  : form.category === "server"
-    ? SERVER_DEFAULT_PORT
-    : form.port;
+form.port =
+  Number.isInteger(seedPort) && seedPort >= 1 && seedPort <= 65535
+    ? seedPort
+    : form.category === "server"
+      ? SERVER_DEFAULT_PORT
+      : form.port;
 ```
 
 - [ ] **Step 5: 服务器保存载荷携带端口**
@@ -313,6 +321,7 @@ git commit -m "feat: 增加密码库服务器端口输入"
 ### Task 3: 完整验证
 
 **Files:**
+
 - Verify: `apps/desktop/src/components/VaultEntryDialog.vue`
 - Verify: `apps/desktop/src-tauri/src/tools/vault.rs`
 

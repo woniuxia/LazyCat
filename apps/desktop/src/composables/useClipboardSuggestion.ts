@@ -118,10 +118,7 @@ export function useClipboardSuggestion() {
    * 在目标面板中调用：同时处理首次挂载和已挂载后的 pendingInput 变更。
    * 解决面板已打开时再次触发智能助手不会更新内容的问题。
    */
-  function watchPendingInput(
-    toolId: string | (() => string),
-    apply: (text: string) => void,
-  ): void {
+  function watchPendingInput(toolId: string | (() => string), apply: (text: string) => void): void {
     watchPendingToolInput(toolId, (input) => {
       if (input.text) apply(input.text);
     });

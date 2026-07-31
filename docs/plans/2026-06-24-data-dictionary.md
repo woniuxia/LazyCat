@@ -13,6 +13,7 @@
 ### Task 1: Backend Tests And Core Logic
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 
 **Step 1:** Write Rust tests for JSON import validation, nested dot-path flattening, path escaping, search text building, LIKE escaping, and cross-dictionary search request validation.
@@ -26,6 +27,7 @@
 ### Task 2: Backend Persistence And IPC
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -41,6 +43,7 @@
 ### Task 3: Frontend Types And Utilities
 
 **Files:**
+
 - Create: `apps/desktop/src/types/data-dictionary.ts`
 - Modify: `apps/desktop/src/types/index.ts`
 - Create: `apps/desktop/src/utils/dataDictionary.ts`
@@ -57,6 +60,7 @@
 ### Task 4: Vue Tool Panel
 
 **Files:**
+
 - Create: `apps/desktop/src/components/DataDictionaryPanel.vue`
 - Modify: `apps/desktop/src/composables/toolCatalog.ts`
 - Modify: `apps/desktop/src/tool-registry.ts`
@@ -70,6 +74,7 @@
 ### Task 5: Final Verification
 
 **Files:**
+
 - All changed files.
 
 **Step 1:** Run `cargo test data_dictionary`.

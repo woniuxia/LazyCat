@@ -44,12 +44,14 @@
 ### Task 1: 前端领域类型与纯状态函数
 
 **Files:**
+
 - Create: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/types/index.ts`
 - Create: `apps/desktop/src/utils/releasePackage.ts`
 - Test: `apps/desktop/src/utils/releasePackage.test.ts`
 
 **Interfaces:**
+
 - Produces: `ReleasePackageProject`、`ReleasePackageProjectDraft`、`ReleasePackagePrepareResult`、`ReleasePackageLogEvent`、`ReleasePackageStatusEvent`。
 - Produces: `createEmptyReleasePackageDraft()`、`projectToReleasePackageDraft()`、`validateReleasePackageDraft()`、`isReleasePackageDraftDirty()`、`acceptReleasePackageEvent()`、`appendReleasePackageLog()`。
 - Consumes: 无。
@@ -124,8 +126,9 @@ describe("release package view helpers", () => {
   });
 
   it("bounds logs without reordering accepted lines", () => {
-    expect(appendReleasePackageLog([log("run-1", "a"), log("run-1", "b")], log("run-1", "c"), 2))
-      .toEqual([log("run-1", "b"), log("run-1", "c")]);
+    expect(
+      appendReleasePackageLog([log("run-1", "a"), log("run-1", "b")], log("run-1", "c"), 2),
+    ).toEqual([log("run-1", "b"), log("run-1", "c")]);
   });
 });
 ```
@@ -166,7 +169,9 @@ export interface ReleasePackageProject extends ReleasePackageProjectDraft {
   updatedAt: string;
 }
 
-export interface ReleasePackageProjectListResult { projects: ReleasePackageProject[] }
+export interface ReleasePackageProjectListResult {
+  projects: ReleasePackageProject[];
+}
 
 export interface ReleasePackagePrepareResult {
   defaultFolderName: string;
@@ -175,8 +180,12 @@ export interface ReleasePackagePrepareResult {
   frontendArtifactMode: ReleasePackageArtifactMode;
 }
 
-export interface ReleasePackageStartResult { runId: string }
-export interface ReleasePackageCancelResult { cancelRequested: boolean }
+export interface ReleasePackageStartResult {
+  runId: string;
+}
+export interface ReleasePackageCancelResult {
+  cancelRequested: boolean;
+}
 
 export interface ReleasePackageLogEvent {
   runId: string;
@@ -238,7 +247,9 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   };
 }
 
-export function projectToReleasePackageDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
+export function projectToReleasePackageDraft(
+  project: ReleasePackageProject,
+): ReleasePackageProjectDraft {
   return {
     name: project.name,
     frontendProjectPath: project.frontendProjectPath,
@@ -251,9 +262,14 @@ export function projectToReleasePackageDraft(project: ReleasePackageProject): Re
   };
 }
 
-export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft): ReleasePackageProjectDraft {
+export function normalizeReleasePackageDraft(
+  draft: ReleasePackageProjectDraft,
+): ReleasePackageProjectDraft {
   return Object.fromEntries(
-    Object.entries(draft).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
+    Object.entries(draft).map(([key, value]) => [
+      key,
+      typeof value === "string" ? value.trim() : value,
+    ]),
   ) as unknown as ReleasePackageProjectDraft;
 }
 
@@ -274,9 +290,15 @@ export function isReleasePackageDraftDirty(
   draft: ReleasePackageProjectDraft,
 ): boolean {
   if (!project) {
-    return JSON.stringify(normalizeReleasePackageDraft(draft)) !== JSON.stringify(createEmptyReleasePackageDraft());
+    return (
+      JSON.stringify(normalizeReleasePackageDraft(draft)) !==
+      JSON.stringify(createEmptyReleasePackageDraft())
+    );
   }
-  return JSON.stringify(projectToReleasePackageDraft(project)) !== JSON.stringify(normalizeReleasePackageDraft(draft));
+  return (
+    JSON.stringify(projectToReleasePackageDraft(project)) !==
+    JSON.stringify(normalizeReleasePackageDraft(draft))
+  );
 }
 
 export function acceptReleasePackageEvent(
@@ -316,6 +338,7 @@ git commit -m "feat(release-package): 定义项目与运行状态模型"
 ### Task 2: 数据库项目 CRUD 与打包预检
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Create: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
@@ -324,6 +347,7 @@ git commit -m "feat(release-package): 定义项目与运行状态模型"
 - Test: inline Rust tests in both new modules
 
 **Interfaces:**
+
 - Consumes: `db_conn()`、`user_settings`。
 - Produces: domain `release_package` actions `project_list/project_create/project_update/project_delete/prepare`。
 - Produces: `ReleasePackageProjectConfig` and `PrepareResult` for the runtime task.
@@ -626,10 +650,12 @@ git commit -m "feat(release-package): 添加项目配置与打包预检"
 ### Task 3: 事务式产物归档引擎
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 - Test: inline Rust tests in `release_package_archive.rs`
 
 **Interfaces:**
+
 - Consumes: 已解析的前后端产物路径。
 - Produces: `ArchiveRequest`、`ArchiveError`、`archive_artifacts()`。
 - Guarantee: 只有最终归档成功时才出现最终目录；错误或取消自动删除本次临时目录。
@@ -829,6 +855,7 @@ git commit -m "feat(release-package): 实现事务式产物归档"
 ### Task 4: PowerShell 运行时、实时事件与终止
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
@@ -839,6 +866,7 @@ git commit -m "feat(release-package): 实现事务式产物归档"
 - Test: inline Rust tests in `release_package_runtime.rs`
 
 **Interfaces:**
+
 - Consumes: `ReleasePackageProjectConfig`、`resolve_artifact_path()`、`archive_artifacts()`、`tauri::AppHandle`。
 - Produces: actions `start/cancel`，events `release-package://log`、`release-package://status`，以及 `on_app_exit()`。
 - Guarantee: 全应用最多一个 `ActiveRun`；start 返回 `{ runId }`，cancel 返回 `{ cancelRequested }`。
@@ -1090,6 +1118,7 @@ git commit -m "feat(release-package): 添加构建运行时与终止控制"
 ### Task 5: 可等待设置写入与前端单例运行态
 
 **Files:**
+
 - Modify: `apps/desktop/src/composables/useSettings.ts`
 - Modify: `apps/desktop/src/composables/index.ts`
 - Test: `apps/desktop/src/composables/useSettings.test.ts`
@@ -1097,6 +1126,7 @@ git commit -m "feat(release-package): 添加构建运行时与终止控制"
 - Test: `apps/desktop/src/composables/useReleasePackageRuntime.test.ts`
 
 **Interfaces:**
+
 - Produces: `setSettingAndWait(key, value)`，保证内存值更新且 SQLite 写入完成后才 resolve。
 - Consumes: Task 1 的 event filtering/log helpers，Task 4 的事件和 cancel action。
 - Produces: renderer 生命周期内唯一的 `useReleasePackageRuntime()` 状态，切换工具面板不会丢失当前日志。
@@ -1117,13 +1147,16 @@ describe("setSettingAndWait", () => {
     await setSettingAndWait("release_package.output_root", "D:\\releases");
     expect(getSetting("release_package.output_root")).toBe("D:\\releases");
     expect(invokeToolByChannel).toHaveBeenCalledWith("tool:settings:set", {
-      key: "release_package.output_root", value: "D:\\releases",
+      key: "release_package.output_root",
+      value: "D:\\releases",
     });
   });
   it("restores the previous in-memory value when persistence fails", async () => {
     await setSettingAndWait("release_package.output_root", "D:\\old");
     invokeToolByChannel.mockRejectedValueOnce(new Error("write failed"));
-    await expect(setSettingAndWait("release_package.output_root", "D:\\new")).rejects.toThrow("write failed");
+    await expect(setSettingAndWait("release_package.output_root", "D:\\new")).rejects.toThrow(
+      "write failed",
+    );
     expect(getSetting("release_package.output_root")).toBe("D:\\old");
   });
 });
@@ -1133,18 +1166,28 @@ describe("setSettingAndWait", () => {
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { createReleasePackageRuntimeState, reduceReleasePackageStatus } from "./useReleasePackageRuntime";
+import {
+  createReleasePackageRuntimeState,
+  reduceReleasePackageStatus,
+} from "./useReleasePackageRuntime";
 
 describe("release package runtime state", () => {
   it("binds the first event while start is pending and rejects stale runs", () => {
     const state = createReleasePackageRuntimeState();
     state.pendingProjectId = 7;
     reduceReleasePackageStatus(state, {
-      runId: "run-1", projectId: 7, status: "running", phase: "frontend",
+      runId: "run-1",
+      projectId: 7,
+      status: "running",
+      phase: "frontend",
     });
     expect(state.activeRunId).toBe("run-1");
     reduceReleasePackageStatus(state, {
-      runId: "old-run", projectId: 7, status: "failed", phase: "backend", error: "old",
+      runId: "old-run",
+      projectId: 7,
+      status: "failed",
+      phase: "backend",
+      error: "old",
     });
     expect(state.status).toBe("running");
   });
@@ -1153,7 +1196,10 @@ describe("release package runtime state", () => {
     const state = createReleasePackageRuntimeState();
     state.activeRunId = "run-1";
     reduceReleasePackageStatus(state, {
-      runId: "run-1", projectId: 7, status: "succeeded", phase: "archive",
+      runId: "run-1",
+      projectId: 7,
+      status: "succeeded",
+      phase: "archive",
       archivePath: "D:\\releases\\20260723-客户门户",
     });
     expect(state.status).toBe("succeeded");
@@ -1208,7 +1254,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { APP_EVENTS } from "../bridge/events";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
-  ReleasePackageLogEvent, ReleasePackagePhase, ReleasePackageRunStatus,
+  ReleasePackageLogEvent,
+  ReleasePackagePhase,
+  ReleasePackageRunStatus,
   ReleasePackageStatusEvent,
 } from "../types/release-package";
 import { acceptReleasePackageEvent, appendReleasePackageLog } from "../utils/releasePackage";
@@ -1224,15 +1272,23 @@ export interface ReleasePackageRuntimeState {
 }
 
 export function createReleasePackageRuntimeState(): ReleasePackageRuntimeState {
-  return { activeRunId: null, activeProjectId: null, pendingProjectId: null,
-    status: "idle", phase: null, archivePath: "", error: "" };
+  return {
+    activeRunId: null,
+    activeProjectId: null,
+    pendingProjectId: null,
+    status: "idle",
+    phase: null,
+    archivePath: "",
+    error: "",
+  };
 }
 
 export function reduceReleasePackageStatus(
   state: ReleasePackageRuntimeState,
   event: ReleasePackageStatusEvent,
 ): void {
-  if (!state.activeRunId && state.pendingProjectId === event.projectId) state.activeRunId = event.runId;
+  if (!state.activeRunId && state.pendingProjectId === event.projectId)
+    state.activeRunId = event.runId;
   if (!acceptReleasePackageEvent(state.activeRunId, event)) return;
   state.activeProjectId = event.projectId;
   state.status = event.status;
@@ -1290,6 +1346,7 @@ git commit -m "feat(release-package): 管理前端打包运行状态"
 ### Task 6: 主从工作台 UI 与工具入口
 
 **Files:**
+
 - Create: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Test: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/composables/toolCatalog.ts`
@@ -1297,6 +1354,7 @@ git commit -m "feat(release-package): 管理前端打包运行状态"
 - Modify: `apps/desktop/src/tool-registry.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 类型/纯函数、Task 2 CRUD/prepare、Task 4 start/cancel、Task 5 awaited setting/runtime。
 - Produces: tool ID `release-package`，左项目列表、右编辑表单、确认 Dialog、当前日志区。
 
@@ -1317,7 +1375,14 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("终止打包");
   });
   it("uses all release-package actions and awaited global setting persistence", () => {
-    for (const channel of ["project-list", "project-create", "project-update", "project-delete", "prepare", "start"]) {
+    for (const channel of [
+      "project-list",
+      "project-create",
+      "project-update",
+      "project-delete",
+      "prepare",
+      "start",
+    ]) {
       expect(source).toContain(`tool:release-package:${channel}`);
     }
     expect(source).toContain("setSettingAndWait");
@@ -1334,7 +1399,9 @@ describe("ReleasePackagePanel", () => {
 
 ```ts
 it("registers the release package tool", () => {
-  expect(getAllTools()).toContainEqual(expect.objectContaining({ id: "release-package", name: "上线包打包" }));
+  expect(getAllTools()).toContainEqual(
+    expect.objectContaining({ id: "release-package", name: "上线包打包" }),
+  );
   expect(isRealToolId("release-package")).toBe(true);
 });
 ```
@@ -1377,7 +1444,9 @@ const saving = ref(false);
 const confirmVisible = ref(false);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
-const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
+const selectedProject = computed(
+  () => projects.value.find((item) => item.id === selectedId.value) ?? null,
+);
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
 const runtime = useReleasePackageRuntime();
 const running = computed(() => runtime.status.value === "running");
@@ -1405,9 +1474,9 @@ async function prepareStart() {
     ElMessage.warning(dirty.value ? "请先保存项目配置" : "请先选择项目");
     return;
   }
-  prepareResult.value = await invokeToolByChannel("tool:release-package:prepare", {
+  prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
     projectId: selectedProject.value.id,
-  }) as ReleasePackagePrepareResult;
+  })) as ReleasePackagePrepareResult;
   folderName.value = prepareResult.value.defaultFolderName;
   confirmVisible.value = true;
 }
@@ -1418,9 +1487,10 @@ async function confirmStart() {
   await runtime.ensureListeners();
   runtime.beginStart(projectId);
   try {
-    const result = await invokeToolByChannel("tool:release-package:start", {
-      projectId, folderName: folderName.value,
-    }) as ReleasePackageStartResult;
+    const result = (await invokeToolByChannel("tool:release-package:start", {
+      projectId,
+      folderName: folderName.value,
+    })) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
   } catch (error) {
@@ -1443,17 +1513,58 @@ await invokeToolByChannel("tool:system:open-local-path", { path: runtime.archive
 核心 CSS：
 
 ```css
-.release-package-panel { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.release-package-toolbar { display: flex; align-items: center; gap: 8px; }
-.release-package-root { flex: 1; min-width: 0; }
-.release-package-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; border-top: 1px solid var(--lc-border); }
-.release-package-projects { padding: 12px 12px 12px 0; border-right: 1px solid var(--lc-border); }
-.release-package-editor { min-width: 0; padding: 12px 0 0 16px; }
-.release-package-log { min-height: 180px; max-height: 320px; overflow: auto; padding: 12px; color: #d7dae0; background: #1f2329; font: 12px/1.6 var(--lc-font-mono); }
+.release-package-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.release-package-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.release-package-root {
+  flex: 1;
+  min-width: 0;
+}
+.release-package-workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+  border-top: 1px solid var(--lc-border);
+}
+.release-package-projects {
+  padding: 12px 12px 12px 0;
+  border-right: 1px solid var(--lc-border);
+}
+.release-package-editor {
+  min-width: 0;
+  padding: 12px 0 0 16px;
+}
+.release-package-log {
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  color: #d7dae0;
+  background: #1f2329;
+  font: 12px/1.6 var(--lc-font-mono);
+}
 @media (max-width: 960px) {
-  .release-package-workspace { grid-template-columns: 1fr; }
-  .release-package-projects { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--lc-border); }
-  .release-package-editor { padding-left: 0; }
+  .release-package-workspace {
+    grid-template-columns: 1fr;
+  }
+  .release-package-projects {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--lc-border);
+  }
+  .release-package-editor {
+    padding-left: 0;
+  }
 }
 ```
 
@@ -1474,11 +1585,13 @@ git commit -m "feat(release-package): 添加上线包打包工作台"
 ### Task 7: 全链路回归、最小冒烟与经验沉淀
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`（仅增加 pipeline 集成测试）
 - Modify: `process.md`
 - Inspect only: `apps/desktop/components.d.ts`（构建可能自动补全新组件；不得覆盖现有用户改动）
 
 **Interfaces:**
+
 - Consumes: Tasks 1-6 全部产物。
 - Produces: 可重复执行的成功/失败 pipeline 测试、完整验证证据、`process.md` 经验记录。
 
@@ -1632,21 +1745,25 @@ Expected:
 **场景**: 外部项目需要在桌面工具中串行执行前后端构建，并把不同形态的产物合并归档到可编辑的周四日期目录。
 
 **问题**:
+
 1. 构建命令、产物复制和 UI 日志如果分散到前端，会形成多份运行状态并难以可靠终止子进程。
 2. 直接向最终目录复制会在失败或取消后留下看似可用的不完整上线包。
 3. 面板切换会卸载 Vue 组件，组件局部状态无法持续接收长任务事件。
 
 **方案**:
+
 1. Rust 统一编排 PowerShell、stdout/stderr、进程树取消和产物归档；所有事件绑定唯一 runId。
 2. 前后端均成功后才写同卷临时目录，复制/ZIP 全部完成后原子重命名；失败由 staging guard 清理。
 3. 前端运行态放在 module-level composable，日志有界保留，旧 runId 事件不能覆盖当前任务。
 
 **涉及文件**:
+
 - `apps/desktop/src-tauri/src/tools/release_package*.rs`
 - `apps/desktop/src/components/ReleasePackagePanel.vue`
 - `apps/desktop/src/composables/useReleasePackageRuntime.ts`
 
 **验证**:
+
 - `cargo test release_package --manifest-path apps/desktop/src-tauri/Cargo.toml -- --nocapture`
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`

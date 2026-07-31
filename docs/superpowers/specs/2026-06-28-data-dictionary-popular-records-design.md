@@ -331,16 +331,16 @@ Rust 单测：
 
 预计修改文件：
 
-| 文件 | 类型 | 说明 |
-|---|---|---|
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | 修改 | 新增 usage 表和索引 |
-| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 修改 | 主键必填、常用记录查询、使用次数写入 |
-| `apps/desktop/src/bridge/tauri.ts` | 修改 | 新增 action 映射 |
-| `apps/desktop/src/types/data-dictionary.ts` | 修改 | 新增常用记录类型 |
-| `apps/desktop/src/components/DataDictionaryPanel.vue` | 修改 | 主键必选、无主键受限状态、常用记录分区、显式计数 |
-| `apps/desktop/src/utils/dataDictionary.ts` | 修改 | 常用记录展示辅助逻辑 |
-| `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts` | 修改 | 组件结构和交互回归 |
-| `apps/desktop/src/utils/dataDictionary.test.ts` | 修改 | 展示逻辑测试 |
+| 文件                                                                   | 类型 | 说明                                             |
+| ---------------------------------------------------------------------- | ---- | ------------------------------------------------ |
+| `apps/desktop/src-tauri/src/tools/helpers.rs`                          | 修改 | 新增 usage 表和索引                              |
+| `apps/desktop/src-tauri/src/tools/data_dictionary.rs`                  | 修改 | 主键必填、常用记录查询、使用次数写入             |
+| `apps/desktop/src/bridge/tauri.ts`                                     | 修改 | 新增 action 映射                                 |
+| `apps/desktop/src/types/data-dictionary.ts`                            | 修改 | 新增常用记录类型                                 |
+| `apps/desktop/src/components/DataDictionaryPanel.vue`                  | 修改 | 主键必选、无主键受限状态、常用记录分区、显式计数 |
+| `apps/desktop/src/utils/dataDictionary.ts`                             | 修改 | 常用记录展示辅助逻辑                             |
+| `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts` | 修改 | 组件结构和交互回归                               |
+| `apps/desktop/src/utils/dataDictionary.test.ts`                        | 修改 | 展示逻辑测试                                     |
 
 ## 取舍
 

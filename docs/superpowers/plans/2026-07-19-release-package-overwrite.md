@@ -24,6 +24,7 @@
 ### Task 1: 目标路径检查
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
 - Modify: `apps/desktop/src/types/release-package.ts`
@@ -109,6 +110,7 @@ Expected: PASS。
 ### Task 2: 归档完整替换与回滚
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 
 - [ ] **Step 1: 写覆盖和回滚失败测试**
@@ -195,6 +197,7 @@ Expected: PASS，覆盖后无旧文件和备份残留，提交失败恢复旧目
 ### Task 3: 覆盖授权贯穿启动与运行时
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 
@@ -241,6 +244,7 @@ Expected: PASS。
 ### Task 4: 前端二次确认
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 
@@ -251,11 +255,13 @@ Expected: PASS。
 ```ts
 it("checks an existing target before start and requires explicit overwrite confirmation", () => {
   expect(source).toContain("tool:release-package:target-check");
-  expect(source).toContain("目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。");
+  expect(source).toContain(
+    "目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。",
+  );
   expect(source).toContain('confirmButtonText: "直接覆盖"');
   expect(source).toContain('cancelButtonText: "取消"');
   expect(source).toContain("overwriteExisting");
-  expect(source).not.toContain("el-checkbox v-model=\"overwrite");
+  expect(source).not.toContain('el-checkbox v-model="overwrite');
 });
 ```
 
@@ -270,10 +276,10 @@ Expected: FAIL，目标检查和确认文案尚不存在。
 在 `confirmStart` 中先获取：
 
 ```ts
-const target = await invokeToolByChannel("tool:release-package:target-check", {
+const target = (await invokeToolByChannel("tool:release-package:target-check", {
   projectId,
   folderName: folderName.value,
-}) as ReleasePackageTargetCheckResult;
+})) as ReleasePackageTargetCheckResult;
 let overwriteExisting = false;
 if (target.exists) {
   try {
@@ -304,6 +310,7 @@ Expected: PASS。
 ### Task 5: 收口验证与经验记录
 
 **Files:**
+
 - Modify: `process.md`
 
 - [ ] **Step 1: 记录覆盖提交经验**

@@ -3,7 +3,13 @@
   <section class="todo-list" :class="{ 'is-scrollable': scrollable }">
     <div class="list-header">
       <span class="header-title">待办事项</span>
-      <button class="header-add" title="新建待办" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建</button>
+      <button
+        class="header-add"
+        title="新建待办"
+        @click="$emit('action', { kind: 'open-todo-create' })"
+      >
+        + 新建
+      </button>
     </div>
     <div v-show="scrollable && showTopShadow" class="scroll-shadow scroll-shadow-top" />
     <div class="list-body" ref="listBodyRef" @scroll="onScroll">
@@ -22,18 +28,53 @@
             @click="onComplete(item)"
           >
             <svg class="check-icon" viewBox="0 0 12 12" fill="none">
-              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path
+                d="M2.5 6L5 8.5L9.5 3.5"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </button>
-          <svg v-if="item.pinned" class="pin-icon" viewBox="0 0 16 16" fill="none" aria-label="已置顶">
-            <path d="M9.5 2L10.5 3L10 3.5L9.5 3L7 5.5V9L10 12V14H6V12L9 9V5.5L6.5 3L6 3.5L5.5 3L6.5 2L8 3.5L9.5 2Z" fill="currentColor"/>
-            <line x1="10" y1="12" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            v-if="item.pinned"
+            class="pin-icon"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-label="已置顶"
+          >
+            <path
+              d="M9.5 2L10.5 3L10 3.5L9.5 3L7 5.5V9L10 12V14H6V12L9 9V5.5L6.5 3L6 3.5L5.5 3L6.5 2L8 3.5L9.5 2Z"
+              fill="currentColor"
+            />
+            <line
+              x1="10"
+              y1="12"
+              x2="10"
+              y2="14"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           <span class="title">{{ displayTitle(item.title) }}</span>
           <span class="deadline" :class="{ overdue: isOverdue(item) }">
-            <svg v-if="isOverdue(item)" class="overdue-icon" viewBox="0 0 14 14" fill="none" aria-label="已逾期">
-              <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M7 4V7.5L9 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg
+              v-if="isOverdue(item)"
+              class="overdue-icon"
+              viewBox="0 0 14 14"
+              fill="none"
+              aria-label="已逾期"
+            >
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2" />
+              <path
+                d="M7 4V7.5L9 9"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             {{ formatDeadline(item.endAt) }}
           </span>
@@ -41,20 +82,40 @@
       </TransitionGroup>
       <div v-if="truncated && items.length > 0" class="truncated-hint">
         还有 {{ Math.max((totalCount ?? items.length) - items.length, 0) }} 条未显示，
-        <button class="truncated-link" type="button" @click="$emit('action', { kind: 'open-tool', toolId: 'todo' })">
+        <button
+          class="truncated-link"
+          type="button"
+          @click="$emit('action', { kind: 'open-tool', toolId: 'todo' })"
+        >
           去待办查看
         </button>
       </div>
       <div v-if="items.length === 0" class="empty">
         <div class="empty-illustration">
           <svg viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.2" opacity="0.25"/>
-            <path d="M16 22L21.5 27.5L32 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+            <circle
+              cx="24"
+              cy="24"
+              r="22"
+              stroke="currentColor"
+              stroke-width="1.2"
+              opacity="0.25"
+            />
+            <path
+              d="M16 22L21.5 27.5L32 16.5"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              opacity="0.55"
+            />
           </svg>
         </div>
         <span class="empty-title">今日无待办</span>
         <span class="empty-desc">所有事项已处理完毕</span>
-        <button class="empty-action" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建待办</button>
+        <button class="empty-action" @click="$emit('action', { kind: 'open-todo-create' })">
+          + 新建待办
+        </button>
       </div>
     </div>
     <div v-show="scrollable && showScrollShadow" class="scroll-shadow scroll-shadow-btm" />
@@ -256,7 +317,11 @@ function parseLocalDate(raw: string): Date | null {
 
 /* TransitionGroup leave 动画：勾选后向右淡出 */
 .todo-row-leave-active {
-  transition: opacity 0.22s ease, transform 0.22s ease, max-height 0.22s ease, padding 0.22s ease;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    max-height 0.22s ease,
+    padding 0.22s ease;
   position: relative;
   overflow: hidden;
 }
@@ -317,7 +382,10 @@ function parseLocalDate(raw: string): Date | null {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease,
+    border-color 0.2s ease;
 }
 
 .check-icon {
@@ -325,7 +393,9 @@ function parseLocalDate(raw: string): Date | null {
   height: 10px;
   opacity: 0;
   transform: scale(0.5);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
   color: #fff;
 }
 
@@ -442,7 +512,9 @@ function parseLocalDate(raw: string): Date | null {
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .empty-action:hover {

@@ -13,6 +13,7 @@
 ### Task 1: 锁定 Claude Code 薄适配契约
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/windowsPackagingCommand.test.ts`
 - Test: `apps/desktop/src/utils/windowsPackagingCommand.test.ts`
 
@@ -37,9 +38,7 @@ expect(agentsSource).toContain(agentRule);
 
 ```ts
 it("loads shared agent rules through the Claude adapter", () => {
-  expect(claudeSource.replaceAll("\r\n", "\n").trim()).toBe(
-    "# CLAUDE.md\n\n@AGENTS.md",
-  );
+  expect(claudeSource.replaceAll("\r\n", "\n").trim()).toBe("# CLAUDE.md\n\n@AGENTS.md");
 });
 ```
 
@@ -52,6 +51,7 @@ Expected: FAIL，`CLAUDE.md` 当前仍包含完整重复规则，不等于薄适
 ### Task 2: 迁移项目规则入口
 
 **Files:**
+
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 
@@ -88,6 +88,7 @@ Expected: PASS，5 个测试全部通过。
 ### Task 3: 更新现行流程与经验说明
 
 **Files:**
+
 - Modify: `process.md`
 - Modify: `docs/experience/README.md`
 - Modify: `docs/experience/agent-workflow.md`
@@ -125,6 +126,7 @@ Expected: `CLAUDE.md` 命中 `@AGENTS.md`，经验文件命中“唯一事实源
 ### Task 4: 完整验证与提交
 
 **Files:**
+
 - Verify: `AGENTS.md`
 - Verify: `CLAUDE.md`
 - Verify: `process.md`

@@ -60,10 +60,10 @@ vNext 已经把 provider 元信息抽成描述符,并允许用户编辑 scope �
 type KeywordCommandKind = "open-tool" | "show-value" | "vault-tag" | "snippet-tag";
 
 interface KeywordCommandDescriptor {
-  id: string;                // 内置: "ip" / "uuid" / ... ; 自定义: 由 store 生成的 nanoid
-  keyword: string;           // 不含 ";" 前缀,如 "ip" / "jwt" / "myapi"
-  name: string;              // 展示名,如 "本机 IP"
-  description: string;       // 展示子标题
+  id: string; // 内置: "ip" / "uuid" / ... ; 自定义: 由 store 生成的 nanoid
+  keyword: string; // 不含 ";" 前缀,如 "ip" / "jwt" / "myapi"
+  name: string; // 展示名,如 "本机 IP"
+  description: string; // 展示子标题
   kind: KeywordCommandKind;
   origin: "builtin" | "custom";
 
@@ -80,11 +80,7 @@ interface KeywordCommandDescriptor {
   defaultEnabled: boolean;
 }
 
-type KeywordValueProducerId =
-  | "local-ip"
-  | "uuid-v4"
-  | "timestamp-now"
-  | "hash-text";
+type KeywordValueProducerId = "local-ip" | "uuid-v4" | "timestamp-now" | "hash-text";
 ```
 
 ### 配置层扩展
@@ -98,7 +94,7 @@ interface SpotlightConfig {
   quickCommands: Partial<Record<QuickCommandId, SpotlightConfigQuickCommandOverride>>;
   // 新增
   keywordCommands?: {
-    builtins?: Partial<Record<string, { enabled: boolean }>>;  // key 为内置 id
+    builtins?: Partial<Record<string, { enabled: boolean }>>; // key 为内置 id
     custom?: Array<{
       id: string;
       keyword: string;
@@ -123,8 +119,8 @@ interface SpotlightView {
   enabledQuickCommands: Set<QuickCommandId>;
   quickCommands: QuickCommandDescriptor[];
   // 新增
-  keywordCommands: KeywordCommandDescriptor[];   // 合并 builtins + custom,仅 enabled=true
-  keywordIndex: Map<string, KeywordCommandDescriptor>;  // keyword(小写) -> descriptor
+  keywordCommands: KeywordCommandDescriptor[]; // 合并 builtins + custom,仅 enabled=true
+  keywordIndex: Map<string, KeywordCommandDescriptor>; // keyword(小写) -> descriptor
 }
 ```
 
@@ -134,7 +130,7 @@ interface SpotlightView {
 interface KeywordCommandInvocation {
   kind: "keyword";
   command: KeywordCommandDescriptor;
-  args: string;   // 去掉 keyword 和空格后的纯参数文本
+  args: string; // 去掉 keyword 和空格后的纯参数文本
 }
 ```
 
@@ -180,16 +176,16 @@ Keyword 必须前置于 quick command,否则极端情况下用户自定义的 ke
 
 ## 内置 KeywordCommand 集
 
-| keyword | kind | producer/target | 行为 | 备注 |
-|---------|------|-----------------|------|------|
-| `;ip` | show-value | `local-ip` | 列出本机所有网卡的 IPv4/IPv6,Enter 复制单项 | 需要 Rust 端新增 command |
-| `;uuid` | show-value | `uuid-v4` | 一次生成 5 个 UUID v4,Enter 复制单项 | 纯前端 `crypto.randomUUID()` |
-| `;ts` | show-value | `timestamp-now` | 列出当前时间的:Unix 秒、Unix 毫秒、ISO 8601、RFC 3339、本地友好格式 | 纯前端 |
-| `;hash <text>` | show-value | `hash-text` | 对参数计算 MD5/SHA-1/SHA-256,4 行展示,Enter 复制选中行 | 调现有 `tool:hash:*` 通道,无 args 时显示提示 |
-| `;b64 <text>` | open-tool | `tool:base64` | 跳 Base64 工具并预填 args 到输入框 | 复用 `spotlight_pick` |
-| `;jwt <token>` | open-tool | `tool:jwt` | 跳 JWT 工具并预填 Token | 同上 |
-| `;regex <text>` | open-tool | `tool:regex` | 跳正则工具,在测试文本里预填 args | 同上 |
-| `;color <hex>` | open-tool | `tool:color` | 跳颜色工具并预填 | 同上 |
+| keyword         | kind       | producer/target | 行为                                                                | 备注                                         |
+| --------------- | ---------- | --------------- | ------------------------------------------------------------------- | -------------------------------------------- |
+| `;ip`           | show-value | `local-ip`      | 列出本机所有网卡的 IPv4/IPv6,Enter 复制单项                         | 需要 Rust 端新增 command                     |
+| `;uuid`         | show-value | `uuid-v4`       | 一次生成 5 个 UUID v4,Enter 复制单项                                | 纯前端 `crypto.randomUUID()`                 |
+| `;ts`           | show-value | `timestamp-now` | 列出当前时间的:Unix 秒、Unix 毫秒、ISO 8601、RFC 3339、本地友好格式 | 纯前端                                       |
+| `;hash <text>`  | show-value | `hash-text`     | 对参数计算 MD5/SHA-1/SHA-256,4 行展示,Enter 复制选中行              | 调现有 `tool:hash:*` 通道,无 args 时显示提示 |
+| `;b64 <text>`   | open-tool  | `tool:base64`   | 跳 Base64 工具并预填 args 到输入框                                  | 复用 `spotlight_pick`                        |
+| `;jwt <token>`  | open-tool  | `tool:jwt`      | 跳 JWT 工具并预填 Token                                             | 同上                                         |
+| `;regex <text>` | open-tool  | `tool:regex`    | 跳正则工具,在测试文本里预填 args                                    | 同上                                         |
+| `;color <hex>`  | open-tool  | `tool:color`    | 跳颜色工具并预填                                                    | 同上                                         |
 
 具体 tool ID 实施时与 `App.vue` 的 sidebarItems 对齐;若 ID 不一致以 sidebar 为准。
 
@@ -208,11 +204,11 @@ Keyword 必须前置于 quick command,否则极端情况下用户自定义的 ke
 
 ### 自定义命令的能力范围
 
-| kind | 用户填写字段 | 行为 |
-|------|--------------|------|
-| `open-tool` | keyword / name / description / toolId(下拉选择)/ forwardArgs(布尔) | 跳目标工具,forwardArgs=true 时透传 args |
-| `vault-tag` | keyword / name / description / targetTag(文本输入,匹配 vault tag) | 列出 Vault 中含该 tag 的条目,Enter 走 vault provider 标准复制密码流程 |
-| `snippet-tag` | keyword / name / description / targetTag | 列出 Snippet 中含该 tag 的条目,Enter 默认动作复制 code,备选动作跳 Snippet 工具 |
+| kind          | 用户填写字段                                                       | 行为                                                                           |
+| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `open-tool`   | keyword / name / description / toolId(下拉选择)/ forwardArgs(布尔) | 跳目标工具,forwardArgs=true 时透传 args                                        |
+| `vault-tag`   | keyword / name / description / targetTag(文本输入,匹配 vault tag)  | 列出 Vault 中含该 tag 的条目,Enter 走 vault provider 标准复制密码流程          |
+| `snippet-tag` | keyword / name / description / targetTag                           | 列出 Snippet 中含该 tag 的条目,Enter 默认动作复制 code,备选动作跳 Snippet 工具 |
 
 ### vault-tag / snippet-tag 的内联渲染
 
@@ -356,22 +352,22 @@ Keyword 必须前置于 quick command,否则极端情况下用户自定义的 ke
 
 ## 改动文件清单
 
-| 文件 | 改动类型 | 说明 |
-|------|----------|------|
-| `apps/desktop/src/spotlight/types.ts` | 修改 | 新增 KeywordCommand 相关类型,扩展 `SpotlightView` / `SpotlightConfig` |
-| `apps/desktop/src/spotlight/keyword-commands.ts` | 新增 | 内置 KeywordCommand 集 + value producers + 校验函数 |
-| `apps/desktop/src/spotlight/keyword-resolver.ts` | 新增 | 把 invocation 解析为 SpotlightItem 列表 |
-| `apps/desktop/src/spotlight/config-store.ts` | 修改 | 合并 keywordCommands 字段进 view,校验自定义项 |
-| `apps/desktop/src/utils/spotlight-query.ts` | 修改 | 新增 `parseKeywordCommand` |
-| `apps/desktop/src/utils/spotlight-query.test.ts` | 修改 | 新增 keyword 解析单测 |
-| `apps/desktop/src/spotlight/keyword-resolver.test.ts` | 新增 | resolver 与 producer 单测(IP / UUID / hash / vault-tag mock) |
-| `apps/desktop/src/components/SpotlightPanel.vue` | 修改 | 解析链加 keyword;results 渲染 keyword items;placeholder 提示 |
-| `apps/desktop/src/components/settings/SpotlightSettings.vue` | 修改 | 新增「关键字命令」section |
-| `apps/desktop/src/components/settings/KeywordCommandEditor.vue` | 新增 | 自定义命令编辑对话框 |
-| `apps/desktop/src/bridge/tauri.ts` | 修改 | 新增 `tool:system:local-ips` 通道映射 |
-| `apps/desktop/src-tauri/src/tools/system.rs` | 新增或扩展 | `local-ips` action,返回网卡列表;若已有 system 域则追加 action |
-| `apps/desktop/src-tauri/src/tools/mod.rs` | 修改 | 注册 system 模块新 action |
-| `apps/desktop/src-tauri/Cargo.toml` | 修改 | 引入 `local-ip-address` crate(或纯 std 实现) |
+| 文件                                                            | 改动类型   | 说明                                                                  |
+| --------------------------------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| `apps/desktop/src/spotlight/types.ts`                           | 修改       | 新增 KeywordCommand 相关类型,扩展 `SpotlightView` / `SpotlightConfig` |
+| `apps/desktop/src/spotlight/keyword-commands.ts`                | 新增       | 内置 KeywordCommand 集 + value producers + 校验函数                   |
+| `apps/desktop/src/spotlight/keyword-resolver.ts`                | 新增       | 把 invocation 解析为 SpotlightItem 列表                               |
+| `apps/desktop/src/spotlight/config-store.ts`                    | 修改       | 合并 keywordCommands 字段进 view,校验自定义项                         |
+| `apps/desktop/src/utils/spotlight-query.ts`                     | 修改       | 新增 `parseKeywordCommand`                                            |
+| `apps/desktop/src/utils/spotlight-query.test.ts`                | 修改       | 新增 keyword 解析单测                                                 |
+| `apps/desktop/src/spotlight/keyword-resolver.test.ts`           | 新增       | resolver 与 producer 单测(IP / UUID / hash / vault-tag mock)          |
+| `apps/desktop/src/components/SpotlightPanel.vue`                | 修改       | 解析链加 keyword;results 渲染 keyword items;placeholder 提示          |
+| `apps/desktop/src/components/settings/SpotlightSettings.vue`    | 修改       | 新增「关键字命令」section                                             |
+| `apps/desktop/src/components/settings/KeywordCommandEditor.vue` | 新增       | 自定义命令编辑对话框                                                  |
+| `apps/desktop/src/bridge/tauri.ts`                              | 修改       | 新增 `tool:system:local-ips` 通道映射                                 |
+| `apps/desktop/src-tauri/src/tools/system.rs`                    | 新增或扩展 | `local-ips` action,返回网卡列表;若已有 system 域则追加 action         |
+| `apps/desktop/src-tauri/src/tools/mod.rs`                       | 修改       | 注册 system 模块新 action                                             |
+| `apps/desktop/src-tauri/Cargo.toml`                             | 修改       | 引入 `local-ip-address` crate(或纯 std 实现)                          |
 
 ## 验证
 
@@ -423,15 +419,15 @@ Keyword 必须前置于 quick command,否则极端情况下用户自定义的 ke
 
 ## 关键风险与对策
 
-| 风险 | 对策 |
-|------|------|
-| 内置 keyword 与未来 alias 自定义冲突(用户把 alias 改成 `ip`) | alias 必须"裸 + 空格",keyword 必须 `;` 起头,前缀互斥,不会冲突 |
-| `tool:system:local-ips` 在不同 Windows 网卡配置下行为差异 | 实现时手测主流场景:有线、WiFi、虚拟网卡(WSL/Docker)、VPN;失败静默降级 |
-| `local-ip-address` crate 引入新依赖增加包体积 | crate 体积极小(< 50KB),可接受;若反对则用纯 `std::net` + winapi 实现,工作量略增 |
-| Snippet 工具没有"按 tag 列条目"的现成通道 | 实施前先 grep 确认;无则用 `tool:snippets:list` 拉全集 + 前端过滤,数据量可承受 |
-| 用户自定义太多 keyword 导致设置面板冗长 | 单行紧凑展示 + 启用态置顶分组;数量过多时(20+)启用搜索框 |
-| show-value 类的"复制选中行"交互与现有 Spotlight 模式冲突(原 Enter 为执行 default action) | keyword 模式下,每条 item 的 defaultAction 就是"复制本行值",语义自洽 |
-| `;ts` 等动态值的展示在用户停留时秒级过期 | 解析时计算一次,不实时刷新;用户复制时拿到的是当时值;接受秒级误差 |
+| 风险                                                                                     | 对策                                                                           |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 内置 keyword 与未来 alias 自定义冲突(用户把 alias 改成 `ip`)                             | alias 必须"裸 + 空格",keyword 必须 `;` 起头,前缀互斥,不会冲突                  |
+| `tool:system:local-ips` 在不同 Windows 网卡配置下行为差异                                | 实现时手测主流场景:有线、WiFi、虚拟网卡(WSL/Docker)、VPN;失败静默降级          |
+| `local-ip-address` crate 引入新依赖增加包体积                                            | crate 体积极小(< 50KB),可接受;若反对则用纯 `std::net` + winapi 实现,工作量略增 |
+| Snippet 工具没有"按 tag 列条目"的现成通道                                                | 实施前先 grep 确认;无则用 `tool:snippets:list` 拉全集 + 前端过滤,数据量可承受  |
+| 用户自定义太多 keyword 导致设置面板冗长                                                  | 单行紧凑展示 + 启用态置顶分组;数量过多时(20+)启用搜索框                        |
+| show-value 类的"复制选中行"交互与现有 Spotlight 模式冲突(原 Enter 为执行 default action) | keyword 模式下,每条 item 的 defaultAction 就是"复制本行值",语义自洽            |
+| `;ts` 等动态值的展示在用户停留时秒级过期                                                 | 解析时计算一次,不实时刷新;用户复制时拿到的是当时值;接受秒级误差                |
 
 ## 后续可演进(不在本版范围)
 

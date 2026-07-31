@@ -37,10 +37,7 @@
           <div v-if="vizError" class="viz-error">
             <span>{{ vizError }}</span>
           </div>
-          <div
-            v-else-if="vizSvg"
-            class="viz-scroll-container"
-          >
+          <div v-else-if="vizSvg" class="viz-scroll-container">
             <div
               class="viz-svg-wrapper"
               :style="{ transform: `scale(${vizScale})`, transformOrigin: 'top left' }"
@@ -58,12 +55,7 @@
     <div class="regex-test-section">
       <div class="regex-test-grid">
         <div class="textarea-wrap">
-          <el-input
-            v-model="input"
-            type="textarea"
-            :rows="6"
-            placeholder="待匹配文本"
-          />
+          <el-input v-model="input" type="textarea" :rows="6" placeholder="待匹配文本" />
         </div>
         <div class="textarea-wrap">
           <el-input
@@ -81,9 +73,7 @@
           <el-button @click="clearAll">清空</el-button>
           <el-button @click="copyResult">复制结果</el-button>
         </el-space>
-        <span v-if="matchCount >= 0" class="match-count">
-          {{ matchCount }} 个匹配
-        </span>
+        <span v-if="matchCount >= 0" class="match-count"> {{ matchCount }} 个匹配 </span>
       </div>
     </div>
 
@@ -104,10 +94,12 @@
                 <span v-if="row.groups && row.groups.length > 0">
                   <span v-for="(g, gi) in row.groups" :key="gi" class="capture-group">
                     <template v-if="g.value !== null">
-                      <strong>{{ g.name || ('$' + g.index) }}</strong>: {{ g.value }}
+                      <strong>{{ g.name || "$" + g.index }}</strong
+                      >: {{ g.value }}
                     </template>
                     <template v-else>
-                      <strong>{{ g.name || ('$' + g.index) }}</strong>: (empty)
+                      <strong>{{ g.name || "$" + g.index }}</strong
+                      >: (empty)
                     </template>
                     <span v-if="gi < row.groups.length - 1" class="group-sep"> | </span>
                   </span>
@@ -144,11 +136,9 @@
       <div class="category-tabs">
         <el-radio-group v-model="selectedCategory" size="small">
           <el-radio-button value="">全部</el-radio-button>
-          <el-radio-button
-            v-for="cat in categories"
-            :key="cat.id"
-            :value="cat.id"
-          >{{ cat.name }}</el-radio-button>
+          <el-radio-button v-for="cat in categories" :key="cat.id" :value="cat.id">{{
+            cat.name
+          }}</el-radio-button>
         </el-radio-group>
       </div>
       <el-table
@@ -171,7 +161,9 @@
         </el-table-column>
         <el-table-column label="操作" width="70" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button class="template-use-btn" text size="small" @click="useTemplate(row)">使用</el-button>
+            <el-button class="template-use-btn" text size="small" @click="useTemplate(row)"
+              >使用</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -277,9 +269,7 @@ const CATEGORY_MAP: Record<string, string> = {
   text: "文本处理",
 };
 
-const categories = computed(() =>
-  Object.entries(CATEGORY_MAP).map(([id, name]) => ({ id, name }))
-);
+const categories = computed(() => Object.entries(CATEGORY_MAP).map(([id, name]) => ({ id, name })));
 
 function categoryName(id: string): string {
   return CATEGORY_MAP[id] || id;
@@ -293,9 +283,7 @@ const filteredTemplates = computed(() => {
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.trim().toLowerCase();
     list = list.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q)
+      (t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
     );
   }
   return list;
@@ -615,6 +603,4 @@ onMounted(() => loadTemplates());
   text-align: center;
   font-size: 13px;
 }
-
 </style>
-

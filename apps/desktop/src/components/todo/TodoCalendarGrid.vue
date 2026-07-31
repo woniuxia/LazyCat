@@ -37,10 +37,7 @@
             <span class="cal-item-priority" :class="'priority-' + item.priority.toLowerCase()" />
             <span class="cal-item-title">{{ item.title }}</span>
           </div>
-          <div
-            v-if="overflowCount(day.dateKey) > 0"
-            class="cal-item-overflow"
-          >
+          <div v-if="overflowCount(day.dateKey) > 0" class="cal-item-overflow">
             +{{ overflowCount(day.dateKey) }}
           </div>
         </div>
@@ -72,9 +69,7 @@ const emit = defineEmits<{
   goToday: [];
 }>();
 
-const days = computed(() =>
-  getCalendarDays(props.month.getFullYear(), props.month.getMonth()),
-);
+const days = computed(() => getCalendarDays(props.month.getFullYear(), props.month.getMonth()));
 
 const monthLabel = computed(() => formatMonthLabel(props.month));
 

@@ -5,18 +5,10 @@
       <div class="detail-header-top">
         <div class="detail-eyebrow">事项详情</div>
         <div class="detail-header-actions">
-          <el-button
-            size="small"
-            link
-            class="detail-edit-btn"
-            @click="$emit('edit', item)"
-          >编辑</el-button>
-          <el-button
-            v-if="canPinItem(item)"
-            size="small"
-            link
-            @click="$emit('togglePin', item.id)"
+          <el-button size="small" link class="detail-edit-btn" @click="$emit('edit', item)"
+            >编辑</el-button
           >
+          <el-button v-if="canPinItem(item)" size="small" link @click="$emit('togglePin', item.id)">
             {{ item.pinned ? "取消置顶" : "置顶" }}
           </el-button>
           <el-button
@@ -27,12 +19,17 @@
           >
             {{ isDoneItem(item) ? "恢复" : "完成" }}
           </el-button>
-          <el-button size="small" link type="danger" @click="$emit('delete', item)"
-          >删除</el-button>
+          <el-button size="small" link type="danger" @click="$emit('delete', item)">删除</el-button>
         </div>
       </div>
       <div class="detail-title-row">
-        <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="$emit('copyTitle', item.title)">{{ item.title }}</h3>
+        <h3
+          class="detail-title detail-title--copyable"
+          title="点击复制标题"
+          @click="$emit('copyTitle', item.title)"
+        >
+          {{ item.title }}
+        </h3>
       </div>
       <div class="detail-badges">
         <span
@@ -82,10 +79,7 @@
 
         <!-- Schedule Card -->
         <div
-          v-if="
-            item.eventAt ||
-            effectiveReminderPresets(item.reminderPresets).length > 0
-          "
+          v-if="item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0"
           class="detail-card schedule-card"
           :class="scheduleInsight ? `is-${scheduleInsight.urgencyKind}` : ''"
         >
@@ -105,10 +99,7 @@
           <div class="detail-card-body schedule-card-body">
             <div v-if="scheduleInsight" class="schedule-hero">
               <div class="schedule-hero-left">
-                <span
-                  class="schedule-hero-icon"
-                  :class="`is-${scheduleInsight.badgeKind}`"
-                >
+                <span class="schedule-hero-icon" :class="`is-${scheduleInsight.badgeKind}`">
                   <el-icon :size="18">
                     <AlarmClock v-if="scheduleInsight.urgencyKind === 'overdue'" />
                     <CircleCheck v-else-if="scheduleInsight.urgencyKind === 'completed'" />
@@ -131,10 +122,7 @@
                 </div>
               </div>
             </div>
-            <div
-              v-if="scheduleInsight && reminderChips.length > 0"
-              class="schedule-divider"
-            ></div>
+            <div v-if="scheduleInsight && reminderChips.length > 0" class="schedule-divider"></div>
             <div
               v-if="reminderChips.length > 0"
               class="schedule-reminders"
@@ -176,7 +164,10 @@
                 >
                   {{ item.actionBinding.targetLabel }}
                 </div>
-                <div v-if="!item.actionBinding.available" class="detail-hint action-target-unavailable">
+                <div
+                  v-if="!item.actionBinding.available"
+                  class="detail-hint action-target-unavailable"
+                >
                   {{ item.actionBinding.unavailableReason || "上线包配置不存在" }}
                 </div>
               </div>
@@ -204,10 +195,7 @@
         </div>
 
         <!-- Info Card -->
-        <div
-          v-if="item.typeName || item.assignees.length > 0"
-          class="detail-card"
-        >
+        <div v-if="item.typeName || item.assignees.length > 0" class="detail-card">
           <div class="detail-card-header">
             <div class="detail-card-icon success">
               <el-icon><User /></el-icon>
@@ -225,7 +213,10 @@
                 {{ item.typeName }}
               </span>
             </div>
-            <div v-if="item.assignees.length > 0" class="info-inline-group info-inline-group--assignees">
+            <div
+              v-if="item.assignees.length > 0"
+              class="info-inline-group info-inline-group--assignees"
+            >
               <el-icon class="info-inline-icon" :size="14"><UserFilled /></el-icon>
               <div class="info-assignee-list">
                 <span
@@ -241,10 +232,7 @@
         </div>
 
         <!-- Project & PM Item Card -->
-        <div
-          v-if="item.projectId"
-          class="detail-card project-unified-card"
-        >
+        <div v-if="item.projectId" class="detail-card project-unified-card">
           <div class="detail-card-header">
             <div class="detail-card-icon warning">
               <el-icon><Briefcase /></el-icon>
@@ -481,7 +469,8 @@ function formatRecurrenceDescription(item: TodoItem) {
     const freqMap: Record<string, string> = { daily: "每天", weekly: "每周", monthly: "每月" };
     let desc = freqMap[rule.frequency] || rule.frequency;
     if (rule.interval > 1) desc += `，间隔 ${rule.interval}`;
-    if ("weekdays" in rule && rule.weekdays.length > 0) desc += `，${formatWeekdayList(rule.weekdays)}`;
+    if ("weekdays" in rule && rule.weekdays.length > 0)
+      desc += `，${formatWeekdayList(rule.weekdays)}`;
     if ("dayOfMonth" in rule) desc += `，${rule.dayOfMonth} 号`;
     if (rule.time) desc += `，${rule.time}`;
     return desc;
@@ -503,21 +492,9 @@ const REMINDER_CHIP_LABELS: Record<string, string> = {
   "2d": "-2 天",
 };
 
-type ScheduleUrgencyKind =
-  | "overdue"
-  | "today"
-  | "tomorrow"
-  | "thisWeek"
-  | "later"
-  | "completed";
+type ScheduleUrgencyKind = "overdue" | "today" | "tomorrow" | "thisWeek" | "later" | "completed";
 
-type ScheduleBadgeKind =
-  | "danger"
-  | "warning"
-  | "primary"
-  | "info"
-  | "success"
-  | "neutral";
+type ScheduleBadgeKind = "danger" | "warning" | "primary" | "info" | "success" | "neutral";
 
 interface ScheduleInsight {
   urgencyKind: ScheduleUrgencyKind;
@@ -582,9 +559,7 @@ const scheduleInsight = computed<ScheduleInsight | null>(() => {
   const friendly = formatTodoRelativeDateTimeLabel(item.eventAt, nowValue);
   const weekday = WEEKDAY_LABELS[date.getDay()];
   const absoluteDate = `${date.getMonth() + 1}月${date.getDate()}日`;
-  const dateSub = friendly.includes(absoluteDate)
-    ? weekday
-    : `${absoluteDate} ${weekday}`;
+  const dateSub = friendly.includes(absoluteDate) ? weekday : `${absoluteDate} ${weekday}`;
 
   if (item.status === "completed") {
     return {
@@ -713,7 +688,9 @@ const actionDispatchStatusLabel = computed(() => {
     failed: "失败",
     cancelled: "已取消",
   };
-  return props.latestDispatch ? labels[props.latestDispatch.status] || props.latestDispatch.status : "";
+  return props.latestDispatch
+    ? labels[props.latestDispatch.status] || props.latestDispatch.status
+    : "";
 });
 
 const hasDetailCards = computed(() => {
@@ -734,9 +711,13 @@ const hasDetailCards = computed(() => {
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace(/^#/, "");
   if (clean.length !== 3 && clean.length !== 6) return hex;
-  const full = clean.length === 3
-    ? clean.split("").map((c) => c + c).join("")
-    : clean;
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : clean;
   const r = parseInt(full.slice(0, 2), 16);
   const g = parseInt(full.slice(2, 4), 16);
   const b = parseInt(full.slice(4, 6), 16);
@@ -869,11 +850,21 @@ const infoCardTitle = computed(() => {
   transition: box-shadow 0.25s var(--lc-ease, ease);
   animation: cardFadeIn 0.35s var(--lc-ease-out, ease) backwards;
 }
-.detail-card:nth-child(1) { animation-delay: 0ms; }
-.detail-card:nth-child(2) { animation-delay: 40ms; }
-.detail-card:nth-child(3) { animation-delay: 80ms; }
-.detail-card:nth-child(4) { animation-delay: 120ms; }
-.detail-card:nth-child(5) { animation-delay: 160ms; }
+.detail-card:nth-child(1) {
+  animation-delay: 0ms;
+}
+.detail-card:nth-child(2) {
+  animation-delay: 40ms;
+}
+.detail-card:nth-child(3) {
+  animation-delay: 80ms;
+}
+.detail-card:nth-child(4) {
+  animation-delay: 120ms;
+}
+.detail-card:nth-child(5) {
+  animation-delay: 160ms;
+}
 .detail-card:hover {
   box-shadow: var(--lc-shadow-sm);
 }
@@ -1099,10 +1090,18 @@ const infoCardTitle = computed(() => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.priority-p0 { background-color: var(--lc-danger); }
-.priority-p1 { background-color: var(--lc-warning); }
-.priority-p2 { background-color: var(--lc-accent); }
-.priority-p3 { background-color: var(--lc-text-muted); }
+.priority-p0 {
+  background-color: var(--lc-danger);
+}
+.priority-p1 {
+  background-color: var(--lc-warning);
+}
+.priority-p2 {
+  background-color: var(--lc-accent);
+}
+.priority-p3 {
+  background-color: var(--lc-text-muted);
+}
 .priority-with-dot {
   display: inline-flex;
   align-items: center;
@@ -1246,11 +1245,21 @@ const infoCardTitle = computed(() => {
   pointer-events: none;
   z-index: 1;
 }
-.schedule-card.is-overdue::before { background: var(--el-color-danger); }
-.schedule-card.is-today::before { background: var(--el-color-warning); }
-.schedule-card.is-tomorrow::before { background: var(--el-color-primary); }
-.schedule-card.is-thisWeek::before { background: var(--el-color-info, var(--el-color-primary)); }
-.schedule-card.is-completed::before { background: var(--el-color-success); }
+.schedule-card.is-overdue::before {
+  background: var(--el-color-danger);
+}
+.schedule-card.is-today::before {
+  background: var(--el-color-warning);
+}
+.schedule-card.is-tomorrow::before {
+  background: var(--el-color-primary);
+}
+.schedule-card.is-thisWeek::before {
+  background: var(--el-color-info, var(--el-color-primary));
+}
+.schedule-card.is-completed::before {
+  background: var(--el-color-success);
+}
 
 .schedule-urgency-badge {
   margin-left: auto;

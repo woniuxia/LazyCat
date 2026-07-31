@@ -43,10 +43,18 @@ function convert(source: "bin" | "oct" | "dec" | "hex", value: string) {
     let num: bigint;
     try {
       switch (source) {
-        case "bin": num = BigInt("0b" + trimmed); break;
-        case "oct": num = BigInt("0o" + trimmed); break;
-        case "dec": num = BigInt(trimmed); break;
-        case "hex": num = BigInt("0x" + trimmed); break;
+        case "bin":
+          num = BigInt("0b" + trimmed);
+          break;
+        case "oct":
+          num = BigInt("0o" + trimmed);
+          break;
+        case "dec":
+          num = BigInt(trimmed);
+          break;
+        case "hex":
+          num = BigInt("0x" + trimmed);
+          break;
       }
     } catch {
       return;

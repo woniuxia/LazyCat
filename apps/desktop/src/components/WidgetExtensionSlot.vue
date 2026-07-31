@@ -7,7 +7,9 @@
         :class="['ext-btn', 'ext-btn--fixed', `ext-btn--${btn.key}`]"
         :title="btn.title"
         @click="$emit('action', btn.payload)"
-      >{{ btn.label }}</button>
+      >
+        {{ btn.label }}
+      </button>
       <span v-if="dynamicButtons.length > 0" class="ext-sep" />
       <button
         v-for="btn in dynamicButtons"
@@ -15,7 +17,9 @@
         class="ext-btn ext-btn--hot"
         :title="btn.title"
         @click="$emit('action', btn.payload)"
-      >{{ btn.label }}</button>
+      >
+        {{ btn.label }}
+      </button>
     </div>
   </section>
 </template>
@@ -101,7 +105,10 @@ const dynamicButtons = computed(() => {
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
-  transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease,
+    opacity 0.15s ease;
   background: var(--wc-block-bg);
   border: 1px solid var(--wc-block-border);
   color: var(--wc-text);

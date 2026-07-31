@@ -299,7 +299,9 @@ onBeforeUnmount(() => {
   min-height: 64px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   background: #ffffff;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .vault-unlock-row.is-error {
@@ -396,7 +398,9 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  transition: background-color 0.18s ease, color 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
 }
 
 .vault-unlock-row.is-success .vault-unlock-chip {
@@ -437,7 +441,9 @@ onBeforeUnmount(() => {
 
 .vault-unlock-banner-enter-active,
 .vault-unlock-banner-leave-active {
-  transition: opacity 0.16s ease, max-height 0.16s ease;
+  transition:
+    opacity 0.16s ease,
+    max-height 0.16s ease;
   overflow: hidden;
 }
 
@@ -454,16 +460,31 @@ onBeforeUnmount(() => {
 }
 
 @keyframes vault-unlock-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes vault-unlock-shake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-4px); }
-  40% { transform: translateX(4px); }
-  60% { transform: translateX(-3px); }
-  80% { transform: translateX(2px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

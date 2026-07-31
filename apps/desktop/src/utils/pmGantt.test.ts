@@ -53,12 +53,10 @@ describe("pmGantt", () => {
   });
 
   it("构建带置顶和逾期标记的甘特任务", () => {
-    const task = buildPmGanttTask(
-      {
-        ...baseItem,
-        endAt: "2026-03-28",
-      },
-    );
+    const task = buildPmGanttTask({
+      ...baseItem,
+      endAt: "2026-03-28",
+    });
 
     expect(task.start).toBe("2026-03-28");
     expect(task.end).toBe("2026-03-28");
@@ -70,28 +68,24 @@ describe("pmGantt", () => {
   });
 
   it("用开始/截止日期的兜底值构建甘特任务", () => {
-    const task = buildPmGanttTask(
-      {
-        ...baseItem,
-        id: 8,
-        startAt: null,
-        endAt: "2026-04-01",
-      },
-    );
+    const task = buildPmGanttTask({
+      ...baseItem,
+      id: 8,
+      startAt: null,
+      endAt: "2026-04-01",
+    });
 
     expect(task.start).toBe("2026-04-01");
     expect(task.end).toBe("2026-04-01");
   });
 
   it("开始日期晚于截止日期时自动交换顺序", () => {
-    const task = buildPmGanttTask(
-      {
-        ...baseItem,
-        id: 11,
-        startAt: "2026-04-09",
-        endAt: "2026-04-03",
-      },
-    );
+    const task = buildPmGanttTask({
+      ...baseItem,
+      id: 11,
+      startAt: "2026-04-09",
+      endAt: "2026-04-03",
+    });
 
     expect(task.start).toBe("2026-04-03");
     expect(task.end).toBe("2026-04-09");

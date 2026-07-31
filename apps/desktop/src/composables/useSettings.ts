@@ -33,9 +33,10 @@ const closeToTray = ref(true); // 默认开启，保持当前行为
 
 async function loadAll(): Promise<void> {
   try {
-    const data = (await invokeToolByChannel("tool:settings:get-all", {})) as
-      | Record<string, string>
-      | null;
+    const data = (await invokeToolByChannel("tool:settings:get-all", {})) as Record<
+      string,
+      string
+    > | null;
     if (data) {
       Object.assign(settings, data);
     }
@@ -74,7 +75,7 @@ export function getVaultLockProfile(): VaultLockProfile {
 }
 
 export function getVaultLockProfilePolicy(
-  profile: VaultLockProfile = getVaultLockProfile()
+  profile: VaultLockProfile = getVaultLockProfile(),
 ): VaultLockProfilePolicy {
   const policy: VaultLockPolicy = getVaultLockPolicy(profile);
   return {
@@ -219,7 +220,9 @@ export async function disableAutostart(): Promise<void> {
  */
 export async function checkAutostartStatus(): Promise<void> {
   try {
-    const result = await invokeToolByChannel("tool:settings:is-autostart-enabled", {}) as { enabled: boolean };
+    const result = (await invokeToolByChannel("tool:settings:is-autostart-enabled", {})) as {
+      enabled: boolean;
+    };
     autostartEnabled.value = result.enabled;
   } catch {
     // IPC 失败，保持当前状态

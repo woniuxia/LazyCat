@@ -54,7 +54,13 @@ export function getPomodoroPhase(
     return phase("done", "今日已结束", 0, 0, segments.workEnd);
   }
   if (now < segments.workStart) {
-    return phase("idle", "等待开始", 0, secondsBetween(now, segments.workStart), segments.workStart);
+    return phase(
+      "idle",
+      "等待开始",
+      0,
+      secondsBetween(now, segments.workStart),
+      segments.workStart,
+    );
   }
   if (now >= segments.lunchStart && now < segments.lunchEnd) {
     return phase("paused", "午休中", 0, secondsBetween(now, segments.lunchEnd), segments.lunchEnd);
@@ -73,11 +79,23 @@ export function getPomodoroPhase(
   const cycleOffset = activeElapsedSeconds % cycleSeconds;
   if (cycleOffset < focusSeconds) {
     const remainingSeconds = focusSeconds - cycleOffset;
-    return phase("focus", "专注中", cycleIndex, remainingSeconds, addActiveSeconds(config, now, remainingSeconds));
+    return phase(
+      "focus",
+      "专注中",
+      cycleIndex,
+      remainingSeconds,
+      addActiveSeconds(config, now, remainingSeconds),
+    );
   }
 
   const remainingSeconds = cycleSeconds - cycleOffset;
-  return phase("break", "休息中", cycleIndex, remainingSeconds, addActiveSeconds(config, now, remainingSeconds));
+  return phase(
+    "break",
+    "休息中",
+    cycleIndex,
+    remainingSeconds,
+    addActiveSeconds(config, now, remainingSeconds),
+  );
 }
 
 export function formatPomodoroDuration(totalSeconds: number): string {
@@ -87,7 +105,13 @@ export function formatPomodoroDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function phase(kind: PomodoroPhaseKind, label: string, cycleIndex: number, remainingSeconds: number, endsAt: Date | null): PomodoroPhase {
+function phase(
+  kind: PomodoroPhaseKind,
+  label: string,
+  cycleIndex: number,
+  remainingSeconds: number,
+  endsAt: Date | null,
+): PomodoroPhase {
   return {
     kind,
     label,
@@ -118,7 +142,10 @@ function addActiveSeconds(config: PomodoroConfig, from: Date, seconds: number): 
     cursor = new Date(segments.lunchEnd);
   }
 
-  for (const [start, end] of [[segments.workStart, segments.lunchStart], [segments.lunchEnd, segments.workEnd]] as const) {
+  for (const [start, end] of [
+    [segments.workStart, segments.lunchStart],
+    [segments.lunchEnd, segments.workEnd],
+  ] as const) {
     if (cursor >= end) continue;
     if (cursor < start) cursor = new Date(start);
     const available = secondsBetween(cursor, end);
@@ -132,7 +159,12 @@ function addActiveSeconds(config: PomodoroConfig, from: Date, seconds: number): 
   return segments.workEnd;
 }
 
-function overlapSeconds(rangeStart: Date, rangeEnd: Date, segmentStart: Date, segmentEnd: Date): number {
+function overlapSeconds(
+  rangeStart: Date,
+  rangeEnd: Date,
+  segmentStart: Date,
+  segmentEnd: Date,
+): number {
   const start = maxDate(rangeStart, segmentStart);
   const end = minDate(rangeEnd, segmentEnd);
   if (end <= start) return 0;

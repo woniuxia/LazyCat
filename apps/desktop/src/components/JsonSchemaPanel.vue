@@ -66,7 +66,9 @@
     <el-alert
       v-if="validationResult"
       :type="validationResult.valid ? 'success' : 'error'"
-      :title="validationResult.valid ? '校验通过' : `校验失败（${validationResult.errors.length} 条）`"
+      :title="
+        validationResult.valid ? '校验通过' : `校验失败（${validationResult.errors.length} 条）`
+      "
       show-icon
       :closable="false"
     />
@@ -118,7 +120,9 @@
         </div>
         <el-space>
           <el-button size="small" :disabled="!exampleOutput" @click="copyExample">复制</el-button>
-          <el-button size="small" :disabled="!exampleOutput" @click="applyExample">填入待校验区</el-button>
+          <el-button size="small" :disabled="!exampleOutput" @click="applyExample"
+            >填入待校验区</el-button
+          >
         </el-space>
       </header>
       <MonacoPane
@@ -220,8 +224,16 @@ async function validateSchema() {
   validating.value = true;
   operationError.value = "";
   try {
-    const data = (await invokeToolByChannel("tool:schema:validate", { schema, document })) as SchemaValidationResult;
-    if (sequence !== validateSequence || schema !== schemaInput.value || document !== documentInput.value) return;
+    const data = (await invokeToolByChannel("tool:schema:validate", {
+      schema,
+      document,
+    })) as SchemaValidationResult;
+    if (
+      sequence !== validateSequence ||
+      schema !== schemaInput.value ||
+      document !== documentInput.value
+    )
+      return;
     validationResult.value = {
       valid: Boolean(data?.valid),
       errors: Array.isArray(data?.errors) ? data.errors : [],
@@ -272,9 +284,11 @@ function showOperationError(error: unknown, preferredTarget: "schema" | "documen
   operationError.value = message;
   const location = parseJsonErrorLocation(message);
   if (location) {
-    const target = message.includes("Schema") ? schemaEditorRef.value : preferredTarget === "schema"
+    const target = message.includes("Schema")
       ? schemaEditorRef.value
-      : documentEditorRef.value;
+      : preferredTarget === "schema"
+        ? schemaEditorRef.value
+        : documentEditorRef.value;
     target?.focusLine(location.line, location.column);
   }
 }

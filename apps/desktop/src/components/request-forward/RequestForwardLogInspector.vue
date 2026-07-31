@@ -102,7 +102,13 @@ async function copyRequestCommand(command: "curl" | "powershell") {
               复制完整日志
             </el-button>
             <el-tooltip content="关闭详情" placement="bottom">
-              <el-button text circle :icon="Close" aria-label="关闭日志详情" @click="$emit('close')" />
+              <el-button
+                text
+                circle
+                :icon="Close"
+                aria-label="关闭日志详情"
+                @click="$emit('close')"
+              />
             </el-tooltip>
           </div>
         </div>
@@ -111,13 +117,31 @@ async function copyRequestCommand(command: "curl" | "powershell") {
 
       <div class="log-inspector__scroll">
         <section class="summary-grid" aria-label="日志概要">
-          <div><span>结果</span><strong :class="{ 'is-error': log.error }">{{ log.error ? "失败" : log.statusCode ?? "成功" }}</strong></div>
-          <div><span>耗时</span><strong>{{ log.durationMs == null ? "—" : `${log.durationMs} ms` }}</strong></div>
-          <div><span>客户端</span><strong>{{ log.clientAddr ?? "未知" }}</strong></div>
-          <div><span>目标</span><strong>{{ log.targetAddr }}</strong></div>
-          <div><span>上传</span><strong>{{ formatBytes(log.uploadBytes) }}</strong></div>
-          <div><span>下载</span><strong>{{ formatBytes(log.downloadBytes) }}</strong></div>
-          <div class="is-wide"><span>时间</span><strong>{{ formatTime(log.createdAt) }}</strong></div>
+          <div>
+            <span>结果</span
+            ><strong :class="{ 'is-error': log.error }">{{
+              log.error ? "失败" : (log.statusCode ?? "成功")
+            }}</strong>
+          </div>
+          <div>
+            <span>耗时</span
+            ><strong>{{ log.durationMs == null ? "—" : `${log.durationMs} ms` }}</strong>
+          </div>
+          <div>
+            <span>客户端</span><strong>{{ log.clientAddr ?? "未知" }}</strong>
+          </div>
+          <div>
+            <span>目标</span><strong>{{ log.targetAddr }}</strong>
+          </div>
+          <div>
+            <span>上传</span><strong>{{ formatBytes(log.uploadBytes) }}</strong>
+          </div>
+          <div>
+            <span>下载</span><strong>{{ formatBytes(log.downloadBytes) }}</strong>
+          </div>
+          <div class="is-wide">
+            <span>时间</span><strong>{{ formatTime(log.createdAt) }}</strong>
+          </div>
         </section>
 
         <section v-if="log.error" class="error-detail">
@@ -152,7 +176,8 @@ async function copyRequestCommand(command: "curl" | "powershell") {
             </div>
             <dl class="header-list">
               <div v-for="([name, value], index) in log.requestHeaders" :key="`${name}-${index}`">
-                <dt>{{ name }}</dt><dd>{{ value }}</dd>
+                <dt>{{ name }}</dt>
+                <dd>{{ value }}</dd>
               </div>
             </dl>
           </section>
@@ -171,7 +196,8 @@ async function copyRequestCommand(command: "curl" | "powershell") {
             </div>
             <dl class="header-list">
               <div v-for="([name, value], index) in log.responseHeaders" :key="`${name}-${index}`">
-                <dt>{{ name }}</dt><dd>{{ value }}</dd>
+                <dt>{{ name }}</dt>
+                <dd>{{ value }}</dd>
               </div>
             </dl>
           </section>
@@ -203,10 +229,17 @@ async function copyRequestCommand(command: "curl" | "powershell") {
                 />
               </el-tooltip>
             </div>
-            <pre>{{ formatRequestForwardLogBody(log.responseBodyPreview, log.responseHeaders) }}</pre>
+            <pre>{{
+              formatRequestForwardLogBody(log.responseBodyPreview, log.responseHeaders)
+            }}</pre>
           </section>
           <p
-            v-if="!log.requestHeaders?.length && !log.responseHeaders?.length && log.requestBodyPreview == null && log.responseBodyPreview == null"
+            v-if="
+              !log.requestHeaders?.length &&
+              !log.responseHeaders?.length &&
+              log.requestBodyPreview == null &&
+              log.responseBodyPreview == null
+            "
             class="detail-empty"
           >
             本条日志未采集 HTTP 头或正文预览。
@@ -218,37 +251,204 @@ async function copyRequestCommand(command: "curl" | "powershell") {
 </template>
 
 <style scoped>
-.log-inspector { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; background: #fbfcfd; }
-.log-inspector__empty { display: grid; margin: auto; justify-items: center; gap: 6px; padding: 24px; color: #7a8797; text-align: center; }
-.log-inspector__empty strong { color: #405065; font-size: 16px; }
-.log-inspector__empty span { max-width: 280px; font-size: 14px; line-height: 1.5; }
-.log-inspector__header { display: grid; min-height: 58px; flex: none; gap: 4px; padding: 7px 12px 9px; border-bottom: 1px solid #dfe4e9; background: #fff; }
-.log-inspector__header-top { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
-.log-inspector__header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
-.log-inspector__header p { overflow: hidden; margin: 0; color: #657386; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-overflow: ellipsis; white-space: nowrap; }
-.log-inspector__header h2 { min-width: 0; overflow: hidden; margin: 0; color: #273548; font-size: 18px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.log-inspector__scroll { min-height: 0; flex: 1; overflow: auto; padding: 12px; }
-.summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #e0e5ea; border-radius: 5px; background: #fff; overflow: hidden; }
-.summary-grid div { min-width: 0; padding: 7px 8px; border-right: 1px solid #e8ecf0; border-bottom: 1px solid #e8ecf0; }
-.summary-grid div:nth-child(even) { border-right: 0; }
-.summary-grid .is-wide { grid-column: 1 / -1; border-right: 0; border-bottom: 0; }
-.summary-grid span { display: block; margin-bottom: 3px; color: #657386; font-size: 12px; }
-.summary-grid strong { display: block; overflow: hidden; color: #3d4b5f; font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.summary-grid strong.is-error { color: #b23d36; }
+.log-inspector {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  background: #fbfcfd;
+}
+.log-inspector__empty {
+  display: grid;
+  margin: auto;
+  justify-items: center;
+  gap: 6px;
+  padding: 24px;
+  color: #7a8797;
+  text-align: center;
+}
+.log-inspector__empty strong {
+  color: #405065;
+  font-size: 16px;
+}
+.log-inspector__empty span {
+  max-width: 280px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.log-inspector__header {
+  display: grid;
+  min-height: 58px;
+  flex: none;
+  gap: 4px;
+  padding: 7px 12px 9px;
+  border-bottom: 1px solid #dfe4e9;
+  background: #fff;
+}
+.log-inspector__header-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.log-inspector__header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.log-inspector__header p {
+  overflow: hidden;
+  margin: 0;
+  color: #657386;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-inspector__header h2 {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: #273548;
+  font-size: 18px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-inspector__scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #e0e5ea;
+  border-radius: 5px;
+  background: #fff;
+  overflow: hidden;
+}
+.summary-grid div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-right: 1px solid #e8ecf0;
+  border-bottom: 1px solid #e8ecf0;
+}
+.summary-grid div:nth-child(even) {
+  border-right: 0;
+}
+.summary-grid .is-wide {
+  grid-column: 1 / -1;
+  border-right: 0;
+  border-bottom: 0;
+}
+.summary-grid span {
+  display: block;
+  margin-bottom: 3px;
+  color: #657386;
+  font-size: 12px;
+}
+.summary-grid strong {
+  display: block;
+  overflow: hidden;
+  color: #3d4b5f;
+  font:
+    14px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.summary-grid strong.is-error {
+  color: #b23d36;
+}
 .detail-section,
-.error-detail { margin-top: 12px; padding-top: 11px; border-top: 1px solid #e2e7ec; }
+.error-detail {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid #e2e7ec;
+}
 .detail-section h3,
-.error-detail h3 { margin: 0; color: #48576a; font-size: 14px; }
-.detail-section__heading { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-.detail-section__heading :deep(.el-button) { flex: none; }
-.detail-section h3 span { color: #a86608; font-weight: 500; }
-.error-detail p { margin: 0; overflow-wrap: anywhere; color: #ae3b35; font-size: 14px; line-height: 1.55; }
-.header-list { display: grid; gap: 4px; margin: 0; }
-.header-list div { display: grid; grid-template-columns: minmax(90px, 30%) minmax(0, 1fr); gap: 8px; }
+.error-detail h3 {
+  margin: 0;
+  color: #48576a;
+  font-size: 14px;
+}
+.detail-section__heading {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.detail-section__heading :deep(.el-button) {
+  flex: none;
+}
+.detail-section h3 span {
+  color: #a86608;
+  font-weight: 500;
+}
+.error-detail p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #ae3b35;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.header-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.header-list div {
+  display: grid;
+  grid-template-columns: minmax(90px, 30%) minmax(0, 1fr);
+  gap: 8px;
+}
 .header-list dt,
-.header-list dd { overflow-wrap: anywhere; font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.header-list dt { color: #59687a; }
-.header-list dd { margin: 0; color: #344256; }
-.detail-section pre { max-height: 300px; margin: 0; overflow: auto; padding: 10px; border: 1px solid #e0e5ea; border-radius: 4px; background: #f5f7f9; white-space: pre-wrap; overflow-wrap: anywhere; color: #344256; font: 14px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.detail-empty { margin: 18px 0 0; color: #657386; font-size: 14px; text-align: center; }
+.header-list dd {
+  overflow-wrap: anywhere;
+  font:
+    14px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.header-list dt {
+  color: #59687a;
+}
+.header-list dd {
+  margin: 0;
+  color: #344256;
+}
+.detail-section pre {
+  max-height: 300px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #e0e5ea;
+  border-radius: 4px;
+  background: #f5f7f9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #344256;
+  font:
+    14px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.detail-empty {
+  margin: 18px 0 0;
+  color: #657386;
+  font-size: 14px;
+  text-align: center;
+}
 </style>

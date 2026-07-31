@@ -1,9 +1,19 @@
 <template>
   <div class="panel-grid csv-json-panel">
     <!-- CSV Input -->
-    <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
+    <div class="panel-grid-full" style="display: flex; gap: 8px; align-items: center">
       <el-button @click="pickFile">选择 CSV 文件</el-button>
-      <span v-if="filePath" style="font-size:13px;color:var(--el-text-color-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ filePath }}</span>
+      <span
+        v-if="filePath"
+        style="
+          font-size: 13px;
+          color: var(--el-text-color-secondary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        "
+        >{{ filePath }}</span
+      >
     </div>
     <el-input
       v-model="csvInput"
@@ -41,30 +51,37 @@
     </div>
 
     <!-- Options row -->
-    <div class="panel-grid-full" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
-      <el-input v-model="delimiter" placeholder="分隔符" style="width:100px;" />
+    <div
+      class="panel-grid-full"
+      style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center"
+    >
+      <el-input v-model="delimiter" placeholder="分隔符" style="width: 100px" />
       <el-switch v-model="hasHeader" active-text="CSV 含表头" />
     </div>
 
     <!-- Custom headers (when no header) -->
     <div v-if="!hasHeader && columnCount > 0" class="panel-grid-full">
-      <p style="margin:0 0 8px;font-size:13px;color:var(--el-text-color-secondary);">自定义列名（共 {{ columnCount }} 列）</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <p style="margin: 0 0 8px; font-size: 13px; color: var(--el-text-color-secondary)">
+        自定义列名（共 {{ columnCount }} 列）
+      </p>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
         <el-input
           v-for="(_, idx) in customHeaders"
           :key="idx"
           v-model="customHeaders[idx]"
           :placeholder="'col' + (idx + 1)"
-          style="width:120px;"
+          style="width: 120px"
         />
       </div>
     </div>
 
     <!-- Column selection (when has header and columns detected) -->
     <div v-if="hasHeader && detectedHeaders.length > 0" class="panel-grid-full">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-        <span style="font-size:13px;color:var(--el-text-color-secondary);">选择导出列</span>
-        <el-button text size="small" @click="toggleAllColumns">{{ allColumnsSelected ? '取消全选' : '全选' }}</el-button>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px">
+        <span style="font-size: 13px; color: var(--el-text-color-secondary)">选择导出列</span>
+        <el-button text size="small" @click="toggleAllColumns">{{
+          allColumnsSelected ? "取消全选" : "全选"
+        }}</el-button>
       </div>
       <el-checkbox-group v-model="selectedColumnIndices">
         <el-checkbox v-for="(header, idx) in detectedHeaders" :key="idx" :value="idx">
@@ -85,7 +102,13 @@
 </template>
 
 <script lang="ts">
-const csvJsonState = { csvInput: "", jsonOutput: "", delimiter: ",", hasHeader: true, filePath: "" };
+const csvJsonState = {
+  csvInput: "",
+  jsonOutput: "",
+  delimiter: ",",
+  hasHeader: true,
+  filePath: "",
+};
 </script>
 
 <script setup lang="ts">
@@ -114,7 +137,9 @@ const detectedHeaders = ref<string[]>([]);
 
 // 树形只读切换:默认文本;文件读入的输出可能远超 1MB 阈值,超限或非法 JSON 不显示
 const outputMode = ref<OutputMode>("text");
-const outputTreeGate = computed(() => (jsonOutput.value ? canEnterJsonTree(jsonOutput.value) : null));
+const outputTreeGate = computed(() =>
+  jsonOutput.value ? canEnterJsonTree(jsonOutput.value) : null,
+);
 const outputTreeAvailable = computed(() => outputTreeGate.value?.ok === true);
 const outputTreeValue = computed(() =>
   outputTreeGate.value?.ok ? outputTreeGate.value.value : null,
@@ -132,7 +157,10 @@ const columnCount = computed(() => {
 });
 
 const allColumnsSelected = computed(() => {
-  return detectedHeaders.value.length > 0 && selectedColumnIndices.value.length === detectedHeaders.value.length;
+  return (
+    detectedHeaders.value.length > 0 &&
+    selectedColumnIndices.value.length === detectedHeaders.value.length
+  );
 });
 
 function toggleAllColumns() {
@@ -174,7 +202,7 @@ async function pickFile() {
   try {
     const selected = await open({
       multiple: false,
-      filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }]
+      filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }],
     });
     if (!selected) return;
     const path = typeof selected === "string" ? selected : selected.path;
@@ -196,12 +224,16 @@ async function convert() {
     const payload: Record<string, unknown> = {
       input: csvInput.value,
       delimiter: delimiter.value || ",",
-      hasHeader: hasHeader.value
+      hasHeader: hasHeader.value,
     };
     if (!hasHeader.value && customHeaders.value.length > 0) {
       payload.customHeaders = customHeaders.value;
     }
-    if (hasHeader.value && selectedColumnIndices.value.length > 0 && selectedColumnIndices.value.length < detectedHeaders.value.length) {
+    if (
+      hasHeader.value &&
+      selectedColumnIndices.value.length > 0 &&
+      selectedColumnIndices.value.length < detectedHeaders.value.length
+    ) {
       payload.selectedColumns = selectedColumnIndices.value;
     }
     jsonOutput.value = String(await invokeToolByChannel("tool:convert:csv-to-json", payload));

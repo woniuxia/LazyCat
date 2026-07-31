@@ -61,11 +61,11 @@ LazyCat 当前已有轻量动作中心，用于把 Todo 提醒绑定到上线包
 
 首批可组合动作：
 
-| actionType | 名称 | 目标引用 |
-|---|---|---|
-| `hosts.activate` | 切换 Hosts | Hosts 配置稳定 ID |
+| actionType               | 名称           | 目标引用                              |
+| ------------------------ | -------------- | ------------------------------------- |
+| `hosts.activate`         | 切换 Hosts     | Hosts 配置稳定 ID                     |
 | `browser_profile.launch` | 启动浏览器身份 | 适配器编码的浏览器类型与 profile 目录 |
-| `request_forward.start` | 启动请求转发 | 请求转发规则 ID |
+| `request_forward.start`  | 启动请求转发   | 请求转发规则 ID                       |
 
 `targetId` 对动作中心是不透明字符串，编码、解析和校验均由对应适配器负责。浏览器身份以 `browser + profileDir` 共同确定目标；动作中心不得自行拆解或猜测该引用。
 

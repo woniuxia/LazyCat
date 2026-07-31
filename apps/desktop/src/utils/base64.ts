@@ -64,7 +64,7 @@ export function detectBase64Kind(input: string): Base64DetectedKind {
 }
 
 export function resolveBase64DecodeKind(
-  options: ResolveBase64DecodeKindOptions
+  options: ResolveBase64DecodeKindOptions,
 ): Base64ResolvedKind {
   const { detectedKind, manualChoice, currentKind } = options;
 

@@ -10,14 +10,27 @@
           />
           <div class="pm-toolbar-context-copy">
             <div class="pm-toolbar-context-title-row">
-              <span class="project-title-display" :style="{ color: isOverview ? '' : selectedProject.color }">{{ selectedProject.name }}</span>
-              <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info" class="pm-toolbar-project-tag">已归档</el-tag>
+              <span
+                class="project-title-display"
+                :style="{ color: isOverview ? '' : selectedProject.color }"
+                >{{ selectedProject.name }}</span
+              >
+              <el-tag
+                v-if="!isOverview && selectedProject.status === 'archived'"
+                size="small"
+                type="info"
+                class="pm-toolbar-project-tag"
+                >已归档</el-tag
+              >
             </div>
           </div>
         </div>
         <div class="toolbar-right pm-toolbar-head-actions">
           <div class="pm-view-switch">
-            <PmViewSwitcher :model-value="viewId" @update:model-value="emit('update:viewId', $event)" />
+            <PmViewSwitcher
+              :model-value="viewId"
+              @update:model-value="emit('update:viewId', $event)"
+            />
           </div>
           <el-button
             class="pm-toolbar-primary-btn"
@@ -56,7 +69,12 @@
               clearable
               @update:model-value="emit('update:filterType', $event)"
             >
-              <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
+              <el-option
+                v-for="(meta, key) in PM_ITEM_TYPE_MAP"
+                :key="key"
+                :label="meta.label"
+                :value="key"
+              />
             </el-select>
             <el-select
               :model-value="filterPriority"
@@ -66,7 +84,12 @@
               clearable
               @update:model-value="emit('update:filterPriority', $event)"
             >
-              <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
+              <el-option
+                v-for="(meta, key) in PM_PRIORITY_MAP"
+                :key="key"
+                :label="meta.label"
+                :value="key"
+              />
             </el-select>
             <div class="pm-status-filter-wrap pm-toolbar-select pm-toolbar-select--status">
               <span class="pm-status-filter-label">状态筛选</span>
@@ -79,7 +102,12 @@
                 placeholder="状态筛选"
                 @update:model-value="emit('update:selectedStatuses', $event)"
               >
-                <el-option v-for="column in PM_STATUS_COLUMNS" :key="column.key" :label="column.label" :value="column.key" />
+                <el-option
+                  v-for="column in PM_STATUS_COLUMNS"
+                  :key="column.key"
+                  :label="column.label"
+                  :value="column.key"
+                />
               </el-select>
             </div>
           </div>
@@ -308,13 +336,15 @@ const emit = defineEmits<{
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.12);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  transition:
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .pm-toolbar-search-input :deep(.el-input__wrapper.is-focus) {
   box-shadow:
     inset 0 0 0 1px rgba(14, 165, 233, 0.32),
-    0 10px 20px rgba(14, 165, 233, 0.10);
+    0 10px 20px rgba(14, 165, 233, 0.1);
 }
 
 .pm-toolbar-search-input :deep(.el-input__inner) {
@@ -352,11 +382,13 @@ const emit = defineEmits<{
   border-color: rgba(14, 165, 233, 0.12);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: none;
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  transition:
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .pm-toolbar-select :deep(.el-select__wrapper.is-focused) {
-  box-shadow: 0 10px 20px rgba(14, 165, 233, 0.10);
+  box-shadow: 0 10px 20px rgba(14, 165, 233, 0.1);
 }
 
 .pm-toolbar-select :deep(.el-select__placeholder),

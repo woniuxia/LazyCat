@@ -40,10 +40,7 @@ describe("browser profile Spotlight refresh guard", () => {
 
   it("replaces only browser profile provider items", () => {
     const current = new Map<SpotlightProviderId, SpotlightItem[]>([
-      [
-        "tool",
-        [{ providerId: "tool", itemId: "json", title: "JSON", searchFields: [] }],
-      ],
+      ["tool", [{ providerId: "tool", itemId: "json", title: "JSON", searchFields: [] }]],
       [BROWSER_PROFILES_PROVIDER_ID, [item("old-alias")]],
     ]);
 

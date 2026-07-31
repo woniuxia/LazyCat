@@ -76,13 +76,15 @@ export function isFiveMinuteTime(value: string) {
   if (rest.length > 0) return false;
   const hour = Number(hourText);
   const minute = Number(minuteText);
-  return Number.isInteger(hour)
-    && hour >= 0
-    && hour <= 23
-    && Number.isInteger(minute)
-    && minute >= 0
-    && minute <= 59
-    && minute % 5 === 0;
+  return (
+    Number.isInteger(hour) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    Number.isInteger(minute) &&
+    minute >= 0 &&
+    minute <= 59 &&
+    minute % 5 === 0
+  );
 }
 
 export function isFiveMinuteDateTime(value: string) {
@@ -100,7 +102,10 @@ export function splitDateTimeParts(value?: string | null): TodoDateTimeParts {
   };
 }
 
-export function splitDateTime(value?: string | null, fallbackTime = DEFAULT_TIME): TodoDateTimeParts {
+export function splitDateTime(
+  value?: string | null,
+  fallbackTime = DEFAULT_TIME,
+): TodoDateTimeParts {
   const parts = splitDateTimeParts(value);
   return {
     date: parts.date,
@@ -123,12 +128,12 @@ export function combineDateTimeParts(date: string, time: string) {
   const minute = Number(timeMatch[2]);
   const next = new Date(year, month - 1, day, hour, minute, 0, 0);
   if (
-    Number.isNaN(next.getTime())
-    || next.getFullYear() !== year
-    || next.getMonth() !== month - 1
-    || next.getDate() !== day
-    || next.getHours() !== hour
-    || next.getMinutes() !== minute
+    Number.isNaN(next.getTime()) ||
+    next.getFullYear() !== year ||
+    next.getMonth() !== month - 1 ||
+    next.getDate() !== day ||
+    next.getHours() !== hour ||
+    next.getMinutes() !== minute
   ) {
     return null;
   }
@@ -154,8 +159,9 @@ export function dayOfMonthFromDate(date: string) {
 }
 
 function normalizeWeekdays(weekdays?: number[], fallback: number[] = WORKDAY_WEEKDAYS) {
-  const unique = [...new Set((weekdays || []).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))]
-    .sort((left, right) => left - right);
+  const unique = [
+    ...new Set((weekdays || []).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)),
+  ].sort((left, right) => left - right);
   return unique.length > 0 ? unique : [...fallback];
 }
 
@@ -165,9 +171,9 @@ export function inferRepeatPreset(recurrence: TodoRecurrence | null): TodoRepeat
   const rule = recurrence.rule as Partial<TodoSimpleRule>;
   if (rule.frequency === "daily" && Number(rule.interval || 1) === 1) return "daily";
   if (
-    rule.frequency === "weekly"
-    && Number(rule.interval || 1) === 1
-    && normalizeWeekdays(rule.weekdays).join(",") === WORKDAY_WEEKDAYS.join(",")
+    rule.frequency === "weekly" &&
+    Number(rule.interval || 1) === 1 &&
+    normalizeWeekdays(rule.weekdays).join(",") === WORKDAY_WEEKDAYS.join(",")
   ) {
     return "workday";
   }
@@ -178,7 +184,10 @@ export function inferRepeatPreset(recurrence: TodoRecurrence | null): TodoRepeat
 
 export const deriveRepeatPreset = inferRepeatPreset;
 
-export function createRepeatDraft(recurrence: TodoRecurrence | null, startAt?: string | null): TodoRepeatDraft {
+export function createRepeatDraft(
+  recurrence: TodoRecurrence | null,
+  startAt?: string | null,
+): TodoRepeatDraft {
   const startParts = splitDateTimeParts(startAt || recurrence?.startAt || null);
   const fallbackWeekday = weekdayFromDate(startParts.date);
   const fallbackDayOfMonth = dayOfMonthFromDate(startParts.date);
@@ -186,7 +195,10 @@ export function createRepeatDraft(recurrence: TodoRecurrence | null, startAt?: s
   return {
     preset: inferRepeatPreset(recurrence),
     ruleMode: recurrence?.ruleMode || "simple",
-    cronExpression: (recurrence?.rule as { expression?: string } | undefined)?.expression || recurrence?.cronExpression || "0 0 9 * * Mon-Fri",
+    cronExpression:
+      (recurrence?.rule as { expression?: string } | undefined)?.expression ||
+      recurrence?.cronExpression ||
+      "0 0 9 * * Mon-Fri",
     timezone: recurrence?.timezone || "local",
     frequency: (simpleRule.frequency || "daily") as TodoSimpleFrequency,
     interval: Math.max(1, Number(simpleRule.interval || 1)),
@@ -194,11 +206,15 @@ export function createRepeatDraft(recurrence: TodoRecurrence | null, startAt?: s
     dayOfMonth: Math.min(31, Math.max(1, Number(simpleRule.dayOfMonth || fallbackDayOfMonth || 1))),
     endMode: recurrence?.endMode || "never",
     endValueDate: recurrence?.endMode === "until_date" ? String(recurrence.endValue || "") : "",
-    endValueCount: recurrence?.endMode === "after_count" ? Math.max(1, Number(recurrence.endValue || 1)) : 1,
+    endValueCount:
+      recurrence?.endMode === "after_count" ? Math.max(1, Number(recurrence.endValue || 1)) : 1,
   };
 }
 
-export function buildRuleFromRepeatDraft(draft: TodoRepeatDraft, time: string): { ruleMode: TodoRuleMode; rule: TodoRule } {
+export function buildRuleFromRepeatDraft(
+  draft: TodoRepeatDraft,
+  time: string,
+): { ruleMode: TodoRuleMode; rule: TodoRule } {
   if (draft.preset === "cron") {
     return { ruleMode: "cron", rule: { expression: draft.cronExpression.trim() } };
   }
@@ -206,7 +222,10 @@ export function buildRuleFromRepeatDraft(draft: TodoRepeatDraft, time: string): 
     return { ruleMode: "simple", rule: { frequency: "daily", interval: 1, time } };
   }
   if (draft.preset === "workday") {
-    return { ruleMode: "simple", rule: { frequency: "weekly", interval: 1, time, weekdays: [...WORKDAY_WEEKDAYS] } };
+    return {
+      ruleMode: "simple",
+      rule: { frequency: "weekly", interval: 1, time, weekdays: [...WORKDAY_WEEKDAYS] },
+    };
   }
   if (draft.preset === "weekly") {
     return {
@@ -281,7 +300,9 @@ export function buildSimpleRuleFromPreset(input: {
         interval: 1,
         time,
         weekdays: normalizeWeekdays(
-          currentSimpleRule?.frequency === "weekly" ? currentSimpleRule.weekdays : [weekdayFromDate(startDate)],
+          currentSimpleRule?.frequency === "weekly"
+            ? currentSimpleRule.weekdays
+            : [weekdayFromDate(startDate)],
           [weekdayFromDate(startDate)],
         ),
       };
@@ -307,10 +328,17 @@ export function buildSimpleRuleFromPreset(input: {
         frequency: (currentSimpleRule?.frequency || "daily") as TodoSimpleFrequency,
         interval: Math.max(1, Number(currentSimpleRule?.interval || 1)),
         time,
-        weekdays: currentSimpleRule?.frequency === "weekly" ? normalizeWeekdays(currentSimpleRule.weekdays) : undefined,
-        dayOfMonth: currentSimpleRule?.frequency === "monthly"
-          ? Math.min(31, Math.max(1, Number(currentSimpleRule.dayOfMonth || dayOfMonthFromDate(startDate))))
-          : undefined,
+        weekdays:
+          currentSimpleRule?.frequency === "weekly"
+            ? normalizeWeekdays(currentSimpleRule.weekdays)
+            : undefined,
+        dayOfMonth:
+          currentSimpleRule?.frequency === "monthly"
+            ? Math.min(
+                31,
+                Math.max(1, Number(currentSimpleRule.dayOfMonth || dayOfMonthFromDate(startDate))),
+              )
+            : undefined,
       };
     default:
       return {
@@ -331,26 +359,40 @@ export function repeatPresetLabel(preset: TodoRepeatPreset) {
   return TODO_REPEAT_PRESET_OPTIONS.find((option) => option.value === preset)?.label || "自定义";
 }
 
-export function formatRecurrenceEndLabel(recurrence: TodoRecurrence | null, formatDateTime: (value?: string | null) => string) {
+export function formatRecurrenceEndLabel(
+  recurrence: TodoRecurrence | null,
+  formatDateTime: (value?: string | null) => string,
+) {
   if (!recurrence) return "持续生成";
-  if (recurrence.endMode === "until_date") return recurrence.endValue ? `结束于 ${formatDateTime(String(recurrence.endValue))}` : "结束时间未设置";
-  if (recurrence.endMode === "after_count") return recurrence.endValue ? `生成 ${recurrence.endValue} 次后停止` : "生成次数未设置";
+  if (recurrence.endMode === "until_date")
+    return recurrence.endValue
+      ? `结束于 ${formatDateTime(String(recurrence.endValue))}`
+      : "结束时间未设置";
+  if (recurrence.endMode === "after_count")
+    return recurrence.endValue ? `生成 ${recurrence.endValue} 次后停止` : "生成次数未设置";
   return "持续生成";
 }
 
 export function summarizeSimpleRule(rule: Partial<TodoSimpleRule>) {
   const time = rule.time || DEFAULT_TIME;
-  if (rule.frequency === "weekly") return `每周 ${formatWeekdayList(rule.weekdays) || "周一"} ${time}`;
+  if (rule.frequency === "weekly")
+    return `每周 ${formatWeekdayList(rule.weekdays) || "周一"} ${time}`;
   if (rule.frequency === "monthly") return `每月 ${rule.dayOfMonth || 1} 号 ${time}`;
   return `每天 ${time}`;
 }
 
-export function summarizeRecurrenceRule(recurrence: TodoRecurrence | null, formatDateTime: (value?: string | null) => string) {
+export function summarizeRecurrenceRule(
+  recurrence: TodoRecurrence | null,
+  formatDateTime: (value?: string | null) => string,
+) {
   if (!recurrence) return "-";
-  const startText = recurrence.startAt ? `从 ${formatDateTime(recurrence.startAt)} 开始` : "未设置开始时间";
-  const ruleText = recurrence.ruleMode === "cron"
-    ? recurrence.cronExpression || (recurrence.rule as { expression?: string })?.expression || "-"
-    : summarizeSimpleRule(recurrence.rule as Partial<TodoSimpleRule>);
+  const startText = recurrence.startAt
+    ? `从 ${formatDateTime(recurrence.startAt)} 开始`
+    : "未设置开始时间";
+  const ruleText =
+    recurrence.ruleMode === "cron"
+      ? recurrence.cronExpression || (recurrence.rule as { expression?: string })?.expression || "-"
+      : summarizeSimpleRule(recurrence.rule as Partial<TodoSimpleRule>);
   return `${startText} · ${ruleText} · ${formatRecurrenceEndLabel(recurrence, formatDateTime)}`;
 }
 

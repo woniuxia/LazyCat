@@ -44,20 +44,23 @@ describe("clipboard-detect", () => {
   });
 
   it("目录样式路径建议显示为目录路径", () => {
-    expect(buildClipboardPathSuggestion({
-      path: "C:\\Windows",
-      reveal: true,
-    })).toEqual({
+    expect(
+      buildClipboardPathSuggestion({
+        path: "C:\\Windows",
+        reveal: true,
+      }),
+    ).toEqual({
       type: "path",
       label: "目录路径",
       preview: "C:\\Windows",
-      actions: [{
-        kind: "open-path",
-        label: "直接打开",
-        path: "C:\\Windows",
-        reveal: true,
-      }],
+      actions: [
+        {
+          kind: "open-path",
+          label: "直接打开",
+          path: "C:\\Windows",
+          reveal: true,
+        },
+      ],
     });
   });
-
 });

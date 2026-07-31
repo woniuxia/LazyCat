@@ -11,10 +11,7 @@ vi.mock("element-plus", () => ({
 
 import { ElMessage } from "element-plus";
 import { encodeJsonTreePath } from "../utils/jsonTreeView";
-import {
-  JSON_TREE_EDIT_HISTORY_LIMIT,
-  useJsonTreeEditing,
-} from "./useJsonTreeEditing";
+import { JSON_TREE_EDIT_HISTORY_LIMIT, useJsonTreeEditing } from "./useJsonTreeEditing";
 
 const enc = encodeJsonTreePath;
 

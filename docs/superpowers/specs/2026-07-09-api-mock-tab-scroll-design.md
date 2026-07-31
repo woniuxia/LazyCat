@@ -17,9 +17,17 @@ API Mock 页面右侧详情区使用 `el-tabs`（「路由」「请求日志」�
 Element Plus 2.13.2（实际安装版本）的 tabs 默认样式：
 
 ```css
-.el-tabs { display: flex; }
-.el-tabs--top { flex-direction: column; }
-.el-tabs__content { flex-grow: 1; overflow: hidden; position: relative; }
+.el-tabs {
+  display: flex;
+}
+.el-tabs--top {
+  flex-direction: column;
+}
+.el-tabs__content {
+  flex-grow: 1;
+  overflow: hidden;
+  position: relative;
+}
 ```
 
 即 `.el-tabs` 根节点本身是 flex 列容器，`.el-tabs__content` 是其中一个自带 `overflow: hidden` 的 flex 子项。按 CSS 规范，flex 子项的 `overflow` 非 `visible` 时，其自动最小尺寸（`min-height: auto`）解析为 0 而非内容高度。因此窗口不够高时：

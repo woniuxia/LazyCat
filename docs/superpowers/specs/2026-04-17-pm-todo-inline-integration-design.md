@@ -28,6 +28,7 @@
 - 实现简单，复用现有搜索 API
 
 备选方案:
+
 - B. 侧滑抽屉: 空间充裕但占屏幕宽度，需额外动画逻辑
 - C. 气泡 Popover: 轻量但空间有限，不适合大量候选项
 
@@ -56,6 +57,7 @@
    - 点选即绑定，Esc 或点外部收起
 
 **Props**:
+
 - `pmItemId`: `() => number | undefined`（getter）
 - `items`: `PmTodoLinkItem[]`
 - `summary`: `PmTodoSummary | null`
@@ -65,6 +67,7 @@
 - `candidatesLoading`: `boolean`
 
 **Emits**:
+
 - `create(title: string, priority: string)` -- 快速创建任务
 - `toggle(id: number)` -- 切换完成状态
 - `unlink(id: number)` -- 解绑任务
@@ -74,6 +77,7 @@
 
 **创建模式行为**:
 当 `pmItemId` getter 返回 `undefined`（即工作项尚未持久化），组件进入创建模式:
+
 - `items` 和 `summary` 为空，跳过数据加载
 - 创建任务时通过 `pending-change` emit 累积到本地数组，而非调用后端
 - 绑定已有任务时通过 `pending-change` emit 累积已选 ID
@@ -81,6 +85,7 @@
 - 父组件监听 `pending-change`，在 `submitItem()` 拿到新工作项 ID 后，调用 composable 的 `quickCreate` 和 `linkBatch` 完成批量关联
 
 **模式差异**:
+
 - `detail` 模式: 隐藏创建/绑定入口，只展示只读列表
 - `edit` 模式: 完整交互能力
 
@@ -108,6 +113,7 @@
    - 创建成功后自动切换到已关联状态
 
 **Props**:
+
 - `projectId`: `number | null`
 - `projectName`: `string | null`
 - `projectColor`: `string | null`
@@ -119,6 +125,7 @@
 - `projectList`: `PmProject[]`（用于新建工作项时选项目）
 
 **Emits**:
+
 - `link(pmItemId: number)` -- 关联工作项
 - `unlink()` -- 解除关联
 - `create-pm(title: string, projectId: number)` -- 新建工作项并关联
@@ -143,18 +150,21 @@
 **`usePmTodoLinking.ts` 简化**（243 行 → 约 120 行）
 
 移除:
+
 - `createDialogVisible`、`createForm`（弹窗状态）
 - `linkDialogVisible`、`linkSelectedIds`（弹窗状态）
 - `openLinkDialog()`（弹窗打开函数，内部调用 `loadCandidates()`）
 - `submitCreate()`、`submitLink()`（弹窗提交逻辑）
 
 保留:
+
 - `loadItems(pmItemId)` -- 加载关联任务列表
 - `toggleComplete(todo)` -- 切换完成状态
 - `unlink(todoItemId)` -- 解绑任务
 - `items`、`summary`、`loading` 响应式状态
 
 新增:
+
 - `quickCreate(title, priority)` -- 内联创建任务并自动关联当前 PM 工作项
 - `searchCandidates(keyword)` -- 搜索候选任务，返回候选列表供 InlineTodoList 消费
 - `linkBatch(ids: number[])` -- 批量绑定任务
@@ -166,6 +176,7 @@
 **修复方案**: 创建模式下 InlineTodoList 维护本地待关联列表（无需 composable 实例）。`submitItem()` 拿到新建工作项 ID 后，根据 `pending-change` emit 积累的数据，依次调用 `quickCreate` 和 `linkBatch` 完成批量关联。
 
 移除 PmPanel.vue 中手写的 `pendingTodo*` 系列状态（约 65 行）:
+
 - `pendingTodoCreates`
 - `pendingTodoLinkItems`
 - `pendingTodoCreateDialogVisible`
@@ -185,19 +196,19 @@
 
 ## 影响范围
 
-| 文件 | 操作 | 预计改动量 |
-|------|------|-----------|
-| `InlineTodoList.vue` | 新建 | ~200 行 |
-| `InlinePmSelector.vue` | 新建 | ~180 行 |
-| `PmTodoCreateDialog.vue` | 删除 | -78 行 |
-| `PmTodoLinkDialog.vue` | 删除 | -87 行 |
-| `usePmTodoLinking.ts` | 重构 | 243→120 行 |
-| `PmPanel.vue` | 改造 | -200 行 |
-| `PmItemDialog.vue` | 改造 | -10 行（移除 todo 插槽声明） |
-| `PmDetailPanel.vue` | 改造 | -60 行 |
-| `TodoDetailEdit.vue` | 改造 | -80 行 |
-| `TodoDetailView.vue` | 改造 | -20 行 |
-| `TodoPanel.vue` | 改造 | -40 行 |
+| 文件                     | 操作 | 预计改动量                   |
+| ------------------------ | ---- | ---------------------------- |
+| `InlineTodoList.vue`     | 新建 | ~200 行                      |
+| `InlinePmSelector.vue`   | 新建 | ~180 行                      |
+| `PmTodoCreateDialog.vue` | 删除 | -78 行                       |
+| `PmTodoLinkDialog.vue`   | 删除 | -87 行                       |
+| `usePmTodoLinking.ts`    | 重构 | 243→120 行                   |
+| `PmPanel.vue`            | 改造 | -200 行                      |
+| `PmItemDialog.vue`       | 改造 | -10 行（移除 todo 插槽声明） |
+| `PmDetailPanel.vue`      | 改造 | -60 行                       |
+| `TodoDetailEdit.vue`     | 改造 | -80 行                       |
+| `TodoDetailView.vue`     | 改造 | -20 行                       |
+| `TodoPanel.vue`          | 改造 | -40 行                       |
 
 **净效果**: +380 行新组件，-475 行旧代码，总计减少约 95 行。消除 6 个弹窗实例和 1 个 bug。
 

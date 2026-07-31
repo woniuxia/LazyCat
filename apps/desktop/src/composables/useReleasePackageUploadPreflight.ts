@@ -54,9 +54,9 @@ export function useReleasePackageUploadPreflight() {
     if (token !== requestToken) return null;
     checking.value = true;
     try {
-      const result = await invokeToolByChannel("tool:release-package:remote-probe", {
+      const result = (await invokeToolByChannel("tool:release-package:remote-probe", {
         environmentId,
-      }) as ReleasePackageRemoteProbeResult;
+      })) as ReleasePackageRemoteProbeResult;
       if (token !== requestToken) {
         await discardTokens({ probeToken: result.probeToken });
         return null;
@@ -83,11 +83,11 @@ export function useReleasePackageUploadPreflight() {
     if (token !== requestToken) return null;
     checking.value = true;
     try {
-      const result = await invokeToolByChannel("tool:release-package:host-trust", {
+      const result = (await invokeToolByChannel("tool:release-package:host-trust", {
         environmentId,
         probeToken,
         replaceExisting,
-      }) as ReleasePackageRemoteProbeResult;
+      })) as ReleasePackageRemoteProbeResult;
       if (token !== requestToken) {
         await discardTokens({ probeToken: result.probeToken });
         return null;
@@ -99,9 +99,7 @@ export function useReleasePackageUploadPreflight() {
     }
   }
 
-  async function check(
-    input: PreflightInput,
-  ): Promise<ReleasePackageRemotePreflightResult | null> {
+  async function check(input: PreflightInput): Promise<ReleasePackageRemotePreflightResult | null> {
     const probeToken = probeResult.value?.probeToken;
     if (!probeToken) throw new Error("请先探测并信任服务器主机指纹");
 
@@ -110,10 +108,10 @@ export function useReleasePackageUploadPreflight() {
     if (token !== requestToken) return null;
     checking.value = true;
     try {
-      const result = await invokeToolByChannel("tool:release-package:remote-preflight", {
+      const result = (await invokeToolByChannel("tool:release-package:remote-preflight", {
         ...input,
         probeToken,
-      }) as ReleasePackageRemotePreflightResult;
+      })) as ReleasePackageRemotePreflightResult;
       if (token !== requestToken) {
         await discardTokens({ preflightToken: result.preflightToken });
         return null;

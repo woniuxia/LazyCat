@@ -1,9 +1,14 @@
 <template>
   <div class="panel-grid">
     <!-- Input file -->
-    <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
+    <div class="panel-grid-full" style="display: flex; gap: 8px; align-items: center">
       <el-button @click="pickInputFile">选择图片</el-button>
-      <el-input v-model="imageInputPath" placeholder="图片路径（支持 PNG/JPEG/WebP/AVIF/BMP/GIF/TIFF）" style="flex:1;" @change="onInputPathChange" />
+      <el-input
+        v-model="imageInputPath"
+        placeholder="图片路径（支持 PNG/JPEG/WebP/AVIF/BMP/GIF/TIFF）"
+        style="flex: 1"
+        @change="onInputPathChange"
+      />
     </div>
 
     <!-- Image preview + info -->
@@ -30,7 +35,7 @@
     <!-- Output format -->
     <div>
       <div class="field-label">输出格式</div>
-      <el-select v-model="imageFormat" style="width:100%;" @change="updateOutputPath">
+      <el-select v-model="imageFormat" style="width: 100%" @change="updateOutputPath">
         <el-option label="PNG" value="png" />
         <el-option label="JPEG" value="jpeg" />
         <el-option label="WebP" value="webp" />
@@ -41,7 +46,14 @@
     <!-- Quality -->
     <div v-if="imageFormat === 'jpeg'">
       <div class="field-label">质量 (1-100)</div>
-      <el-slider v-model="imageQuality" :min="1" :max="100" show-input :show-input-controls="false" input-size="small" />
+      <el-slider
+        v-model="imageQuality"
+        :min="1"
+        :max="100"
+        show-input
+        :show-input-controls="false"
+        input-size="small"
+      />
     </div>
     <div v-else class="format-hint">
       {{ formatQualityHint }}
@@ -53,11 +65,27 @@
         <div class="field-label">宽度 (px)</div>
         <el-checkbox v-model="keepAspectRatio">锁定宽高比</el-checkbox>
       </div>
-      <el-input-number :model-value="imageWidth" :min="0" :max="10000" controls-position="right" placeholder="0 = 保持原始" style="width:100%;" @update:model-value="updateImageWidth" />
+      <el-input-number
+        :model-value="imageWidth"
+        :min="0"
+        :max="10000"
+        controls-position="right"
+        placeholder="0 = 保持原始"
+        style="width: 100%"
+        @update:model-value="updateImageWidth"
+      />
     </div>
     <div>
       <div class="field-label">高度 (px)</div>
-      <el-input-number :model-value="imageHeight" :min="0" :max="10000" controls-position="right" placeholder="0 = 保持原始" style="width:100%;" @update:model-value="updateImageHeight" />
+      <el-input-number
+        :model-value="imageHeight"
+        :min="0"
+        :max="10000"
+        controls-position="right"
+        placeholder="0 = 保持原始"
+        style="width: 100%"
+        @update:model-value="updateImageHeight"
+      />
       <div v-if="outputSizeHint" class="field-help">预计输出：{{ outputSizeHint }}</div>
     </div>
 
@@ -65,33 +93,63 @@
     <div class="panel-grid-full">
       <el-collapse>
         <el-collapse-item title="裁剪设置（可选）" name="crop">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
             <div>
               <div class="field-label">起始 X</div>
-              <el-input-number v-model="cropX" :min="0" :max="10000" controls-position="right" style="width:100%;" />
+              <el-input-number
+                v-model="cropX"
+                :min="0"
+                :max="10000"
+                controls-position="right"
+                style="width: 100%"
+              />
             </div>
             <div>
               <div class="field-label">起始 Y</div>
-              <el-input-number v-model="cropY" :min="0" :max="10000" controls-position="right" style="width:100%;" />
+              <el-input-number
+                v-model="cropY"
+                :min="0"
+                :max="10000"
+                controls-position="right"
+                style="width: 100%"
+              />
             </div>
             <div>
               <div class="field-label">裁剪宽度</div>
-              <el-input-number v-model="cropWidth" :min="0" :max="10000" controls-position="right" style="width:100%;" />
+              <el-input-number
+                v-model="cropWidth"
+                :min="0"
+                :max="10000"
+                controls-position="right"
+                style="width: 100%"
+              />
             </div>
             <div>
               <div class="field-label">裁剪高度</div>
-              <el-input-number v-model="cropHeight" :min="0" :max="10000" controls-position="right" style="width:100%;" />
+              <el-input-number
+                v-model="cropHeight"
+                :min="0"
+                :max="10000"
+                controls-position="right"
+                style="width: 100%"
+              />
             </div>
           </div>
           <div v-if="cropError" class="field-error" role="alert">{{ cropError }}</div>
-          <div v-else-if="cropEnabled" class="field-help">裁剪区域：{{ cropWidth }} x {{ cropHeight }} px</div>
+          <div v-else-if="cropEnabled" class="field-help">
+            裁剪区域：{{ cropWidth }} x {{ cropHeight }} px
+          </div>
         </el-collapse-item>
       </el-collapse>
     </div>
 
     <!-- Output path -->
-    <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
-      <el-input v-model="imageOutputPath" placeholder="输出路径（自动生成，可手动修改）" style="flex:1;" />
+    <div class="panel-grid-full" style="display: flex; gap: 8px; align-items: center">
+      <el-input
+        v-model="imageOutputPath"
+        placeholder="输出路径（自动生成，可手动修改）"
+        style="flex: 1"
+      />
       <el-button @click="pickOutputDir">选择目录</el-button>
     </div>
 
@@ -107,7 +165,9 @@
     <div v-if="convertResult" class="panel-grid-full image-result-card">
       <div class="image-info-item">
         <span class="image-info-label">输出路径</span>
-        <span class="image-info-value" style="word-break:break-all;">{{ convertResult.outputPath }}</span>
+        <span class="image-info-value" style="word-break: break-all">{{
+          convertResult.outputPath
+        }}</span>
       </div>
       <div class="image-info-item">
         <span class="image-info-label">输出尺寸</span>
@@ -118,7 +178,9 @@
         <span class="image-info-value">{{ formatSize(convertResult.size) }}</span>
       </div>
       <div class="image-result-actions">
-        <el-button size="small" @click="revealOutput(convertResult.outputPath)">在文件夹中显示</el-button>
+        <el-button size="small" @click="revealOutput(convertResult.outputPath)"
+          >在文件夹中显示</el-button
+        >
       </div>
     </div>
   </div>
@@ -161,18 +223,24 @@ const previewSrc = ref("");
 const imageInfo = ref<ImageInfo | null>(null);
 const convertResult = ref<ConvertResult | null>(null);
 
-const cropEnabled = computed(() => cropX.value > 0 || cropY.value > 0 || cropWidth.value > 0 || cropHeight.value > 0);
+const cropEnabled = computed(
+  () => cropX.value > 0 || cropY.value > 0 || cropWidth.value > 0 || cropHeight.value > 0,
+);
 const cropError = computed(() => {
   if (!cropEnabled.value) return "";
   if (!imageInfo.value) return "请先选择有效图片，再设置裁剪区域";
   if (cropWidth.value <= 0 || cropHeight.value <= 0) return "裁剪宽度和高度必须同时大于 0";
-  if (cropX.value + cropWidth.value > imageInfo.value.width || cropY.value + cropHeight.value > imageInfo.value.height) {
+  if (
+    cropX.value + cropWidth.value > imageInfo.value.width ||
+    cropY.value + cropHeight.value > imageInfo.value.height
+  ) {
     return `裁剪区域超出原图边界（${imageInfo.value.width} x ${imageInfo.value.height}）`;
   }
   return "";
 });
 const resizeBase = computed(() => {
-  if (cropEnabled.value && !cropError.value) return { width: cropWidth.value, height: cropHeight.value };
+  if (cropEnabled.value && !cropError.value)
+    return { width: cropWidth.value, height: cropHeight.value };
   return imageInfo.value ? { width: imageInfo.value.width, height: imageInfo.value.height } : null;
 });
 const outputSizeHint = computed(() => {
@@ -180,7 +248,8 @@ const outputSizeHint = computed(() => {
   if (imageWidth.value <= 0 && imageHeight.value <= 0) {
     return `${resizeBase.value.width} x ${resizeBase.value.height} px（保持原始）`;
   }
-  if (imageWidth.value > 0 && imageHeight.value > 0) return `${imageWidth.value} x ${imageHeight.value} px`;
+  if (imageWidth.value > 0 && imageHeight.value > 0)
+    return `${imageWidth.value} x ${imageHeight.value} px`;
   if (imageWidth.value > 0) {
     return `${imageWidth.value} x ${scaleDimension(imageWidth.value, resizeBase.value.width, resizeBase.value.height)} px`;
   }
@@ -216,7 +285,7 @@ function updateOutputPath() {
 
 async function loadImageInfo(path: string) {
   try {
-    const data = await invokeToolByChannel("tool:image:info", { inputPath: path }) as ImageInfo;
+    const data = (await invokeToolByChannel("tool:image:info", { inputPath: path })) as ImageInfo;
     imageInfo.value = data;
     // Set initial width/height from source to 0 (keep original)
     imageWidth.value = 0;
@@ -247,28 +316,34 @@ async function onInputPathChange() {
 
 function scaleDimension(value: number, sourceDimension: number, targetDimension: number): number {
   if (value <= 0 || sourceDimension <= 0) return 0;
-  return Math.max(1, Math.round(value * targetDimension / sourceDimension));
+  return Math.max(1, Math.round((value * targetDimension) / sourceDimension));
 }
 
 function updateImageWidth(value: number | undefined) {
   imageWidth.value = value ?? 0;
   if (!keepAspectRatio.value || !resizeBase.value) return;
-  imageHeight.value = imageWidth.value > 0
-    ? scaleDimension(imageWidth.value, resizeBase.value.width, resizeBase.value.height)
-    : 0;
+  imageHeight.value =
+    imageWidth.value > 0
+      ? scaleDimension(imageWidth.value, resizeBase.value.width, resizeBase.value.height)
+      : 0;
 }
 
 function updateImageHeight(value: number | undefined) {
   imageHeight.value = value ?? 0;
   if (!keepAspectRatio.value || !resizeBase.value) return;
-  imageWidth.value = imageHeight.value > 0
-    ? scaleDimension(imageHeight.value, resizeBase.value.height, resizeBase.value.width)
-    : 0;
+  imageWidth.value =
+    imageHeight.value > 0
+      ? scaleDimension(imageHeight.value, resizeBase.value.height, resizeBase.value.width)
+      : 0;
 }
 
 watch([cropWidth, cropHeight], () => {
   if (!keepAspectRatio.value || !resizeBase.value || imageWidth.value <= 0) return;
-  imageHeight.value = scaleDimension(imageWidth.value, resizeBase.value.width, resizeBase.value.height);
+  imageHeight.value = scaleDimension(
+    imageWidth.value,
+    resizeBase.value.width,
+    resizeBase.value.height,
+  );
 });
 
 async function pickInputFile() {
@@ -327,7 +402,10 @@ function buildConvertPayload(overwrite: boolean): Record<string, unknown> {
 }
 
 async function runConversion(overwrite: boolean) {
-  const data = await invokeToolByChannel("tool:image:convert", buildConvertPayload(overwrite)) as ConvertResult;
+  const data = (await invokeToolByChannel(
+    "tool:image:convert",
+    buildConvertPayload(overwrite),
+  )) as ConvertResult;
   convertResult.value = data;
   ElMessage.success("转换完成");
 }

@@ -375,23 +375,23 @@ interface ApiMockCorsConfig {
 
 通道统一走 `tool:api-mock:*`。
 
-| Channel | Domain | Action | 说明 |
-|---|---|---|---|
-| `tool:api-mock:project-list` | `api_mock` | `project_list` | 获取项目列表和运行摘要 |
-| `tool:api-mock:project-create` | `api_mock` | `project_create` | 创建项目 |
-| `tool:api-mock:project-update` | `api_mock` | `project_update` | 更新项目 |
-| `tool:api-mock:project-delete` | `api_mock` | `project_delete` | 删除项目 |
-| `tool:api-mock:project-reorder` | `api_mock` | `project_reorder` | 保存项目排序 |
-| `tool:api-mock:route-list` | `api_mock` | `route_list` | 获取项目路由列表 |
-| `tool:api-mock:route-get` | `api_mock` | `route_get` | 获取路由详情 |
-| `tool:api-mock:route-save` | `api_mock` | `route_save` | 新建或更新路由 |
-| `tool:api-mock:route-delete` | `api_mock` | `route_delete` | 删除路由 |
-| `tool:api-mock:route-reorder` | `api_mock` | `route_reorder` | 保存路由排序 |
-| `tool:api-mock:file-import` | `api_mock` | `file_import` | 导入文件副本 |
-| `tool:api-mock:service-start` | `api_mock` | `service_start` | 启动项目服务 |
-| `tool:api-mock:service-stop` | `api_mock` | `service_stop` | 停止项目服务 |
-| `tool:api-mock:service-status` | `api_mock` | `service_status` | 查询运行状态 |
-| `tool:api-mock:request-logs` | `api_mock` | `request_logs` | 获取最近请求日志 |
+| Channel                         | Domain     | Action            | 说明                   |
+| ------------------------------- | ---------- | ----------------- | ---------------------- |
+| `tool:api-mock:project-list`    | `api_mock` | `project_list`    | 获取项目列表和运行摘要 |
+| `tool:api-mock:project-create`  | `api_mock` | `project_create`  | 创建项目               |
+| `tool:api-mock:project-update`  | `api_mock` | `project_update`  | 更新项目               |
+| `tool:api-mock:project-delete`  | `api_mock` | `project_delete`  | 删除项目               |
+| `tool:api-mock:project-reorder` | `api_mock` | `project_reorder` | 保存项目排序           |
+| `tool:api-mock:route-list`      | `api_mock` | `route_list`      | 获取项目路由列表       |
+| `tool:api-mock:route-get`       | `api_mock` | `route_get`       | 获取路由详情           |
+| `tool:api-mock:route-save`      | `api_mock` | `route_save`      | 新建或更新路由         |
+| `tool:api-mock:route-delete`    | `api_mock` | `route_delete`    | 删除路由               |
+| `tool:api-mock:route-reorder`   | `api_mock` | `route_reorder`   | 保存路由排序           |
+| `tool:api-mock:file-import`     | `api_mock` | `file_import`     | 导入文件副本           |
+| `tool:api-mock:service-start`   | `api_mock` | `service_start`   | 启动项目服务           |
+| `tool:api-mock:service-stop`    | `api_mock` | `service_stop`    | 停止项目服务           |
+| `tool:api-mock:service-status`  | `api_mock` | `service_status`  | 查询运行状态           |
+| `tool:api-mock:request-logs`    | `api_mock` | `request_logs`    | 获取最近请求日志       |
 
 ## 前端交互
 

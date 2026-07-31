@@ -14,9 +14,19 @@
         <div class="detail-hero">
           <div class="detail-hero-head">
             <div class="detail-project-chip">
-              <span class="detail-project-dot" :style="{ backgroundColor: project?.color ?? item.projectColor ?? '#0ea5e9' }" />
-              <span class="detail-project-name">{{ project?.name ?? item.projectName ?? "-" }}</span>
-              <el-tag v-if="project?.status === 'archived'" size="small" effect="plain" class="detail-project-archived-tag">
+              <span
+                class="detail-project-dot"
+                :style="{ backgroundColor: project?.color ?? item.projectColor ?? '#0ea5e9' }"
+              />
+              <span class="detail-project-name">{{
+                project?.name ?? item.projectName ?? "-"
+              }}</span>
+              <el-tag
+                v-if="project?.status === 'archived'"
+                size="small"
+                effect="plain"
+                class="detail-project-archived-tag"
+              >
                 已归档
               </el-tag>
             </div>
@@ -42,11 +52,27 @@
               {{ PM_ITEM_TYPE_MAP[item.itemType]?.label ?? item.itemType }}
             </el-tag>
             <el-tag size="small" effect="light" round>
-              <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[item.priority]?.color }" />
+              <span
+                class="priority-dot"
+                :style="{ backgroundColor: PM_PRIORITY_MAP[item.priority]?.color }"
+              />
               {{ PM_PRIORITY_MAP[item.priority]?.label ?? item.priority }}
             </el-tag>
-            <el-tag size="small" :type="item.status === 'done' ? 'success' : item.status === 'in_progress' ? 'primary' : item.status === 'testing' ? 'warning' : 'info'" effect="light" round>
-              {{ PM_STATUS_COLUMNS.find(c => c.key === item.status)?.label ?? item.status }}
+            <el-tag
+              size="small"
+              :type="
+                item.status === 'done'
+                  ? 'success'
+                  : item.status === 'in_progress'
+                    ? 'primary'
+                    : item.status === 'testing'
+                      ? 'warning'
+                      : 'info'
+              "
+              effect="light"
+              round
+            >
+              {{ PM_STATUS_COLUMNS.find((c) => c.key === item.status)?.label ?? item.status }}
             </el-tag>
             <el-tag v-for="tag in item.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
           </div>
@@ -70,11 +96,15 @@
             </div>
             <div class="detail-timeline-card">
               <span class="detail-label">开始执行</span>
-              <span class="detail-value">{{ item.startedAt ? formatDateTime(item.startedAt) : "-" }}</span>
+              <span class="detail-value">{{
+                item.startedAt ? formatDateTime(item.startedAt) : "-"
+              }}</span>
             </div>
             <div class="detail-timeline-card">
               <span class="detail-label">开始测试</span>
-              <span class="detail-value">{{ item.testingAt ? formatDateTime(item.testingAt) : "-" }}</span>
+              <span class="detail-value">{{
+                item.testingAt ? formatDateTime(item.testingAt) : "-"
+              }}</span>
             </div>
             <div v-if="item.completedAt" class="detail-timeline-card">
               <span class="detail-label">完成时间</span>
@@ -132,12 +162,17 @@
               <template v-if="item.siyuanPrimaryPage">
                 <div class="detail-siyuan-page-main">
                   <span class="detail-label">思源主页面</span>
-                  <span class="detail-siyuan-page-title">{{ item.siyuanPrimaryPage.docTitle }}</span>
+                  <span class="detail-siyuan-page-title">{{
+                    item.siyuanPrimaryPage.docTitle
+                  }}</span>
                   <span class="detail-siyuan-page-meta">
-                    {{ item.siyuanPrimaryPage.notebookName }} · {{ item.siyuanPrimaryPage.docHpath }}
+                    {{ item.siyuanPrimaryPage.notebookName }} ·
+                    {{ item.siyuanPrimaryPage.docHpath }}
                   </span>
                 </div>
-                <el-button size="small" link @click="siyuan.openSiyuanPage(item.siyuanPrimaryPage)">打开</el-button>
+                <el-button size="small" link @click="siyuan.openSiyuanPage(item.siyuanPrimaryPage)"
+                  >打开</el-button
+                >
               </template>
               <template v-else>
                 <div class="detail-resource-main">
@@ -146,11 +181,17 @@
                 </div>
               </template>
             </div>
-            <div v-for="page in item.siyuanExtraPages" :key="page.docId" class="detail-resource-card">
+            <div
+              v-for="page in item.siyuanExtraPages"
+              :key="page.docId"
+              class="detail-resource-card"
+            >
               <div class="detail-siyuan-page-main">
                 <span class="detail-label">附加页面</span>
                 <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
-                <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
+                <span class="detail-siyuan-page-meta"
+                  >{{ page.notebookName }} · {{ page.docHpath }}</span
+                >
               </div>
               <el-button size="small" link @click="siyuan.openSiyuanPage(page)">打开</el-button>
             </div>
@@ -166,8 +207,16 @@
         </div>
 
         <div class="detail-actions">
-          <el-button size="small" @click="emit('toggle-pin', item)">{{ item.pinned ? '取消置顶' : '置顶' }}</el-button>
-          <el-button v-if="item.status !== 'done'" size="small" type="primary" plain @click="emit('advance-status', item)">
+          <el-button size="small" @click="emit('toggle-pin', item)">{{
+            item.pinned ? "取消置顶" : "置顶"
+          }}</el-button>
+          <el-button
+            v-if="item.status !== 'done'"
+            size="small"
+            type="primary"
+            plain
+            @click="emit('advance-status', item)"
+          >
             推进状态
           </el-button>
           <el-button size="small" type="danger" plain @click="emit('delete', item)">删除</el-button>
@@ -210,13 +259,16 @@ const pmTodo = reactive(usePmTodoLinking(() => props.item?.id));
 
 const descriptionText = computed(() => props.item?.description?.trim() ?? "");
 
-watch(() => props.item?.id, (id) => {
-  if (id != null) {
-    pmTodo.loadItems(id);
-  } else {
-    pmTodo.reset();
-  }
-});
+watch(
+  () => props.item?.id,
+  (id) => {
+    if (id != null) {
+      pmTodo.loadItems(id);
+    } else {
+      pmTodo.reset();
+    }
+  },
+);
 
 function isOverdue(item: PmItem): boolean {
   return isPmItemOverdue(item);
@@ -381,10 +433,14 @@ async function openItemLink(url: string | null | undefined) {
 }
 /* Detail panel transition */
 .pm-detail-slide-enter-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .pm-detail-slide-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 .pm-detail-slide-enter-from,
 .pm-detail-slide-leave-to {
@@ -494,7 +550,9 @@ async function openItemLink(url: string | null | undefined) {
   color: var(--pm-text-main);
   word-break: break-word;
   cursor: pointer;
-  transition: color 0.15s ease, opacity 0.15s ease;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .detail-item-title:hover {
@@ -586,7 +644,9 @@ async function openItemLink(url: string | null | undefined) {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 2px 6px rgba(34, 48, 66, 0.03);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .detail-resource-card:hover {
@@ -628,7 +688,12 @@ async function openItemLink(url: string | null | undefined) {
   gap: 8px;
   margin-top: auto;
   padding: 14px 0 2px;
-  background: linear-gradient(180deg, rgba(242, 246, 252, 0), rgba(242, 246, 252, 0.94) 32%, rgba(242, 246, 252, 1));
+  background: linear-gradient(
+    180deg,
+    rgba(242, 246, 252, 0),
+    rgba(242, 246, 252, 0.94) 32%,
+    rgba(242, 246, 252, 1)
+  );
 }
 
 .detail-actions :deep(.el-button) {

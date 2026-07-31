@@ -7,14 +7,14 @@
 
 ## 总览
 
-| Phase | 目标 | 预估 | 关键依赖 |
-|-------|------|------|---------|
-| Phase 0 | 表迁移 + `split_fields`/`merge_fields` 纯函数与单测 | 0.5 天 | 无 |
-| Phase 1 | 读写路径切换（create/update/get/list/reveal_one/record_usage） | 1 天 | Phase 0 |
-| Phase 2 | 迁移回填（unlock + change_password 两条触达路径） | 0.5 天 | Phase 1 |
-| Phase 3 | `meta_list` 扩展（plainFields 返回 + keyword 口径） | 0.25 天 | Phase 0 |
-| Phase 4 | Spotlight 前端（搜索字段/副标题/复制账号 + 单测） | 1 天 | Phase 3 |
-| Phase 5 | 全量验证 + 人工清单 + 提交 | 0.5 天 | Phase 1-4 |
+| Phase   | 目标                                                           | 预估    | 关键依赖  |
+| ------- | -------------------------------------------------------------- | ------- | --------- |
+| Phase 0 | 表迁移 + `split_fields`/`merge_fields` 纯函数与单测            | 0.5 天  | 无        |
+| Phase 1 | 读写路径切换（create/update/get/list/reveal_one/record_usage） | 1 天    | Phase 0   |
+| Phase 2 | 迁移回填（unlock + change_password 两条触达路径）              | 0.5 天  | Phase 1   |
+| Phase 3 | `meta_list` 扩展（plainFields 返回 + keyword 口径）            | 0.25 天 | Phase 0   |
+| Phase 4 | Spotlight 前端（搜索字段/副标题/复制账号 + 单测）              | 1 天    | Phase 3   |
+| Phase 5 | 全量验证 + 人工清单 + 提交                                     | 0.5 天  | Phase 1-4 |
 
 **Phase 0 → 1 → 2 为后端主线，严格串行；Phase 3 仅依赖 Phase 0，可与 Phase 1/2 并行；Phase 4 依赖 Phase 3。**
 
@@ -136,8 +136,15 @@ canary 验证通过、`derive_key` 之后，**先 `backfill_plain_fields(&conn, 
 
 ```ts
 export interface VaultPlainFields {
-  account?: string; url?: string; address?: string; port?: number;
-  serverType?: string; dbType?: string; dbName?: string; schema?: string; notes?: string;
+  account?: string;
+  url?: string;
+  address?: string;
+  port?: number;
+  serverType?: string;
+  dbType?: string;
+  dbName?: string;
+  schema?: string;
+  notes?: string;
 }
 // VaultMetaEntry 追加 plainFields?: VaultPlainFields | null;
 // buildItem 的 payload 追加 account: string（plainFields?.account ?? ""）
@@ -206,13 +213,13 @@ export interface VaultPlainFields {
 
 ## 风险与回退
 
-| 风险 | 触发条件 | 回退策略 |
-|------|---------|---------|
-| 回填中断（崩溃/断电） | unlock 同步回填执行中 | 单行 UPDATE 原子；未完成行下次解锁重试（幂等判定为 blob 含非密码键） |
-| e2e/测试桩依赖旧 vault 行为 | `pnpm test:e2e` 或 fixture 中有 vault 流程 | 开工时先 grep e2e 目录确认；如有则同步更新桩数据 |
-| `record_usage` 免会话引发评审顾虑 | 安全审视 | 仅递增明文计数列，与 `meta_list` 免会话同口径（设计已确认） |
-| 降级后旧版编辑产生陈旧 plain_fields | 用户降级又升级 | `merge_fields` 旧格式以 blob 为准 + 回填自愈（设计已覆盖，残留窗口仅限 list 摘要展示） |
-| Windows 下 `cargo test` 与运行中 exe 文件锁冲突 | dev 实例未关闭 | 测试前结束 LazyCat 进程（CLAUDE.md `01.2`） |
+| 风险                                            | 触发条件                                   | 回退策略                                                                               |
+| ----------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| 回填中断（崩溃/断电）                           | unlock 同步回填执行中                      | 单行 UPDATE 原子；未完成行下次解锁重试（幂等判定为 blob 含非密码键）                   |
+| e2e/测试桩依赖旧 vault 行为                     | `pnpm test:e2e` 或 fixture 中有 vault 流程 | 开工时先 grep e2e 目录确认；如有则同步更新桩数据                                       |
+| `record_usage` 免会话引发评审顾虑               | 安全审视                                   | 仅递增明文计数列，与 `meta_list` 免会话同口径（设计已确认）                            |
+| 降级后旧版编辑产生陈旧 plain_fields             | 用户降级又升级                             | `merge_fields` 旧格式以 blob 为准 + 回填自愈（设计已覆盖，残留窗口仅限 list 摘要展示） |
+| Windows 下 `cargo test` 与运行中 exe 文件锁冲突 | dev 实例未关闭                             | 测试前结束 LazyCat 进程（CLAUDE.md `01.2`）                                            |
 
 ## 下一步
 

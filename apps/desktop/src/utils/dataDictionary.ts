@@ -45,7 +45,7 @@ export function buildResultSummary(
         value: formatJsonValue(value),
       };
     })
-    .filter((part) => part.value !== "undefined" && part.value !== "")
+    .filter((part) => part.value !== "undefined" && part.value !== "");
 }
 
 export function buildResultTitle(item: DataDictionarySearchItem): string {
@@ -115,18 +115,12 @@ export function moveDataDictionaryFieldDraft(
     newIndex >= grouped.visibleFields.length ||
     oldIndex === newIndex
   ) {
-    return reindexDataDictionaryFieldDrafts([
-      ...grouped.visibleFields,
-      ...grouped.hiddenFields,
-    ]);
+    return reindexDataDictionaryFieldDrafts([...grouped.visibleFields, ...grouped.hiddenFields]);
   }
   const nextVisible = grouped.visibleFields.slice();
   const [moved] = nextVisible.splice(oldIndex, 1);
   if (!moved) {
-    return reindexDataDictionaryFieldDrafts([
-      ...grouped.visibleFields,
-      ...grouped.hiddenFields,
-    ]);
+    return reindexDataDictionaryFieldDrafts([...grouped.visibleFields, ...grouped.hiddenFields]);
   }
   nextVisible.splice(newIndex, 0, moved);
   return reindexDataDictionaryFieldDrafts([...nextVisible, ...grouped.hiddenFields]);
@@ -163,10 +157,7 @@ export function mergePopularAndSearchItems(
   searchItems: DataDictionarySearchItem[],
 ): Array<DataDictionaryPopularRecord | DataDictionarySearchItem> {
   const popularIds = new Set(popularItems.map((item) => item.id));
-  return [
-    ...popularItems,
-    ...searchItems.filter((item) => !popularIds.has(item.id)),
-  ];
+  return [...popularItems, ...searchItems.filter((item) => !popularIds.has(item.id))];
 }
 
 export function pickInitialRecordItem(

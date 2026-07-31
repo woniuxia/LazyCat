@@ -96,8 +96,8 @@ Spotlight 继续复用现有剪贴板读取和 `detectClipboardContent()` 识别
 
 ```ts
 type ClipboardSuggestionAction =
-  | { kind: 'open-tool'; toolId: string; text: string }
-  | { kind: 'open-reference-card'; text: string }
+  | { kind: "open-tool"; toolId: string; text: string }
+  | { kind: "open-reference-card"; text: string };
 ```
 
 不能用虚构工具 ID 表示参考卡。选择参考卡结果时直接调用统一的卡片创建命令，成功后关闭 Spotlight，不显示 LazyCat 主窗口；失败继续使用 Spotlight 现有错误条和重试机制。

@@ -38,10 +38,7 @@ describe("browser profile change events", () => {
 
     const got = await listenBrowserProfilesChanged(handler);
 
-    expect(listen).toHaveBeenCalledWith(
-      BROWSER_PROFILES_CHANGED_EVENT,
-      expect.any(Function),
-    );
+    expect(listen).toHaveBeenCalledWith(BROWSER_PROFILES_CHANGED_EVENT, expect.any(Function));
     expect(handler).toHaveBeenCalledWith({ reason: "hidden" });
     expect(got).toBe(unlisten);
   });

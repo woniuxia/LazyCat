@@ -22,7 +22,9 @@
     <div class="spotlight-results">
       <div v-if="isLoadingView && results.length === 0" class="spotlight-empty">加载中…</div>
       <div v-else-if="results.length === 0" class="spotlight-empty">
-        {{ query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目" }}
+        {{
+          query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目"
+        }}
       </div>
       <div
         v-for="(entry, idx) in results"
@@ -120,7 +122,11 @@ import {
   shouldRunQueryProvider,
 } from "../spotlight/search";
 
-import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../utils/spotlight-query";
+import {
+  parseSpotlightQuery,
+  parseQuickCommand,
+  parseKeywordCommand,
+} from "../utils/spotlight-query";
 import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { initSettings, getSetting } from "../composables/useSettings";
@@ -206,9 +212,7 @@ async function refreshClipboardSuggestions() {
   });
 }
 
-const parsed = computed(() =>
-  parseSpotlightQuery(query.value, view.value?.aliasMap),
-);
+const parsed = computed(() => parseSpotlightQuery(query.value, view.value?.aliasMap));
 const keywordInvocation = computed<KeywordCommandInvocation | null>(() =>
   parseKeywordCommand(query.value, view.value?.keywordIndex),
 );
@@ -234,17 +238,11 @@ const enabledProviderIds = computed(() => {
 });
 
 const searchableItemsByProvider = computed(() => {
-  const merged = mergeSpotlightProviderItems(
-    itemsByProvider.value,
-    queryItemsByProvider.value,
-  );
+  const merged = mergeSpotlightProviderItems(itemsByProvider.value, queryItemsByProvider.value);
   const next = new Map(merged);
   next.set(
     "suggestion",
-    mergeClipboardSuggestionItems(
-      merged.get("suggestion") ?? [],
-      clipboardSuggestionItems.value,
-    ),
+    mergeClipboardSuggestionItems(merged.get("suggestion") ?? [], clipboardSuggestionItems.value),
   );
   return next;
 });
@@ -278,7 +276,8 @@ async function refreshUsageSummaries(itemsByProvider: ScopedItemsMap) {
     );
     if (requestSeq !== usageRequestSeq) return;
     usageSummaries.value = new Map(
-      responses.flatMap((response) => response.items)
+      responses
+        .flatMap((response) => response.items)
         .map((item) => [usageRefKey(item), item.summary]),
     );
   } catch (error) {
@@ -289,9 +288,13 @@ async function refreshUsageSummaries(itemsByProvider: ScopedItemsMap) {
   }
 }
 
-watch(searchableItemsByProvider, (items) => {
-  void refreshUsageSummaries(items);
-}, { immediate: true });
+watch(
+  searchableItemsByProvider,
+  (items) => {
+    void refreshUsageSummaries(items);
+  },
+  { immediate: true },
+);
 
 const isLoadingView = computed(() => loading.value || keywordLoading.value || queryLoading.value);
 
@@ -382,9 +385,7 @@ const results = computed(() => {
         title: keywordError.value
           ? `加载失败:${keywordError.value}`
           : `;${keywordInvocation.value.command.keyword}`,
-        subtitle: keywordError.value
-          ? "Esc 关闭或重试"
-          : "没有可用结果",
+        subtitle: keywordError.value ? "Esc 关闭或重试" : "没有可用结果",
         badge: { short: "提示", tone: "muted" },
         searchFields: [],
         payload: { __keyword: true, keywordItemKind: "hint" },
@@ -466,7 +467,8 @@ const results = computed(() => {
   }
   const text = parsed.value.query;
   if (!text.trim()) {
-    const providers = view.value?.providers.filter((provider) => provider.enabled) ?? listProviders();
+    const providers =
+      view.value?.providers.filter((provider) => provider.enabled) ?? listProviders();
     return rankEmptyItems(
       searchableItemsByProvider.value,
       providers,
@@ -522,9 +524,7 @@ async function prefetchAll() {
   const hadAnyData = itemsByProvider.value.size > 0;
   if (!hadAnyData) loading.value = true;
   const v = view.value;
-  const providers = v
-    ? v.providers.filter((p) => p.enabled)
-    : listProviders();
+  const providers = v ? v.providers.filter((p) => p.enabled) : listProviders();
   await Promise.allSettled(
     providers.map(async (provider) => {
       const browserProfilesPrefetchVersion =
@@ -535,10 +535,7 @@ async function prefetchAll() {
         const items = await provider.prefetch();
         if (
           provider.id === BROWSER_PROFILES_PROVIDER_ID &&
-          !canWriteBrowserProfiles(
-            browserProfilesRefreshGuard,
-            browserProfilesPrefetchVersion!,
-          )
+          !canWriteBrowserProfiles(browserProfilesRefreshGuard, browserProfilesPrefetchVersion!)
         ) {
           return;
         }
@@ -550,10 +547,7 @@ async function prefetchAll() {
         console.warn(`[Spotlight] provider ${provider.id} prefetch failed:`, err);
         if (
           provider.id === BROWSER_PROFILES_PROVIDER_ID &&
-          !canWriteBrowserProfiles(
-            browserProfilesRefreshGuard,
-            browserProfilesPrefetchVersion!,
-          )
+          !canWriteBrowserProfiles(browserProfilesRefreshGuard, browserProfilesPrefetchVersion!)
         ) {
           return;
         }
@@ -583,10 +577,7 @@ async function refreshBrowserProfilesProvider() {
   try {
     const items = await browserProfilesProvider.prefetch();
     if (!canWriteBrowserProfiles(browserProfilesRefreshGuard, version)) return;
-    itemsByProvider.value = replaceBrowserProfilesItems(
-      itemsByProvider.value,
-      items,
-    );
+    itemsByProvider.value = replaceBrowserProfilesItems(itemsByProvider.value, items);
     lastUsageSignature = "";
     void refreshUsageSummaries(searchableItemsByProvider.value);
     activeIndex.value = nextSpotlightActiveIndex({
@@ -775,9 +766,7 @@ async function commitDefault(item: SpotlightItem) {
     if (!raw) {
       // 空、预览或错误状态：给出明确反馈
       const text = String(item.payload?.text ?? "").trim();
-      errorMessage.value = text
-        ? "公式尚未完成,请继续输入"
-        : "请输入要计算的表达式";
+      errorMessage.value = text ? "公式尚未完成,请继续输入" : "请输入要计算的表达式";
       lastFailed.value = null;
       return;
     }
@@ -785,9 +774,7 @@ async function commitDefault(item: SpotlightItem) {
       try {
         await navigator.clipboard.writeText(raw);
         const message =
-          display && display !== raw
-            ? `已复制 ${raw}（显示 ${display}）`
-            : `已复制 ${raw}`;
+          display && display !== raw ? `已复制 ${raw}（显示 ${display}）` : `已复制 ${raw}`;
         return {
           closeSpotlight: true,
           toast: { message, type: "success" as const },
@@ -882,8 +869,7 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "ArrowUp") {
     e.preventDefault();
     if (results.value.length === 0) return;
-    activeIndex.value =
-      (activeIndex.value - 1 + results.value.length) % results.value.length;
+    activeIndex.value = (activeIndex.value - 1 + results.value.length) % results.value.length;
     return;
   }
   if (e.key === "Enter") {
@@ -972,9 +958,7 @@ onMounted(async () => {
   }
   void configStore.startListening();
   unsubConfig = configStore.subscribe(async (nextView) => {
-    const prevIds = new Set(
-      view.value?.providers.filter((p) => p.enabled).map((p) => p.id) ?? [],
-    );
+    const prevIds = new Set(view.value?.providers.filter((p) => p.enabled).map((p) => p.id) ?? []);
     const nextIds = new Set(nextView.providers.filter((p) => p.enabled).map((p) => p.id));
     view.value = nextView;
     const enabledChanged =

@@ -146,7 +146,10 @@ export function validateMockCorsConfig(config: ApiMockCorsConfig): ApiMockValida
       return fail("允许携带凭据时，Allow-Origin 不能为 * 或留空");
     }
   }
-  if (config.maxAgeSeconds !== null && (!Number.isInteger(config.maxAgeSeconds) || config.maxAgeSeconds < 0)) {
+  if (
+    config.maxAgeSeconds !== null &&
+    (!Number.isInteger(config.maxAgeSeconds) || config.maxAgeSeconds < 0)
+  ) {
     return fail("Max-Age 必须为空或非负整数");
   }
   return ok();
@@ -188,7 +191,9 @@ export function getMockProjectRuntimeAction(project: ApiMockProjectSummary): Api
       : "start";
 }
 
-export function getMockProjectAccessUrl(project: Pick<ApiMockProjectSummary, "host" | "port">): string {
+export function getMockProjectAccessUrl(
+  project: Pick<ApiMockProjectSummary, "host" | "port">,
+): string {
   const host = project.host === "0.0.0.0" ? "127.0.0.1" : project.host;
   return `http://${host}:${project.port}`;
 }
@@ -266,7 +271,8 @@ export function validateMockStaticResponseContent(input: {
   if (mime === "application/x-www-form-urlencoded") {
     return {
       level: "warning",
-      message: "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+      message:
+        "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
     };
   }
   if (mime === "multipart/form-data") {
@@ -279,17 +285,25 @@ export function validateMockStaticResponseContent(input: {
   return null;
 }
 
-export function getMockFileContentTypeWarning(input: { contentType: string; fileName: string }): string {
+export function getMockFileContentTypeWarning(input: {
+  contentType: string;
+  fileName: string;
+}): string {
   const current = normalizeMockContentType(input.contentType);
   const inferred = normalizeMockContentType(inferMockContentTypeFromFileName(input.fileName));
-  if (!current || !inferred || current === "application/octet-stream" || current === inferred) return "";
+  if (!current || !inferred || current === "application/octet-stream" || current === inferred)
+    return "";
   return `上传文件看起来是 ${inferred}，当前 Content-Type 是 ${current}，请确认是否正确。`;
 }
 
 export function resolveMockFileContentType(currentContentType: string, fileName: string): string {
   const current = currentContentType.trim();
   const inferred = inferMockContentTypeFromFileName(fileName);
-  if (current && current !== DEFAULT_API_MOCK_CONTENT_TYPE && current !== "application/octet-stream") {
+  if (
+    current &&
+    current !== DEFAULT_API_MOCK_CONTENT_TYPE &&
+    current !== "application/octet-stream"
+  ) {
     return current;
   }
   return inferred || current || "application/octet-stream";
@@ -416,7 +430,10 @@ export function findMockPortConflict(
 
 export type ApiMockLogRowTone = "alert" | "normal";
 
-export function getMockLogRowTone(log: { routeId: number | null; error: string | null }): ApiMockLogRowTone {
+export function getMockLogRowTone(log: {
+  routeId: number | null;
+  error: string | null;
+}): ApiMockLogRowTone {
   if (log.routeId === null || (log.error !== null && log.error !== "")) return "alert";
   return "normal";
 }

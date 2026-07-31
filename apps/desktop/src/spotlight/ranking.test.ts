@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UsageSummary } from "../types/usage";
 import type { ProviderDescriptor, SpotlightItem } from "./types";
-import {
-  normalizeUsageScore,
-  rankEmptyItems,
-  rankSearchCandidate,
-  usageRefKey,
-} from "./ranking";
+import { normalizeUsageScore, rankEmptyItems, rankSearchCandidate, usageRefKey } from "./ranking";
 
 const now = Date.UTC(2026, 6, 30);
 
@@ -82,9 +77,18 @@ describe("Spotlight unified ranking", () => {
     const toolB = item("tool-b");
     const launcher = item("launcher-a", "launcher");
     const summaries = new Map<string, UsageSummary>([
-      [usageRefKey(toolA.ranking!.usageRef!), summary({ totalCount: 10, windowCount: 10, lastUsedAt: now })],
-      [usageRefKey(toolB.ranking!.usageRef!), summary({ totalCount: 9, windowCount: 9, lastUsedAt: now })],
-      [usageRefKey(launcher.ranking!.usageRef!), summary({ totalCount: 8, windowCount: 8, lastUsedAt: now })],
+      [
+        usageRefKey(toolA.ranking!.usageRef!),
+        summary({ totalCount: 10, windowCount: 10, lastUsedAt: now }),
+      ],
+      [
+        usageRefKey(toolB.ranking!.usageRef!),
+        summary({ totalCount: 9, windowCount: 9, lastUsedAt: now }),
+      ],
+      [
+        usageRefKey(launcher.ranking!.usageRef!),
+        summary({ totalCount: 8, windowCount: 8, lastUsedAt: now }),
+      ],
     ]);
 
     const result = rankEmptyItems(

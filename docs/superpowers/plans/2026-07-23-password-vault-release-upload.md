@@ -12,25 +12,26 @@
 
 ## 文件职责
 
-| 文件 | 责任 |
-| --- | --- |
-| `apps/desktop/src/types/release-package.ts` | 上线包项目、Vault 绑定和无密码预检的前端契约。 |
-| `apps/desktop/src/utils/releasePackage.ts` | 默认草稿、项目映射、纯校验与 dirty 比较。 |
-| `apps/desktop/src/utils/releasePackage.test.ts` | 纯前端契约和校验回归。 |
-| `apps/desktop/src/composables/useReleasePackageUploadPreflight.ts` | 主机探测、信任与不携带密码的预检 IPC。 |
-| `apps/desktop/src/composables/useReleasePackageUploadPreflight.test.ts` | 预检 IPC payload 不泄漏密码。 |
-| `apps/desktop/src-tauri/src/tools/vault.rs` | Vault 会话检查、服务器条目元数据读取和密码解密的 crate 内部接口。 |
-| `apps/desktop/src-tauri/src/tools/release_package.rs` | 项目表迁移、绑定 ID CRUD、账户密码模式的端点解析和预检认证编排。 |
-| `apps/desktop/src-tauri/src/tools/release_package_remote.rs` | 将绑定凭据 ID 纳入预检令牌等值绑定。 |
-| `apps/desktop/src-tauri/src/tools/release_package_runtime.rs` | 更新测试构造的 `PreflightBinding` 字段，保持运行时消费预检令牌。 |
-| `apps/desktop/src/components/ReleasePackagePanel.vue` | 凭据选择、只读摘要、打开 Vault、确认框与私钥分支 UI。 |
-| `apps/desktop/src/components/ReleasePackagePanel.test.ts` | 面板结构、账户密码无输入框和 Vault 导航的回归守卫。 |
-| `apps/desktop/src/App.vue` | 监听上线包面板的 `open-tool` 事件，复用现有 tab 导航。 |
-| `docs/experience/release-package.md` | 记录“凭据只保存引用、秘密仅在后端预检链路取用”的新增边界。 |
+| 文件                                                                    | 责任                                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `apps/desktop/src/types/release-package.ts`                             | 上线包项目、Vault 绑定和无密码预检的前端契约。                    |
+| `apps/desktop/src/utils/releasePackage.ts`                              | 默认草稿、项目映射、纯校验与 dirty 比较。                         |
+| `apps/desktop/src/utils/releasePackage.test.ts`                         | 纯前端契约和校验回归。                                            |
+| `apps/desktop/src/composables/useReleasePackageUploadPreflight.ts`      | 主机探测、信任与不携带密码的预检 IPC。                            |
+| `apps/desktop/src/composables/useReleasePackageUploadPreflight.test.ts` | 预检 IPC payload 不泄漏密码。                                     |
+| `apps/desktop/src-tauri/src/tools/vault.rs`                             | Vault 会话检查、服务器条目元数据读取和密码解密的 crate 内部接口。 |
+| `apps/desktop/src-tauri/src/tools/release_package.rs`                   | 项目表迁移、绑定 ID CRUD、账户密码模式的端点解析和预检认证编排。  |
+| `apps/desktop/src-tauri/src/tools/release_package_remote.rs`            | 将绑定凭据 ID 纳入预检令牌等值绑定。                              |
+| `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`           | 更新测试构造的 `PreflightBinding` 字段，保持运行时消费预检令牌。  |
+| `apps/desktop/src/components/ReleasePackagePanel.vue`                   | 凭据选择、只读摘要、打开 Vault、确认框与私钥分支 UI。             |
+| `apps/desktop/src/components/ReleasePackagePanel.test.ts`               | 面板结构、账户密码无输入框和 Vault 导航的回归守卫。               |
+| `apps/desktop/src/App.vue`                                              | 监听上线包面板的 `open-tool` 事件，复用现有 tab 导航。            |
+| `docs/experience/release-package.md`                                    | 记录“凭据只保存引用、秘密仅在后端预检链路取用”的新增边界。        |
 
 ### Task 1: 固化前端 Vault 绑定契约和无密码预检
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.test.ts`
@@ -177,6 +178,7 @@ git commit -m "feat(release-package): 增加密码库凭据绑定契约"
 ### Task 2: 增加 Vault crate 内部服务器凭据解析接口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs`
 
 - [ ] **Step 1: 为服务器元数据和密码解析写失败测试**
@@ -378,6 +380,7 @@ git commit -m "feat(vault): 提供服务器凭据内部解析"
 ### Task 3: 持久化上线包的 Vault 绑定并保持私钥兼容
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
 - [ ] **Step 1: 为 schema 迁移与项目 CRUD 写失败测试**
@@ -518,6 +521,7 @@ git commit -m "feat(release-package): 持久化密码库凭据绑定"
 ### Task 4: 在 SSH 探测和预检中由 Rust 解析绑定凭据
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
@@ -676,6 +680,7 @@ git commit -m "feat(release-package): 从密码库预检服务器凭据"
 ### Task 5: 在上线包面板绑定凭据并移除密码输入
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/App.vue`
@@ -688,9 +693,9 @@ git commit -m "feat(release-package): 从密码库预检服务器凭据"
 it("binds a Vault server credential for password auth without rendering a password field", () => {
   expect(source).toContain('label="密码库凭据"');
   expect(source).toContain('v-model="draft.vaultEntryId"');
-  expect(source).toContain('tool:vault:meta-list');
-  expect(source).toContain('v-if="draft.sshAuthType === \'password\'"');
-  expect(source).toContain('密码由密码库提供');
+  expect(source).toContain("tool:vault:meta-list");
+  expect(source).toContain("v-if=\"draft.sshAuthType === 'password'\"");
+  expect(source).toContain("密码由密码库提供");
   expect(source).not.toContain("请输入服务器密码");
   expect(source).not.toContain("? { password: credentialSecret.value }");
 });
@@ -743,19 +748,39 @@ const emit = defineEmits<{ (event: "open-tool", toolId: string): void }>();
 async function loadVaultServerOptions(): Promise<void> {
   vaultOptionsLoading.value = true;
   try {
-    const result = await invokeToolByChannel("tool:vault:meta-list", { category: "server" }) as unknown[];
-    vaultServerOptions.value = result.map((entry) => {
-      const value = entry as { id?: number; title?: string; environment?: string; plainFields?: Record<string, unknown> | null };
-      const address = typeof value.plainFields?.address === "string" ? value.plainFields.address.trim() : "";
-      const account = typeof value.plainFields?.account === "string" ? value.plainFields.account.trim() : "";
-      return { id: value.id ?? 0, title: value.title ?? "", environment: value.environment ?? "", address, account, complete: Boolean(address && account) };
-    }).filter((entry) => entry.id > 0);
+    const result = (await invokeToolByChannel("tool:vault:meta-list", {
+      category: "server",
+    })) as unknown[];
+    vaultServerOptions.value = result
+      .map((entry) => {
+        const value = entry as {
+          id?: number;
+          title?: string;
+          environment?: string;
+          plainFields?: Record<string, unknown> | null;
+        };
+        const address =
+          typeof value.plainFields?.address === "string" ? value.plainFields.address.trim() : "";
+        const account =
+          typeof value.plainFields?.account === "string" ? value.plainFields.account.trim() : "";
+        return {
+          id: value.id ?? 0,
+          title: value.title ?? "",
+          environment: value.environment ?? "",
+          address,
+          account,
+          complete: Boolean(address && account),
+        };
+      })
+      .filter((entry) => entry.id > 0);
   } finally {
     vaultOptionsLoading.value = false;
   }
 }
 
-function openVault(): void { emit("open-tool", "vault"); }
+function openVault(): void {
+  emit("open-tool", "vault");
+}
 ```
 
 调用 `loadVaultServerOptions()` 于 `onMounted`，并在“刷新凭据”按钮点击时调用；加载失败调用既有 `showError`，不能把失败伪装为空列表。
@@ -777,8 +802,12 @@ function openVault(): void { emit("open-tool", "vault"); }
     <el-button text @click="openVault">密码管理</el-button>
   </div>
 </el-form-item>
-<el-form-item label="服务器地址"><el-input :model-value="selectedVaultCredential?.address || ''" readonly /></el-form-item>
-<el-form-item label="SSH 用户名"><el-input :model-value="selectedVaultCredential?.account || ''" readonly /></el-form-item>
+<el-form-item
+  label="服务器地址"
+><el-input :model-value="selectedVaultCredential?.address || ''" readonly /></el-form-item>
+<el-form-item
+  label="SSH 用户名"
+><el-input :model-value="selectedVaultCredential?.account || ''" readonly /></el-form-item>
 ```
 
 `selectedVaultCredential` 是由 `draft.vaultEntryId` 和 `vaultServerOptions` 计算的值。私钥分支保留现有可编辑地址、用户名、私钥路径 UI，并在切换到 `private_key` 时不清空保留字段。
@@ -860,6 +889,7 @@ git commit -m "feat(release-package): 在上传配置绑定密码库凭据"
 ### Task 6: 联合回归、经验沉淀与交付检查
 
 **Files:**
+
 - Modify: `docs/experience/release-package.md`
 - Modify: `docs/experience/README.md` only if its usage index requires a new independent record
 

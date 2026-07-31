@@ -4,9 +4,9 @@
     <!-- 顶部拖拽把手 -->
     <div class="drag-handle" data-tauri-drag-region>
       <svg class="grip-icon" viewBox="0 0 28 12" fill="none">
-        <circle cx="6" cy="6" r="1.4" fill="currentColor"/>
-        <circle cx="14" cy="6" r="1.4" fill="currentColor"/>
-        <circle cx="22" cy="6" r="1.4" fill="currentColor"/>
+        <circle cx="6" cy="6" r="1.4" fill="currentColor" />
+        <circle cx="14" cy="6" r="1.4" fill="currentColor" />
+        <circle cx="22" cy="6" r="1.4" fill="currentColor" />
       </svg>
     </div>
 
@@ -160,9 +160,7 @@ async function onCompleteItem(item: WidgetTodoItem) {
     return;
   }
   // 记录原索引，失败时按原位置 splice 回去，避免顺序错乱
-  const originalIndex = data.value
-    ? data.value.todoList.findIndex((i) => i.id === item.id)
-    : -1;
+  const originalIndex = data.value ? data.value.todoList.findIndex((i) => i.id === item.id) : -1;
   // 乐观更新：从本地列表移除，避免等待后端往返的卡顿
   if (data.value && originalIndex >= 0) {
     data.value.todoList = data.value.todoList.filter((i) => i.id !== item.id);
@@ -229,7 +227,9 @@ function onManualRefresh() {
   user-select: none;
   background: linear-gradient(135deg, rgba(248, 250, 252, 0.85), rgba(241, 245, 249, 0.85));
   color: var(--wc-text);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), inset 0 1px 0 var(--wc-rim-light);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 var(--wc-rim-light);
 }
 
 /* 顶部 16px 拖拽把手 */
@@ -295,7 +295,9 @@ function onManualRefresh() {
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .stale-retry:hover {
@@ -315,8 +317,13 @@ function onManualRefresh() {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 0.9; }
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 .boot {
@@ -340,6 +347,8 @@ function onManualRefresh() {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

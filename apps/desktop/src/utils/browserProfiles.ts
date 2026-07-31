@@ -15,9 +15,7 @@ export function getBrowserProfileDisplayName(profile: BrowserProfileItem): strin
   return "";
 }
 
-export function sortBrowserProfiles(
-  profiles: readonly BrowserProfileItem[],
-): BrowserProfileItem[] {
+export function sortBrowserProfiles(profiles: readonly BrowserProfileItem[]): BrowserProfileItem[] {
   return [...profiles].sort((left, right) => {
     if (left.hidden !== right.hidden) return left.hidden ? 1 : -1;
     if (left.launchCount !== right.launchCount) {
@@ -93,9 +91,10 @@ export function formatBrowserProfileLastLaunchedAtCompact(
   const dayStart = (date: Date) =>
     new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const dayDiff = Math.round((dayStart(now) - dayStart(time)) / 86_400_000);
-  const clock = `${String(time.getHours()).padStart(2, "0")}:${String(
-    time.getMinutes(),
-  ).padStart(2, "0")}`;
+  const clock = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(
+    2,
+    "0",
+  )}`;
 
   if (dayDiff === 0) return `今天 ${clock}`;
   if (dayDiff === 1) return `昨天 ${clock}`;

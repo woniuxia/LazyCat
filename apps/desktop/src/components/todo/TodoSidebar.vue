@@ -94,7 +94,9 @@
           :key="entry.priority"
           class="stats-bar-item is-clickable"
           :class="{ 'is-active': filterPriority === entry.priority }"
-          @click="emit('update:filterPriority', filterPriority === entry.priority ? null : entry.priority)"
+          @click="
+            emit('update:filterPriority', filterPriority === entry.priority ? null : entry.priority)
+          "
         >
           <div class="stats-bar-label">
             <span class="priority-dot" :class="'priority-' + entry.priority.toLowerCase()" />

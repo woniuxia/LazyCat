@@ -79,7 +79,9 @@ export function createDefaultReleasePackageTargets(): ReleasePackageTarget[] {
   return ["frontend", "backend"];
 }
 
-export function validateReleasePackageTargets(targets: readonly ReleasePackageTarget[]): string | null {
+export function validateReleasePackageTargets(
+  targets: readonly ReleasePackageTarget[],
+): string | null {
   return targets.length === 0 ? "请至少选择前端包或后端包" : null;
 }
 
@@ -119,12 +121,8 @@ export function createReleasePackageStartPayload(
   const common = {
     environmentId: input.environmentId,
     targets: [...input.targets],
-    ...(input.productionConfirmed === true
-      ? { productionConfirmed: true as const }
-      : {}),
-    ...(input.actionDispatchId !== undefined
-      ? { actionDispatchId: input.actionDispatchId }
-      : {}),
+    ...(input.productionConfirmed === true ? { productionConfirmed: true as const } : {}),
+    ...(input.actionDispatchId !== undefined ? { actionDispatchId: input.actionDispatchId } : {}),
   };
   if (packageType === "local_archive") {
     return {
@@ -187,7 +185,9 @@ export function normalizeVaultServerPort(value: unknown): number | null {
     : null;
 }
 
-export function projectToReleasePackageProjectDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
+export function projectToReleasePackageProjectDraft(
+  project: ReleasePackageProject,
+): ReleasePackageProjectDraft {
   return normalizeReleasePackageProjectDraft({
     name: project.name,
     frontendProjectPath: project.frontendProjectPath,
@@ -298,13 +298,17 @@ export function validateReleasePackageUpload(draft: ReleasePackageEnvironmentDra
 }
 
 function isCanonicalLinuxPath(value: string): boolean {
-  return !value.endsWith("/")
-    && !value.includes("//")
-    && !value.includes("\\")
-    && !value.includes("\0")
-    && !value.split("/").some((segment) => segment === "." || segment === "..");
+  return (
+    !value.endsWith("/") &&
+    !value.includes("//") &&
+    !value.includes("\\") &&
+    !value.includes("\0") &&
+    !value.split("/").some((segment) => segment === "." || segment === "..")
+  );
 }
-export function validateReleasePackageProjectDraft(draft: ReleasePackageProjectDraft): string | null {
+export function validateReleasePackageProjectDraft(
+  draft: ReleasePackageProjectDraft,
+): string | null {
   const value = normalizeReleasePackageProjectDraft(draft);
   if (!value.name) return "请输入项目名";
   if (!value.frontendProjectPath) return "请选择前端工程目录";
@@ -312,7 +316,9 @@ export function validateReleasePackageProjectDraft(draft: ReleasePackageProjectD
   return null;
 }
 
-export function validateReleasePackageEnvironmentDraft(draft: ReleasePackageEnvironmentDraft): string | null {
+export function validateReleasePackageEnvironmentDraft(
+  draft: ReleasePackageEnvironmentDraft,
+): string | null {
   const value = normalizeReleasePackageEnvironmentDraft(draft);
   if (value.packageType === "local_archive" && !value.outputRoot) return "请选择归档根目录";
   if (!value.frontendExpectedBranch) return "请输入前端生产分支";
@@ -323,9 +329,11 @@ export function validateReleasePackageEnvironmentDraft(draft: ReleasePackageEnvi
   if (!value.backendArtifactPath) return "请输入后端产物路径";
   if (value.packageType === "server_upload" && value.healthCheckEnabled) {
     if (!/^https?:\/\//u.test(value.healthCheckUrl)) return "健康检查地址必须使用 http 或 https";
-    if (!Number.isInteger(value.healthCheckMaxRetries)
-      || value.healthCheckMaxRetries < 0
-      || value.healthCheckMaxRetries > 60) {
+    if (
+      !Number.isInteger(value.healthCheckMaxRetries) ||
+      value.healthCheckMaxRetries < 0 ||
+      value.healthCheckMaxRetries > 60
+    ) {
       return "健康检查最多重试次数必须在 0 到 60 之间";
     }
   }
@@ -344,8 +352,12 @@ export function isReleasePackageDraftDirty(
   const savedEnvironment = environment
     ? environmentToReleasePackageDraft(environment)
     : createEmptyReleasePackageEnvironmentDraft();
-  return JSON.stringify(savedProject) !== JSON.stringify(normalizeReleasePackageProjectDraft(projectDraft))
-    || JSON.stringify(savedEnvironment) !== JSON.stringify(normalizeReleasePackageEnvironmentDraft(environmentDraft));
+  return (
+    JSON.stringify(savedProject) !==
+      JSON.stringify(normalizeReleasePackageProjectDraft(projectDraft)) ||
+    JSON.stringify(savedEnvironment) !==
+      JSON.stringify(normalizeReleasePackageEnvironmentDraft(environmentDraft))
+  );
 }
 
 export function acceptReleasePackageEvent(

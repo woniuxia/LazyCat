@@ -44,34 +44,35 @@ export function useReleasePackageCommandRetry() {
     await reset();
     environmentId.value = requestedEnvironmentId;
     retryToken.value = token;
-    const result = await invokeToolByChannel("tool:release-package:command-retry-prepare", {
+    const result = (await invokeToolByChannel("tool:release-package:command-retry-prepare", {
       environmentId: requestedEnvironmentId,
       retryToken: token,
-    }) as ReleasePackageCommandRetryPrepareResult;
+    })) as ReleasePackageCommandRetryPrepareResult;
     prepareResult.value = result;
     return result;
   }
 
   async function trustHost(replaceExisting: boolean): Promise<ReleasePackageRemoteProbeResult> {
     if (!environmentId.value || !prepareResult.value) throw new Error("请先准备命令重试");
-    const result = await invokeToolByChannel("tool:release-package:host-trust", {
+    const result = (await invokeToolByChannel("tool:release-package:host-trust", {
       environmentId: environmentId.value,
       probeToken: prepareResult.value.probeToken,
       replaceExisting,
-    }) as ReleasePackageRemoteProbeResult;
+    })) as ReleasePackageRemoteProbeResult;
     prepareResult.value = { ...prepareResult.value, ...result };
     return result;
   }
 
   async function preflight(): Promise<ReleasePackageCommandRetryPreflightResult> {
     try {
-      if (!environmentId.value || !retryToken.value || !prepareResult.value) throw new Error("请先准备命令重试");
-      const result = await invokeToolByChannel("tool:release-package:command-retry-preflight", {
+      if (!environmentId.value || !retryToken.value || !prepareResult.value)
+        throw new Error("请先准备命令重试");
+      const result = (await invokeToolByChannel("tool:release-package:command-retry-preflight", {
         environmentId: environmentId.value,
         retryToken: retryToken.value,
         probeToken: prepareResult.value.probeToken,
         privateKeyPassphrase: privateKeyPassphrase.value || undefined,
-      }) as ReleasePackageCommandRetryPreflightResult;
+      })) as ReleasePackageCommandRetryPreflightResult;
       authToken.value = result.authToken;
       return result;
     } finally {
@@ -81,13 +82,14 @@ export function useReleasePackageCommandRetry() {
 
   async function start(productionConfirmed = false): Promise<ReleasePackageStartResult> {
     try {
-      if (!environmentId.value || !retryToken.value || !authToken.value) throw new Error("请先完成命令重试认证");
-      return await invokeToolByChannel("tool:release-package:command-retry-start", {
+      if (!environmentId.value || !retryToken.value || !authToken.value)
+        throw new Error("请先完成命令重试认证");
+      return (await invokeToolByChannel("tool:release-package:command-retry-start", {
         environmentId: environmentId.value,
         retryToken: retryToken.value,
         authToken: authToken.value,
         ...(productionConfirmed ? { productionConfirmed: true } : {}),
-      }) as ReleasePackageStartResult;
+      })) as ReleasePackageStartResult;
     } finally {
       privateKeyPassphrase.value = "";
       authToken.value = "";

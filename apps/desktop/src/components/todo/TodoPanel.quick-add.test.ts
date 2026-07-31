@@ -17,7 +17,7 @@ describe("TodoPanel quick add wiring", () => {
   it("derives the quick add context from current filters", () => {
     // 分类名解析不到 id（如“未分类”）时降级为 null
     expect(source).toMatch(
-      /typeId:\s*filterType\.value === null\s*\?\s*null\s*:\s*types\.value\.find\(\(t\) => t\.name === filterType\.value\)\?\.id \?\? null/,
+      /typeId:\s*filterType\.value === null\s*\?\s*null\s*:\s*\(?types\.value\.find\(\(t\) => t\.name === filterType\.value\)\?\.id\s*\?\?\s*null\)?/,
     );
     // 仅具体项目 id 才继承，"none"/null 不继承
     expect(source).toContain(
@@ -43,7 +43,9 @@ describe("TodoPanel quick add wiring", () => {
 
   it("highlights the visible new item for 1.5s and lets rapid entries replace the timer", () => {
     expect(source).toContain("quickAddHighlightId.value = id;");
-    expect(source).toMatch(/if\s*\(quickAddHighlightTimer\)\s*clearTimeout\(quickAddHighlightTimer\);/);
+    expect(source).toMatch(
+      /if\s*\(quickAddHighlightTimer\)\s*clearTimeout\(quickAddHighlightTimer\);/,
+    );
     expect(source).toMatch(/quickAddHighlightTimer = setTimeout\([\s\S]*?, 1500\);/);
     expect(source).toContain("'is-quick-add-highlight': quickAddHighlightId === row.id,");
     expect(source).toContain(".todo-card.is-quick-add-highlight");

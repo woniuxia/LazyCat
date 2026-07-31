@@ -13,6 +13,7 @@
 ### Task 1: Add the failing consistency regression
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs:289-369`
 - Test: `apps/desktop/src-tauri/src/tools/vault.rs:1672-1691`
 
@@ -67,6 +68,7 @@ Expected: FAIL because the current two-query resolver returns original metadata 
 ### Task 2: Read and parse one row
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs:289-369`
 
 - [ ] **Step 1: Extract metadata parsing**
@@ -110,6 +112,7 @@ Expected: all local tests pass; SSH fixture tests may remain ignored.
 ### Task 3: Format, inspect, and commit
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs`
 
 - [ ] **Step 1: Format and verify formatting**

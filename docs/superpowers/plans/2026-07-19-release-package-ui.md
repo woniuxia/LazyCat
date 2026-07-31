@@ -21,6 +21,7 @@
 ### Task 1: 建立可测试的 PowerShell 命令示例
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/releasePackage.test.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
 
@@ -68,7 +69,13 @@ Expected: FAIL，提示 `RELEASE_PACKAGE_COMMAND_EXAMPLES` 未导出。
 
 ```ts
 export interface ReleasePackageCommandExample {
-  id: "java-maven-env" | "maven-build" | "copy-file" | "copy-directory" | "move-file" | "move-directory";
+  id:
+    | "java-maven-env"
+    | "maven-build"
+    | "copy-file"
+    | "copy-directory"
+    | "move-file"
+    | "move-directory";
   title: string;
   description: string;
   command: string;
@@ -137,6 +144,7 @@ git commit -m "feat(release-package): 添加常用 PowerShell 命令示例"
 ### Task 2: 实现紧凑双栏命令工作台与白色日志卡片
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 
@@ -179,13 +187,16 @@ Expected: FAIL，缺少 `engineering-grid`、多行输入和命令示例复制�
 将图标 import 增加 `CopyDocument`，并从 `../utils/releasePackage` import `RELEASE_PACKAGE_COMMAND_EXAMPLES`。在现有 computed 区域加入：
 
 ```ts
-const statusLabel = computed(() => ({
-  idle: "未运行",
-  running: "运行中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已终止",
-})[status.value]);
+const statusLabel = computed(
+  () =>
+    ({
+      idle: "未运行",
+      running: "运行中",
+      succeeded: "已完成",
+      failed: "失败",
+      cancelled: "已终止",
+    })[status.value],
+);
 
 async function copyCommandExample(command: string): Promise<void> {
   try {
@@ -312,40 +323,191 @@ async function copyCommandExample(command: string): Promise<void> {
 删除旧 `.el-divider`、`.form-grid` 与深色日志规则，加入：
 
 ```css
-.release-package-toolbar { padding: 10px 12px; border: 1px solid var(--lc-border, #e5e7eb); border-radius: 10px; background: #fff; }
-.release-package-workspace { overflow: hidden; border: 1px solid var(--lc-border, #e5e7eb); border-radius: 12px; background: #fff; }
-.release-package-projects { padding: 14px 12px; background: #fafbfc; }
-.release-package-editor { padding: 16px; }
-.basic-card { padding: 14px 16px 2px; border: 1px solid var(--lc-border, #e5e7eb); border-radius: 10px; background: #fff; }
-.engineering-grid { display: grid; grid-template-columns: repeat(2, minmax(340px, 1fr)); gap: 14px; margin-top: 14px; }
-.engineering-card { min-width: 0; padding: 16px; border: 1px solid var(--lc-border, #e5e7eb); border-radius: 12px; background: #fff; box-shadow: 0 6px 18px rgba(31, 41, 55, .045); }
-.engineering-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.engineering-heading h3, .engineering-heading p { margin: 0; }
-.engineering-heading h3 { font-size: 15px; }
-.engineering-heading p { margin-top: 2px; color: var(--lc-text-secondary, #909399); font-size: 12px; }
-.engineering-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; color: var(--el-color-primary, #409eff); background: var(--el-color-primary-light-9, #ecf5ff); font-weight: 700; }
-.field-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .75fr); gap: 12px; }
-.command-label, .command-example-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
-.command-field :deep(textarea) { font-family: var(--lc-font-mono, Consolas, monospace); line-height: 1.6; }
-.command-help { margin-top: 6px; color: var(--lc-text-secondary, #909399); font-size: 12px; line-height: 1.5; }
-.command-examples { max-height: min(560px, 70vh); overflow: auto; padding-right: 4px; }
-.command-example + .command-example { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--lc-border, #e5e7eb); }
-.command-example-heading p { margin: 3px 0 0; color: var(--lc-text-secondary, #909399); font-size: 12px; }
-.command-example pre { margin: 8px 0 0; overflow: auto; padding: 10px; border-radius: 8px; color: #303133; background: #f6f8fa; font: 12px/1.55 var(--lc-font-mono, Consolas, monospace); white-space: pre-wrap; }
-.release-package-log-card { overflow: hidden; border: 1px solid var(--lc-border, #e5e7eb); border-radius: 12px; background: #fff; }
-.log-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--lc-border, #e5e7eb); }
-.log-header div { display: flex; align-items: baseline; gap: 8px; }
-.log-header span { color: var(--lc-text-secondary, #909399); font-size: 12px; }
-.log-status { padding: 3px 9px; border-radius: 999px; background: #f2f3f5; }
-.log-status.running { color: #1768ca; background: #eaf3ff; }
-.log-status.succeeded { color: #20864a; background: #eaf8ef; }
-.log-status.failed { color: #c43c3c; background: #fff0f0; }
-.log-status.cancelled { color: #8a5b16; background: #fff7e8; }
-.release-package-log { min-height: 180px; max-height: 320px; overflow: auto; padding: 12px 14px; color: #303133; background: #fff; font: 12px/1.6 var(--lc-font-mono, Consolas, monospace); }
-.log-line.stderr { color: #d84b4b; }
-.log-meta { color: #909399; }
-@media (max-width: 1180px) { .engineering-grid { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .field-grid { grid-template-columns: 1fr; gap: 0; } }
+.release-package-toolbar {
+  padding: 10px 12px;
+  border: 1px solid var(--lc-border, #e5e7eb);
+  border-radius: 10px;
+  background: #fff;
+}
+.release-package-workspace {
+  overflow: hidden;
+  border: 1px solid var(--lc-border, #e5e7eb);
+  border-radius: 12px;
+  background: #fff;
+}
+.release-package-projects {
+  padding: 14px 12px;
+  background: #fafbfc;
+}
+.release-package-editor {
+  padding: 16px;
+}
+.basic-card {
+  padding: 14px 16px 2px;
+  border: 1px solid var(--lc-border, #e5e7eb);
+  border-radius: 10px;
+  background: #fff;
+}
+.engineering-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(340px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.engineering-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--lc-border, #e5e7eb);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(31, 41, 55, 0.045);
+}
+.engineering-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.engineering-heading h3,
+.engineering-heading p {
+  margin: 0;
+}
+.engineering-heading h3 {
+  font-size: 15px;
+}
+.engineering-heading p {
+  margin-top: 2px;
+  color: var(--lc-text-secondary, #909399);
+  font-size: 12px;
+}
+.engineering-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  font-weight: 700;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.75fr);
+  gap: 12px;
+}
+.command-label,
+.command-example-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.command-field :deep(textarea) {
+  font-family: var(--lc-font-mono, Consolas, monospace);
+  line-height: 1.6;
+}
+.command-help {
+  margin-top: 6px;
+  color: var(--lc-text-secondary, #909399);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.command-examples {
+  max-height: min(560px, 70vh);
+  overflow: auto;
+  padding-right: 4px;
+}
+.command-example + .command-example {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--lc-border, #e5e7eb);
+}
+.command-example-heading p {
+  margin: 3px 0 0;
+  color: var(--lc-text-secondary, #909399);
+  font-size: 12px;
+}
+.command-example pre {
+  margin: 8px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  color: #303133;
+  background: #f6f8fa;
+  font: 12px/1.55 var(--lc-font-mono, Consolas, monospace);
+  white-space: pre-wrap;
+}
+.release-package-log-card {
+  overflow: hidden;
+  border: 1px solid var(--lc-border, #e5e7eb);
+  border-radius: 12px;
+  background: #fff;
+}
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--lc-border, #e5e7eb);
+}
+.log-header div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.log-header span {
+  color: var(--lc-text-secondary, #909399);
+  font-size: 12px;
+}
+.log-status {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #f2f3f5;
+}
+.log-status.running {
+  color: #1768ca;
+  background: #eaf3ff;
+}
+.log-status.succeeded {
+  color: #20864a;
+  background: #eaf8ef;
+}
+.log-status.failed {
+  color: #c43c3c;
+  background: #fff0f0;
+}
+.log-status.cancelled {
+  color: #8a5b16;
+  background: #fff7e8;
+}
+.release-package-log {
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px 14px;
+  color: #303133;
+  background: #fff;
+  font: 12px/1.6 var(--lc-font-mono, Consolas, monospace);
+}
+.log-line.stderr {
+  color: #d84b4b;
+}
+.log-meta {
+  color: #909399;
+}
+@media (max-width: 1180px) {
+  .engineering-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
 ```
 
 - [ ] **Step 7: 运行组件测试并确认 GREEN**
@@ -378,6 +540,7 @@ git commit -m "feat(release-package): 优化多命令打包工作台"
 ### Task 3: 全量验证并沉淀经验
 
 **Files:**
+
 - Modify: `process.md`
 
 - [ ] **Step 1: 运行类型检查**
@@ -429,17 +592,19 @@ Expected: 无输出，exit code 0。
 
 **场景**: 上线包打包需要编辑多行 PowerShell 构建脚本，同时保持前后端配置可对照并提升日志可读性。
 **解决**:
+
 1. 保持后端单段 PowerShell 脚本语义，前端使用等宽多行编辑器显式呈现同会话执行能力。
 2. 前后端工程使用响应式双栏卡片，宽度不足时退化为单列，不改变现有配置模型。
 3. 常用命令以可测试的只读数据维护，通过浮层提供 Java/Maven、复制和移动示例的一键复制。
 4. 日志改为白色卡片，用深灰正文、灰色元信息和红色错误维持层级。
-**关键点**:
+   **关键点**:
+
 - 多行脚本不能在前端按行拆分，否则环境变量和 PowerShell 语句块语义会被破坏。
 - 外部构建工具的非零退出码可能被后续命令掩盖，示例应在关键命令后检查 `$LASTEXITCODE`。
-**涉及文件**:
+  **涉及文件**:
 - `apps/desktop/src/utils/releasePackage.ts`
 - `apps/desktop/src/components/ReleasePackagePanel.vue`
-**验证**:
+  **验证**:
 - 上线包相关前端测试
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`

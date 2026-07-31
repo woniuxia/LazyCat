@@ -78,6 +78,12 @@ export function coerceCronParts(parts: CronFieldParts, standard: CronStandard): 
 
 export function buildCronExpression(parts: CronFieldParts, standard: CronStandard): string {
   const normalized = coerceCronParts(parts, standard);
-  const common = [normalized.minute, normalized.hour, normalized.dayOfMonth, normalized.month, normalized.dayOfWeek];
+  const common = [
+    normalized.minute,
+    normalized.hour,
+    normalized.dayOfMonth,
+    normalized.month,
+    normalized.dayOfWeek,
+  ];
   return standard === "linux5" ? common.join(" ") : [normalized.second, ...common].join(" ");
 }

@@ -96,7 +96,12 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
 
   async function loadProjects() {
     try {
-      const list = (await invokeToolByChannel("tool:pm:project-list", {})) as { id: number; name: string; color: string; status: string }[];
+      const list = (await invokeToolByChannel("tool:pm:project-list", {})) as {
+        id: number;
+        name: string;
+        color: string;
+        status: string;
+      }[];
       projectOptions.value = (list || []).filter((p) => p.status === "active");
     } catch {
       projectOptions.value = [];
@@ -358,7 +363,8 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
       "flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: background 0.2s;";
     const labelStyle =
       "font-size: 14px; font-weight: 600; line-height: 1.4; transition: color 0.2s;";
-    const descStyle = "font-size: 12px; color: var(--lc-text-muted); line-height: 1.4; margin-top: 2px;";
+    const descStyle =
+      "font-size: 12px; color: var(--lc-text-muted); line-height: 1.4; margin-top: 2px;";
 
     // SVG trash icon (single instance / mild)
     const svgTrashOne =
@@ -434,42 +440,34 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
             },
             [
               h("span", null, "「"),
-              h(
-                "span",
-                { style: "font-weight: 600; color: var(--lc-text);" },
-                itemTitle,
-              ),
+              h("span", { style: "font-weight: 600; color: var(--lc-text);" }, itemTitle),
               h("span", null, "」是重复事项，请选择删除范围："),
             ],
           ),
-          h(
-            "div",
-            { style: "display: flex; flex-direction: row; gap: 10px;" },
-            [
-              makeOption(
-                {
-                  label: "仅删除本次",
-                  desc: "后续重复事项将继续按规则生成",
-                  scope: "this_instance",
-                  iconSvg: svgTrashOne,
-                  accentColor: "var(--lc-accent)",
-                  accentBg: "var(--lc-accent-bg, rgba(64,150,255,0.08))",
-                },
-                resolve,
-              ),
-              makeOption(
-                {
-                  label: "删除本次及后续所有",
-                  desc: "停止后续自动生成，已完成的实例不受影响",
-                  scope: "future_instances",
-                  iconSvg: svgTrashAll,
-                  accentColor: "var(--lc-danger, #e25050)",
-                  accentBg: "rgba(226,80,80,0.08)",
-                },
-                resolve,
-              ),
-            ],
-          ),
+          h("div", { style: "display: flex; flex-direction: row; gap: 10px;" }, [
+            makeOption(
+              {
+                label: "仅删除本次",
+                desc: "后续重复事项将继续按规则生成",
+                scope: "this_instance",
+                iconSvg: svgTrashOne,
+                accentColor: "var(--lc-accent)",
+                accentBg: "var(--lc-accent-bg, rgba(64,150,255,0.08))",
+              },
+              resolve,
+            ),
+            makeOption(
+              {
+                label: "删除本次及后续所有",
+                desc: "停止后续自动生成，已完成的实例不受影响",
+                scope: "future_instances",
+                iconSvg: svgTrashAll,
+                accentColor: "var(--lc-danger, #e25050)",
+                accentBg: "rgba(226,80,80,0.08)",
+              },
+              resolve,
+            ),
+          ]),
         ]),
         showCancelButton: true,
         showConfirmButton: false,

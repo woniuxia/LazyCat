@@ -31,28 +31,28 @@
 3. 不做拖拽移动节点；排序诉求由菜单"上移/下移"承接。
 4. 不接入收纳箱详情（内容不保证是 JSON，按需另议）。
 5. 不引入第三方 JSON viewer/editor 依赖。
-8. 不持久化展开状态、搜索词或 undo 栈。
-9. 不做子串级 `<mark>` 高亮；命中高亮整段 label 或值文本。
+6. 不持久化展开状态、搜索词或 undo 栈。
+7. 不做子串级 `<mark>` 高亮；命中高亮整段 label 或值文本。
 
 ## 分期
 
-| 阶段 | 内容 | 交付判定 |
-|------|------|----------|
-| Phase 1 查看增强 | 搜索定位；只读右键菜单（复制路径/复制值） | 数据字典不改代码即可搜索、复制路径 |
-| Phase 2 编辑内核 | patch 引擎；`editable` 交互层；undo/redo | 组件编辑能力可用，默认只读行为与现状一致 |
-| Phase 3 消费方接入 | JSON 处理面板双模式；JWT、CSV 输出只读接入 | 三个面板改造完成并通过验证 |
+| 阶段               | 内容                                       | 交付判定                                 |
+| ------------------ | ------------------------------------------ | ---------------------------------------- |
+| Phase 1 查看增强   | 搜索定位；只读右键菜单（复制路径/复制值）  | 数据字典不改代码即可搜索、复制路径       |
+| Phase 2 编辑内核   | patch 引擎；`editable` 交互层；undo/redo   | 组件编辑能力可用，默认只读行为与现状一致 |
+| Phase 3 消费方接入 | JSON 处理面板双模式；JWT、CSV 输出只读接入 | 三个面板改造完成并通过验证               |
 
 ## 组件接口
 
 ```ts
 interface JsonTreeViewerProps {
-  value: unknown;                        // 既有
-  defaultExpandDepth?: number | "all";   // 既有，默认 "all"
-  showToolbar?: boolean;                 // 既有，默认 true
-  copyText?: string;                     // 既有，仅影响工具栏"复制"按钮
-  ariaLabel?: string;                    // 既有，默认 "JSON 内容"
-  editable?: boolean;                    // 新增，默认 false
-  showSearch?: boolean;                  // 新增，默认 true；控制工具栏内搜索区显隐
+  value: unknown; // 既有
+  defaultExpandDepth?: number | "all"; // 既有，默认 "all"
+  showToolbar?: boolean; // 既有，默认 true
+  copyText?: string; // 既有，仅影响工具栏"复制"按钮
+  ariaLabel?: string; // 既有，默认 "JSON 内容"
+  editable?: boolean; // 新增，默认 false
+  showSearch?: boolean; // 新增，默认 true；控制工具栏内搜索区显隐
 }
 ```
 
@@ -140,7 +140,7 @@ function migrateExpandedKeys(keys: Set<string>, op: JsonTreeEditOp): Set<string>
 
 ```ts
 interface JsonTreeSearchMatch {
-  key: string;                 // 节点 key（encodeJsonTreePath 产物）
+  key: string; // 节点 key（encodeJsonTreePath 产物）
   path: JsonTreePath;
   field: "key" | "value";
 }
@@ -179,16 +179,16 @@ function collectJsonTreeAncestorKeys(path: JsonTreePath): string[];
 
 右键与行 hover `⋯` 按钮打开同一菜单（Teleport 到 body）：
 
-| 菜单项 | 只读态 | 编辑态 | 说明 |
-|--------|:------:|:------:|------|
-| 复制路径 | 有 | 有 | JSONPath 格式 |
-| 复制值 | 有 | 有 | 子树格式化 JSON |
-| 编辑值 / 重命名 key | - | 有 | 与双击等价；容器节点无"编辑值"；重命名仅对象字段（数组元素与根节点不适用） |
-| 添加子字段 | - | 有 | 对象/数组容器，追加到末尾 |
-| 在此前插入 / 在此后插入 | - | 有 | 仅数组元素；插入 `null` 并立即进入值编辑态（与添加子字段对齐） |
-| 类型切换 | - | 有 | string/number/boolean/null/object/array 子菜单 |
-| 上移 / 下移 | - | 有 | 数组挪索引；对象挪键序；边界项对应方向禁用 |
-| 删除 | - | 有 | 根节点禁用 |
+| 菜单项                  | 只读态 | 编辑态 | 说明                                                                       |
+| ----------------------- | :----: | :----: | -------------------------------------------------------------------------- |
+| 复制路径                |   有   |   有   | JSONPath 格式                                                              |
+| 复制值                  |   有   |   有   | 子树格式化 JSON                                                            |
+| 编辑值 / 重命名 key     |   -    |   有   | 与双击等价；容器节点无"编辑值"；重命名仅对象字段（数组元素与根节点不适用） |
+| 添加子字段              |   -    |   有   | 对象/数组容器，追加到末尾                                                  |
+| 在此前插入 / 在此后插入 |   -    |   有   | 仅数组元素；插入 `null` 并立即进入值编辑态（与添加子字段对齐）             |
+| 类型切换                |   -    |   有   | string/number/boolean/null/object/array 子菜单                             |
+| 上移 / 下移             |   -    |   有   | 数组挪索引；对象挪键序；边界项对应方向禁用                                 |
+| 删除                    |   -    |   有   | 根节点禁用                                                                 |
 
 删除与类型切换不弹确认，靠 undo 兜底。
 

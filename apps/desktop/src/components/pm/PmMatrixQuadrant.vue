@@ -1,8 +1,5 @@
 <template>
-  <section
-    class="matrix-quadrant"
-    :style="{ '--quadrant-accent': accentColor }"
-  >
+  <section class="matrix-quadrant" :style="{ '--quadrant-accent': accentColor }">
     <header class="quadrant-head">
       <span class="quadrant-roman">{{ roman }}</span>
       <span class="quadrant-title">{{ title }}</span>
@@ -51,7 +48,11 @@
           >
             {{ PM_PRIORITY_MAP[item.priority]?.label }}
           </span>
-          <span v-if="dueText(item)" class="card-due" :class="{ 'is-overdue': overdueMap[item.id] }">
+          <span
+            v-if="dueText(item)"
+            class="card-due"
+            :class="{ 'is-overdue': overdueMap[item.id] }"
+          >
             {{ dueText(item) }}
           </span>
         </div>
@@ -186,7 +187,9 @@ function dueText(item: PmItem): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
 }
 .quadrant-card:hover {
   border-color: var(--el-color-primary-light-5);

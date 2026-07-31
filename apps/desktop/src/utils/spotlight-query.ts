@@ -26,10 +26,7 @@ export function parseSpotlightQuery(
   return { scope, query: rest };
 }
 
-export function dropScopePrefix(
-  raw: string,
-  aliasMap?: Map<string, SpotlightProviderId>,
-): string {
+export function dropScopePrefix(raw: string, aliasMap?: Map<string, SpotlightProviderId>): string {
   const parsed = parseSpotlightQuery(raw, aliasMap);
   return parsed.scope ? parsed.query : raw;
 }
@@ -46,11 +43,7 @@ export interface QuickCommandCalc {
 
 export type QuickCommand = QuickCommandTodoCreate | QuickCommandCalc;
 
-const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>([
-  "todo-create",
-  "calc",
-  "calc-eq",
-]);
+const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>(["todo-create", "calc", "calc-eq"]);
 
 export function parseQuickCommand(
   raw: string,

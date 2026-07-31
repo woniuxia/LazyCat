@@ -13,6 +13,7 @@
 ### Task 1: 启用用户级 Rust 编译缓存
 
 **Files:**
+
 - Modify external user environment: `RUSTC_WRAPPER`
 
 - [ ] **Step 1: 验证 sccache 可用且用户变量尚未配置**
@@ -50,6 +51,7 @@ Expected: 第一条输出 `sccache`；第二条正常输出缓存统计和缓存
 ### Task 2: 固化 worktree 轻量初始化规则
 
 **Files:**
+
 - Modify: `AGENTS.md:15-16,37-43`
 - Modify: `CLAUDE.md:15-16,37-43`
 
@@ -130,6 +132,7 @@ Expected: 两份文件新增完全相同的两条规则和一条命令；提交�
 ### Task 3: 最终验证
 
 **Files:**
+
 - Verify: `AGENTS.md`
 - Verify: `CLAUDE.md`
 - Verify external user environment: `RUSTC_WRAPPER`

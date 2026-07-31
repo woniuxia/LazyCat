@@ -11,11 +11,9 @@
         @contextmenu.prevent="onContextMenu($event, tab)"
       >
         <span class="tabbar-item-label">{{ tab.name }}</span>
-        <span
-          v-if="!tab.pinned"
-          class="tabbar-item-close"
-          @click.stop="$emit('close', tab.id)"
-        >&times;</span>
+        <span v-if="!tab.pinned" class="tabbar-item-close" @click.stop="$emit('close', tab.id)"
+          >&times;</span
+        >
         <span v-else class="tabbar-item-close-placeholder" />
       </div>
       <slot name="actions" />
@@ -35,24 +33,9 @@
       >
         关闭
       </button>
-      <button
-        class="tabbar-context-menu-item"
-        @click="onCtxCloseOthers"
-      >
-        关闭其他
-      </button>
-      <button
-        class="tabbar-context-menu-item"
-        @click="onCtxCloseLeft"
-      >
-        关闭左侧
-      </button>
-      <button
-        class="tabbar-context-menu-item"
-        @click="onCtxCloseRight"
-      >
-        关闭右侧
-      </button>
+      <button class="tabbar-context-menu-item" @click="onCtxCloseOthers">关闭其他</button>
+      <button class="tabbar-context-menu-item" @click="onCtxCloseLeft">关闭左侧</button>
+      <button class="tabbar-context-menu-item" @click="onCtxCloseRight">关闭右侧</button>
     </div>
   </Teleport>
 </template>

@@ -48,20 +48,14 @@ const initializing = ref(true);
 const selecting = ref(false);
 
 const displayedRun = computed(() =>
-  activeRun.value
-  && (
-    activeRun.value.combinationId == null
-    || (
-      draft.value?.id !== undefined
-      && draft.value.id === activeRun.value.combinationId
-    )
-  )
+  activeRun.value &&
+  (activeRun.value.combinationId == null ||
+    (draft.value?.id !== undefined && draft.value.id === activeRun.value.combinationId))
     ? activeRun.value
     : null,
 );
 const interactionLocked = computed(
-  () =>
-    runActive.value || operationPending.value || initializing.value || selecting.value,
+  () => runActive.value || operationPending.value || initializing.value || selecting.value,
 );
 
 async function confirmDiscardChanges(title: string): Promise<boolean> {
@@ -202,9 +196,12 @@ watch(
       run.error?.trim(),
       failures.length ? `失败步骤：${failures.join("、")}` : "",
     ].filter(Boolean);
-    const fallback = status === "succeeded" ? "组合动作运行完成"
-      : status === "partially_succeeded" ? "组合动作部分完成"
-        : "组合动作运行失败";
+    const fallback =
+      status === "succeeded"
+        ? "组合动作运行完成"
+        : status === "partially_succeeded"
+          ? "组合动作部分完成"
+          : "组合动作运行失败";
     const message = details.join("；") || fallback;
     if (status === "succeeded") ElMessage.success(message);
     else if (status === "partially_succeeded") ElMessage.warning(message);
@@ -212,12 +209,9 @@ watch(
   },
 );
 
-watch(
-  actionCenterNavigation.pendingTarget,
-  (target) => {
-    if (target && !initializing.value) void focusNavigationTarget(target);
-  },
-);
+watch(actionCenterNavigation.pendingTarget, (target) => {
+  if (target && !initializing.value) void focusNavigationTarget(target);
+});
 
 onMounted(async () => {
   try {
@@ -273,10 +267,7 @@ onUnmounted(() => {
       <div v-else class="action-center-empty">
         <el-empty description="请选择或新建组合动作" />
       </div>
-      <ActionRunHistory
-        :active-run="displayedRun"
-        :history="runHistory"
-      />
+      <ActionRunHistory :active-run="displayedRun" :history="runHistory" />
     </main>
   </section>
 </template>

@@ -26,6 +26,7 @@
 ## Task 1: 锁定提交成功后的清理警告语义
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
@@ -79,6 +80,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- 
 ## Task 2: 在真实预检阶段拒绝冲突远端目标
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs`（仅保留/复用防御性校验）
 - Test: `release_package_remote.rs` 与 `release_package_deploy.rs` 测试模块
@@ -123,6 +125,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- 
 ## Task 3: 增加 probe/preflight 令牌撤销链路
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
@@ -169,6 +172,7 @@ pnpm typecheck
 ## Task 4: 在打包页面持续展示错误与警告
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 
@@ -203,6 +207,7 @@ pnpm --filter @lazycat/desktop exec vitest run src/components/ReleasePackagePane
 ## Task 5: 联合验证与交付检查
 
 **Files:**
+
 - Modify: 仅在前述测试驱动步骤需要时更新对应测试和实现文件。
 
 - [ ] **Step 1: 运行 Rust 完整上线包测试**

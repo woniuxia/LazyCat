@@ -125,10 +125,10 @@ components/api-mock/
 
 ### 新增 action
 
-| Channel | Action | 入参 | 行为 |
-|---|---|---|---|
-| `tool:api-mock:route-toggle` | `route_toggle` | `{id, enabled}` | 单条 UPDATE `enabled` 与 `updated_at`；id 不存在时报错（循 `route_save` 的 `affected == 0` 先例）；成功返回 `{ok: true}` |
-| `tool:api-mock:request-logs-clear` | `request_logs_clear` | `{projectId}` | 清空运行态内存日志队列；服务未运行时也返回成功 |
+| Channel                            | Action               | 入参            | 行为                                                                                                                     |
+| ---------------------------------- | -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `tool:api-mock:route-toggle`       | `route_toggle`       | `{id, enabled}` | 单条 UPDATE `enabled` 与 `updated_at`；id 不存在时报错（循 `route_save` 的 `affected == 0` 先例）；成功返回 `{ok: true}` |
+| `tool:api-mock:request-logs-clear` | `request_logs_clear` | `{projectId}`   | 清空运行态内存日志队列；服务未运行时也返回成功                                                                           |
 
 `bridge/tauri.ts` 的 `CHANNEL_MAP` 同步登记两个通道。
 

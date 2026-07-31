@@ -65,42 +65,66 @@ describe("todoSchedule", () => {
 
   it("derives common repeat presets from recurrence", () => {
     expect(deriveRepeatPreset(createRecurrence())).toBe("daily");
-    expect(deriveRepeatPreset(createRecurrence({
-      rule: { frequency: "weekly", interval: 1, time: "09:30", weekdays: [1, 2, 3, 4, 5] },
-    }))).toBe("workday");
-    expect(deriveRepeatPreset(createRecurrence({
-      rule: { frequency: "weekly", interval: 1, time: "09:30", weekdays: [2, 4] },
-    }))).toBe("weekly");
-    expect(deriveRepeatPreset(createRecurrence({
-      rule: { frequency: "monthly", interval: 1, time: "09:30", dayOfMonth: 31 },
-    }))).toBe("monthly");
-    expect(deriveRepeatPreset(createRecurrence({
-      rule: { frequency: "weekly", interval: 2, time: "09:30", weekdays: [2] },
-    }))).toBe("custom");
-    expect(deriveRepeatPreset(createRecurrence({
-      ruleMode: "cron",
-      rule: { expression: "0 30 9 */2 * *" },
-      cronExpression: "0 30 9 */2 * *",
-    }))).toBe("cron");
+    expect(
+      deriveRepeatPreset(
+        createRecurrence({
+          rule: { frequency: "weekly", interval: 1, time: "09:30", weekdays: [1, 2, 3, 4, 5] },
+        }),
+      ),
+    ).toBe("workday");
+    expect(
+      deriveRepeatPreset(
+        createRecurrence({
+          rule: { frequency: "weekly", interval: 1, time: "09:30", weekdays: [2, 4] },
+        }),
+      ),
+    ).toBe("weekly");
+    expect(
+      deriveRepeatPreset(
+        createRecurrence({
+          rule: { frequency: "monthly", interval: 1, time: "09:30", dayOfMonth: 31 },
+        }),
+      ),
+    ).toBe("monthly");
+    expect(
+      deriveRepeatPreset(
+        createRecurrence({
+          rule: { frequency: "weekly", interval: 2, time: "09:30", weekdays: [2] },
+        }),
+      ),
+    ).toBe("custom");
+    expect(
+      deriveRepeatPreset(
+        createRecurrence({
+          ruleMode: "cron",
+          rule: { expression: "0 30 9 */2 * *" },
+          cronExpression: "0 30 9 */2 * *",
+        }),
+      ),
+    ).toBe("cron");
   });
 
   it("builds weekly and monthly defaults from the selected start date", () => {
-    expect(buildSimpleRuleFromPreset({
-      preset: "weekly",
-      startDate: "2026-03-07",
-      time: "09:30",
-    })).toEqual({
+    expect(
+      buildSimpleRuleFromPreset({
+        preset: "weekly",
+        startDate: "2026-03-07",
+        time: "09:30",
+      }),
+    ).toEqual({
       frequency: "weekly",
       interval: 1,
       time: "09:30",
       weekdays: [6],
     });
 
-    expect(buildSimpleRuleFromPreset({
-      preset: "monthly",
-      startDate: "2026-03-31",
-      time: "09:30",
-    })).toEqual({
+    expect(
+      buildSimpleRuleFromPreset({
+        preset: "monthly",
+        startDate: "2026-03-31",
+        time: "09:30",
+      }),
+    ).toEqual({
       frequency: "monthly",
       interval: 1,
       time: "09:30",
@@ -109,11 +133,13 @@ describe("todoSchedule", () => {
   });
 
   it("builds the workday shortcut as a weekly rule", () => {
-    expect(buildSimpleRuleFromPreset({
-      preset: "workday",
-      startDate: "2026-03-07",
-      time: "09:30",
-    })).toEqual({
+    expect(
+      buildSimpleRuleFromPreset({
+        preset: "workday",
+        startDate: "2026-03-07",
+        time: "09:30",
+      }),
+    ).toEqual({
       frequency: "weekly",
       interval: 1,
       time: "09:30",

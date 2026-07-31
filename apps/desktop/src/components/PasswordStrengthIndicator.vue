@@ -20,7 +20,7 @@
     </div>
     <Transition name="fade">
       <div v-if="showError && failedDetails.length" class="pw-strength-error">
-        {{ failedDetails.join(' · ') }}
+        {{ failedDetails.join(" · ") }}
       </div>
     </Transition>
   </div>
@@ -54,9 +54,7 @@ let isFirstAnalysis = ref(true);
 
 const failedDetails = computed(() => {
   if (!strengthResult.value) return [];
-  return strengthResult.value.details
-    .filter((d) => !d.passed)
-    .map((d) => d.message);
+  return strengthResult.value.details.filter((d) => !d.passed).map((d) => d.message);
 });
 
 function barActive(index: number): boolean {
@@ -97,7 +95,7 @@ watch(
       timer = setTimeout(() => analyzeStrength(val), 300);
     }
   },
-  { immediate: true }
+  { immediate: true },
 );
 </script>
 

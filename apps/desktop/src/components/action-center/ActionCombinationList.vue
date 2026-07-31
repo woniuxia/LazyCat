@@ -105,7 +105,9 @@ defineEmits<{
   border-radius: var(--lc-radius-sm);
   background: transparent;
   cursor: pointer;
-  transition: background var(--lc-duration) var(--lc-ease), border-color var(--lc-duration) var(--lc-ease);
+  transition:
+    background var(--lc-duration) var(--lc-ease),
+    border-color var(--lc-duration) var(--lc-ease);
 }
 
 .combination-list__item:hover:not(:disabled) {

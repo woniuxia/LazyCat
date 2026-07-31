@@ -16,12 +16,7 @@ export interface RequestForwardPreflightResult {
   ready: boolean;
 }
 
-export type RequestForwardRuntimeState =
-  | "stopped"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "failed";
+export type RequestForwardRuntimeState = "stopped" | "starting" | "running" | "stopping" | "failed";
 
 export type RequestForwardErrorCode =
   | "listener_in_use"

@@ -45,13 +45,13 @@ LazyCat 已有 Todo 的单次事项、多提醒和独立全局通知窗口，也
 
 ```ts
 interface ActionDefinition {
-  type: string
-  label: string
-  triggerTypes: string[]
-  targetKind: string
-  targetToolId: string
-  executionMode: 'open_and_confirm' | 'direct' | 'background'
-  completionPolicy: 'on_started' | 'on_succeeded' | 'manual'
+  type: string;
+  label: string;
+  triggerTypes: string[];
+  targetKind: string;
+  targetToolId: string;
+  executionMode: "open_and_confirm" | "direct" | "background";
+  completionPolicy: "on_started" | "on_succeeded" | "manual";
 }
 ```
 
@@ -214,10 +214,10 @@ tool:action-center:dispatch-latest
 
 ```ts
 interface ActionTargetOption {
-  id: string
-  label: string
-  available: boolean
-  unavailableReason?: string
+  id: string;
+  label: string;
+  available: boolean;
+  unavailableReason?: string;
 }
 ```
 
@@ -317,10 +317,10 @@ action?: {
 
 ```ts
 {
-  dispatchId: string
-  actionType: 'release_package.run'
-  targetToolId: 'release-package'
-  targetId: string
+  dispatchId: string;
+  actionType: "release_package.run";
+  targetToolId: "release-package";
+  targetId: string;
 }
 ```
 
@@ -344,13 +344,13 @@ action?: {
 
 上线包后端在形成最终结果后调用动作中心内部终态接口：
 
-| 上线包终态 | Dispatch | Todo |
-|---|---|---|
-| `succeeded` | `succeeded` | 自动完成 |
-| `partially_succeeded` | `failed` | 保持未完成 |
-| `package_succeeded_upload_failed` | `failed` | 保持未完成 |
-| `failed` | `failed` | 保持未完成 |
-| `cancelled` | `cancelled` | 保持未完成 |
+| 上线包终态                        | Dispatch    | Todo       |
+| --------------------------------- | ----------- | ---------- |
+| `succeeded`                       | `succeeded` | 自动完成   |
+| `partially_succeeded`             | `failed`    | 保持未完成 |
+| `package_succeeded_upload_failed` | `failed`    | 保持未完成 |
+| `failed`                          | `failed`    | 保持未完成 |
+| `cancelled`                       | `cancelled` | 保持未完成 |
 
 Todo 自动完成必须复用 Todo 后端状态变更语义，正确写入 `completed_at` 并清理后续提醒。Todo 已被用户完成时保持幂等；失败不得把已完成 Todo 改回未完成。
 

@@ -46,22 +46,22 @@
 
 ```ts
 type ActionDispatchStatus =
-  | 'pending_confirmation'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
+  | "pending_confirmation"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 interface ActionBindingInput {
-  actionType: string
-  targetId: string
+  actionType: string;
+  targetId: string;
 }
 
 interface ActionDispatchRequest {
-  dispatchId: string
-  actionType: string
-  targetToolId: string
-  targetId: string
+  dispatchId: string;
+  actionType: string;
+  targetToolId: string;
+  targetId: string;
 }
 ```
 
@@ -587,7 +587,12 @@ Expected: FAIL，提示动作类型、composable 或 UI 接线尚不存在。
 `types/action-center.ts` 定义完整前端契约：
 
 ```ts
-export type ActionDispatchStatus = "pending_confirmation" | "running" | "succeeded" | "failed" | "cancelled";
+export type ActionDispatchStatus =
+  | "pending_confirmation"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 export interface ActionDefinition {
   actionType: string;
@@ -774,11 +779,13 @@ const todoPrimaryLabel = computed(() => {
 async function runCurrentReminderAction() {
   const item = currentTodo.value;
   if (!item?.action?.available || item.action.activeDispatchStatus) return;
-  await runAction(() => invokeToolByChannel("tool:action-center:dispatch", {
-    triggerType: "todo_item",
-    triggerId: String(item.taskId),
-    triggerEventId: String(item.eventId),
-  }).then(() => undefined));
+  await runAction(() =>
+    invokeToolByChannel("tool:action-center:dispatch", {
+      triggerType: "todo_item",
+      triggerId: String(item.taskId),
+      triggerEventId: String(item.eventId),
+    }).then(() => undefined),
+  );
 }
 ```
 
@@ -855,7 +862,10 @@ export function useActionDispatchIntent() {
     pendingIntent.value = null;
     return current;
   }
-  function watchPendingIntent(toolId: string, apply: (intent: ActionDispatchRequest) => void | Promise<void>) {
+  function watchPendingIntent(
+    toolId: string,
+    apply: (intent: ActionDispatchRequest) => void | Promise<void>,
+  ) {
     onMounted(() => {
       const current = consumePendingIntent(toolId);
       if (current) void apply(current);
@@ -919,20 +929,24 @@ git commit -m "feat: 添加动作派发导航意图"
 在纯 payload 测试中保证只有动作启动携带 ID：
 
 ```ts
-expect(createReleasePackageStartPayload("local_archive", {
-  projectId: 7,
-  targets: ["frontend", "backend"],
-  folderName: "20260725-客户门户",
-  overwriteExisting: false,
-  actionDispatchId: "dispatch-1",
-})).toMatchObject({ actionDispatchId: "dispatch-1" });
+expect(
+  createReleasePackageStartPayload("local_archive", {
+    projectId: 7,
+    targets: ["frontend", "backend"],
+    folderName: "20260725-客户门户",
+    overwriteExisting: false,
+    actionDispatchId: "dispatch-1",
+  }),
+).toMatchObject({ actionDispatchId: "dispatch-1" });
 
-expect(createReleasePackageStartPayload("local_archive", {
-  projectId: 7,
-  targets: ["frontend"],
-  folderName: "manual",
-  overwriteExisting: false,
-})).not.toHaveProperty("actionDispatchId");
+expect(
+  createReleasePackageStartPayload("local_archive", {
+    projectId: 7,
+    targets: ["frontend"],
+    folderName: "manual",
+    overwriteExisting: false,
+  }),
+).not.toHaveProperty("actionDispatchId");
 ```
 
 面板契约测试断言：
@@ -958,10 +972,7 @@ Expected: FAIL，面板尚未消费 intent，启动 payload 不支持 `actionDis
 ```ts
 const pendingActionDispatchId = ref<string | null>(null);
 
-async function stopPendingActionDispatch(
-  outcome: "cancelled" | "failed",
-  error?: string,
-) {
+async function stopPendingActionDispatch(outcome: "cancelled" | "failed", error?: string) {
   const dispatchId = pendingActionDispatchId.value;
   if (!dispatchId) return;
   await invokeToolByChannel("tool:action-center:dispatch-cancel", {
@@ -1037,7 +1048,7 @@ createReleasePackageStartPayload(packageType, {
   preflightToken: uploadPreflight.preflightToken.value,
   overwriteRemoteTargets: overwriteRemoteTargets.value,
   actionDispatchId: pendingActionDispatchId.value ?? undefined,
-})
+});
 ```
 
 不要移动或删除 `confirmArchiveOverwrite`、`ensureHostTrusted`、`runUploadPreflight`、`confirmRemoteOverwrite` 和 `runtime.ensureListeners()`；它们仍是动作启动必须经过的确认链。

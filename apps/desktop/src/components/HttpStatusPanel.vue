@@ -8,9 +8,7 @@
       style="max-width: 400px; margin-bottom: 4px"
     />
 
-    <div v-if="searchQuery && flatResults.length === 0" class="empty-hint">
-      未找到匹配的状态码
-    </div>
+    <div v-if="searchQuery && flatResults.length === 0" class="empty-hint">未找到匹配的状态码</div>
 
     <template v-if="searchQuery">
       <el-table :data="flatResults" stripe size="small" :show-header="true" style="width: 100%">
@@ -25,7 +23,9 @@
         <el-table-column label="常见原因" min-width="260">
           <template #default="{ row }">
             <div v-if="row.causes" class="causes-cell">
-              <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{ c }}</span>
+              <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{
+                c
+              }}</span>
             </div>
             <span v-else class="no-cause">-</span>
           </template>
@@ -35,8 +35,16 @@
 
     <template v-else>
       <div v-for="group in groups" :key="group.category" class="group-section">
-        <div class="group-header" :class="'header-' + group.category">{{ group.category }} {{ group.name }}</div>
-        <el-table :data="group.codes" stripe size="small" :show-header="group === groups[0]" style="width: 100%">
+        <div class="group-header" :class="'header-' + group.category">
+          {{ group.category }} {{ group.name }}
+        </div>
+        <el-table
+          :data="group.codes"
+          stripe
+          size="small"
+          :show-header="group === groups[0]"
+          style="width: 100%"
+        >
           <el-table-column label="状态码" width="80" align="center">
             <template #default="{ row }">
               <span class="code-cell" :class="codeClass(row.code)">{{ row.code }}</span>
@@ -48,7 +56,9 @@
           <el-table-column label="常见原因" min-width="260">
             <template #default="{ row }">
               <div v-if="row.causes" class="causes-cell">
-                <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{ c }}</span>
+                <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{
+                  c
+                }}</span>
               </div>
               <span v-else class="no-cause">-</span>
             </template>
@@ -135,21 +145,41 @@ onMounted(() => loadAll());
   font-weight: 600;
   padding: 6px 4px 4px;
 }
-.header-1xx { color: #909399; }
-.header-2xx { color: #67C23A; }
-.header-3xx { color: #E6A23C; }
-.header-4xx { color: #F56C6C; }
-.header-5xx { color: #F56C6C; }
+.header-1xx {
+  color: #909399;
+}
+.header-2xx {
+  color: #67c23a;
+}
+.header-3xx {
+  color: #e6a23c;
+}
+.header-4xx {
+  color: #f56c6c;
+}
+.header-5xx {
+  color: #f56c6c;
+}
 .code-cell {
   font-weight: 700;
   font-family: monospace;
   font-size: 13px;
 }
-.code-1xx { color: #909399; }
-.code-2xx { color: #67C23A; }
-.code-3xx { color: #E6A23C; }
-.code-4xx { color: #F56C6C; }
-.code-5xx { color: #F56C6C; }
+.code-1xx {
+  color: #909399;
+}
+.code-2xx {
+  color: #67c23a;
+}
+.code-3xx {
+  color: #e6a23c;
+}
+.code-4xx {
+  color: #f56c6c;
+}
+.code-5xx {
+  color: #f56c6c;
+}
 .causes-cell {
   display: flex;
   flex-wrap: wrap;

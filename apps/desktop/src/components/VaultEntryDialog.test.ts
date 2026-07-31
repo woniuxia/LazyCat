@@ -17,9 +17,11 @@ describe("VaultEntryDialog server port", () => {
   });
 
   it("defaults server ports to 22 for new and legacy entries", () => {
+    const showStart = source.indexOf("function show");
+    const portFallbackStart = source.indexOf("form.port =", showStart);
     const editPortFallback = source.slice(
-      source.indexOf("form.port = typeof f.port"),
-      source.indexOf("form.dbName", source.indexOf("form.port = typeof f.port")),
+      portFallbackStart,
+      source.indexOf("form.dbName", portFallbackStart),
     );
     expect(source).toContain("const SERVER_DEFAULT_PORT = 22;");
     expect(source).toContain('newCat === "server"');

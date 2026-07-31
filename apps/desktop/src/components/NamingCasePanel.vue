@@ -48,7 +48,14 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 
 async function convert() {
   if (!input.value.trim()) {
-    results.value = { camelCase: "", pascalCase: "", snakeCase: "", screamingSnake: "", kebabCase: "", dotCase: "" };
+    results.value = {
+      camelCase: "",
+      pascalCase: "",
+      snakeCase: "",
+      screamingSnake: "",
+      kebabCase: "",
+      dotCase: "",
+    };
     return;
   }
   try {

@@ -2,11 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
-import type {
-  ProviderDescriptor,
-  SpotlightExecuteResult,
-  SpotlightItem,
-} from "../types";
+import type { ProviderDescriptor, SpotlightExecuteResult, SpotlightItem } from "../types";
 
 interface LauncherEntry {
   id: number;
@@ -42,7 +38,11 @@ async function prefetchLauncher(): Promise<SpotlightItem[]> {
 
   return list.map<SpotlightItem>((e) => {
     const isDir = isDirPath(e.exe_path);
-    const stem = e.exe_path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+    const stem =
+      e.exe_path
+        .split(/[\\/]/)
+        .pop()
+        ?.replace(/\.[^.]+$/, "") ?? "";
     return {
       providerId: "launcher",
       itemId: String(e.id),

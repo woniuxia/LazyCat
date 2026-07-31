@@ -13,7 +13,9 @@ describe("Monaco language catalog", () => {
     expect(MONACO_LANGUAGE_OPTIONS).toContain("typescript");
     expect(MONACO_LANGUAGE_EXTENSIONS.typescript).toBe("ts");
     expect(MONACO_LANGUAGE_EXTENSIONS.plaintext).toBe("txt");
-    expect(Object.keys(MONACO_LANGUAGE_EXTENSIONS).sort()).toEqual([...MONACO_LANGUAGE_OPTIONS].sort());
+    expect(Object.keys(MONACO_LANGUAGE_EXTENSIONS).sort()).toEqual(
+      [...MONACO_LANGUAGE_OPTIONS].sort(),
+    );
   });
 
   it.each([
@@ -38,7 +40,9 @@ describe("Monaco language catalog", () => {
   });
 
   it("accepts exactly 8 MiB of ASCII text and rejects one byte more", () => {
-    expect(validateReferenceCardText("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES))).toEqual({ ok: true });
+    expect(validateReferenceCardText("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES))).toEqual({
+      ok: true,
+    });
     expect(validateReferenceCardText("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES + 1))).toEqual({
       ok: false,
       message: "参考文本不能超过 8 MiB",
@@ -46,7 +50,10 @@ describe("Monaco language catalog", () => {
   });
 
   it("rejects whitespace-only text", () => {
-    expect(validateReferenceCardText(" \r\n ")).toEqual({ ok: false, message: "剪贴板中没有可用文本" });
+    expect(validateReferenceCardText(" \r\n ")).toEqual({
+      ok: false,
+      message: "剪贴板中没有可用文本",
+    });
   });
 
   it("rejects text whose UTF-8 byte length exceeds 8 MiB", () => {

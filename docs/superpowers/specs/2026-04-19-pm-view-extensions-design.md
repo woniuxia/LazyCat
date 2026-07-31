@@ -44,14 +44,14 @@
 
 ### 视图（View）
 
-| viewId | 标签 | 图标 | 备注 |
-|--------|------|------|------|
-| `kanban` | 看板 | ▦ | 现有 |
-| `gantt` | 甘特 | ▤ | 现有 |
-| `today` | 今日 | ◷ | 新增，分区 Dashboard |
-| `list` | 列表 | ≡ | 新增，Notion 风格表格 |
-| `calendar` | 日历 | ▥ | 新增，月 + 简化周 |
-| `matrix` | 四象限 | ⊞ | 新增，决策矩阵 |
+| viewId     | 标签   | 图标 | 备注                  |
+| ---------- | ------ | ---- | --------------------- |
+| `kanban`   | 看板   | ▦    | 现有                  |
+| `gantt`    | 甘特   | ▤    | 现有                  |
+| `today`    | 今日   | ◷    | 新增，分区 Dashboard  |
+| `list`     | 列表   | ≡    | 新增，Notion 风格表格 |
+| `calendar` | 日历   | ▥    | 新增，月 + 简化周     |
+| `matrix`   | 四象限 | ⊞    | 新增，决策矩阵        |
 
 ### 正交原则
 
@@ -94,19 +94,44 @@
 export interface ViewDefinition {
   id: ViewId;
   label: string;
-  icon: string;              // 或 Element Plus 图标组件
-  component: AsyncComponent;  // defineAsyncComponent
+  icon: string; // 或 Element Plus 图标组件
+  component: AsyncComponent; // defineAsyncComponent
 }
 
-export type ViewId = 'kanban' | 'gantt' | 'today' | 'list' | 'calendar' | 'matrix';
+export type ViewId = "kanban" | "gantt" | "today" | "list" | "calendar" | "matrix";
 
 export const PM_VIEWS: ViewDefinition[] = [
-  { id: 'kanban',   label: '看板',   icon: '▦', component: () => import('@/components/PmKanbanView.vue') },
-  { id: 'gantt',    label: '甘特',   icon: '▤', component: () => import('@/components/PmGanttView.vue') },
-  { id: 'list',     label: '列表',   icon: '≡', component: () => import('@/components/PmListView.vue') },
-  { id: 'calendar', label: '日历',   icon: '▥', component: () => import('@/components/PmCalendarView.vue') },
-  { id: 'matrix',   label: '四象限', icon: '⊞', component: () => import('@/components/PmMatrixView.vue') },
-  { id: 'today',    label: '今日',   icon: '◷', component: () => import('@/components/PmTodayView.vue') },
+  {
+    id: "kanban",
+    label: "看板",
+    icon: "▦",
+    component: () => import("@/components/PmKanbanView.vue"),
+  },
+  {
+    id: "gantt",
+    label: "甘特",
+    icon: "▤",
+    component: () => import("@/components/PmGanttView.vue"),
+  },
+  { id: "list", label: "列表", icon: "≡", component: () => import("@/components/PmListView.vue") },
+  {
+    id: "calendar",
+    label: "日历",
+    icon: "▥",
+    component: () => import("@/components/PmCalendarView.vue"),
+  },
+  {
+    id: "matrix",
+    label: "四象限",
+    icon: "⊞",
+    component: () => import("@/components/PmMatrixView.vue"),
+  },
+  {
+    id: "today",
+    label: "今日",
+    icon: "◷",
+    component: () => import("@/components/PmTodayView.vue"),
+  },
 ];
 ```
 
@@ -128,7 +153,7 @@ export const PM_VIEWS: ViewDefinition[] = [
 const viewMode = ref<"kanban" | "gantt">("kanban");
 
 // 新
-const viewId = ref<ViewId>('kanban');
+const viewId = ref<ViewId>("kanban");
 ```
 
 所有 `viewMode === 'kanban'` 的判断同步替换为 `viewId.value === 'kanban'`。
@@ -141,6 +166,7 @@ const viewId = ref<ViewId>('kanban');
 - `pm:view:project-<id>` = viewId
 
 切换上下文时读取对应 key 恢复视图。首次进入时使用默认：
+
 - `overview` 默认 `list`
 - `project-<id>` 默认 `kanban`（保持现有习惯）
 
@@ -154,12 +180,12 @@ const viewId = ref<ViewId>('kanban');
 
 ### 6.2 顶部统计条（4 张卡片）
 
-| 卡片 | 主指标 | 副指标 |
-|------|--------|--------|
-| 逾期未完成 | 数量 | 最长逾期 X 天 |
-| 今日到期 | 数量 | P0 × N · P1 × M |
-| 进行中 | 数量 | 跨 X 个项目（overview 上下文） |
-| 今日已完成 | 数量 | 鼓励文案 |
+| 卡片       | 主指标 | 副指标                         |
+| ---------- | ------ | ------------------------------ |
+| 逾期未完成 | 数量   | 最长逾期 X 天                  |
+| 今日到期   | 数量   | P0 × N · P1 × M                |
+| 进行中     | 数量   | 跨 X 个项目（overview 上下文） |
+| 今日已完成 | 数量   | 鼓励文案                       |
 
 ### 6.3 分区布局
 
@@ -178,6 +204,7 @@ const viewId = ref<ViewId>('kanban');
 ```
 
 快捷操作按状态变化：
+
 - `todo` 状态：「开始做」
 - 逾期状态：「推到明天」
 - 进行中：「标记完成」
@@ -186,6 +213,7 @@ const viewId = ref<ViewId>('kanban');
 ### 6.5 跨项目聚合查询
 
 后端新增 `item_today_list` 接口，参数：
+
 - `project_id: Option<i64>`（None 表示全项目）
 - `today_date: String`（客户端传本地日期，避免时区混淆）
 
@@ -211,6 +239,7 @@ const viewId = ref<ViewId>('kanban');
 ### 7.3 行内编辑
 
 双击进入编辑态，支持字段：
+
 - **状态**：下拉（todo / doing / testing / completed）
 - **优先级**：下拉（P0 / P1 / P2 / P3）
 - **项目**：下拉
@@ -223,6 +252,7 @@ const viewId = ref<ViewId>('kanban');
 ### 7.4 批量操作
 
 选中多行 → 底部深色浮条出现（非模态），按钮：
+
 - 标记完成 | 改状态 | 改优先级 | 移动项目 | 批量打标签 | 删除
 
 Esc 或点「取消 ×」清空选择。
@@ -232,6 +262,7 @@ Esc 或点「取消 ×」清空选择。
 顶部「分组 ▾」下拉，选项：`无 / 项目 / 状态 / 优先级 / 标签`。
 
 分组时每组一个可折叠块，组头显示：
+
 - 折叠/展开 caret
 - 分组值（带色点）
 - 数量
@@ -242,6 +273,7 @@ Esc 或点「取消 ×」清空选择。
 ### 7.6 排序
 
 单列排序（不支持多列）：
+
 - 点击列头切换升序 → 降序 → 默认
 - 默认排序：`pinned DESC, priority ASC, end_at ASC NULLS LAST, updated_at DESC`
 
@@ -288,11 +320,13 @@ Esc 或点「取消 ×」清空选择。
 单条格式：`[◉ 小圆点] 标题（省略）`
 
 颜色策略（`pm:view:calendar:colorBy:<contextId>`）：
+
 - **项目色**（默认）：任务条底色用项目色
 - **优先级色**：P0 红、P1 橙、P2 灰、P3 浅灰
 - **状态色**：todo 灰、doing 绿、testing 黄、completed 淡蓝
 
 特殊状态：
+
 - 已完成：淡色 + 删除线
 - 逾期：红色背景 + 红色边框
 
@@ -338,12 +372,12 @@ Esc 或点「取消 ×」清空选择。
 
 ### 9.1 判定规则
 
-| 维度 | 重要 | 不重要 |
-|------|------|--------|
+| 维度 | 重要    | 不重要  |
+| ---- | ------- | ------- |
 | 判定 | P0 / P1 | P2 / P3 |
 
-| 维度 | 紧急 | 不紧急 |
-|------|------|--------|
+| 维度 | 紧急                                 | 不紧急                                    |
+| ---- | ------------------------------------ | ----------------------------------------- |
 | 判定 | `end_at ≤ today + 紧急阈值` 或已逾期 | `end_at > today + 紧急阈值` 或无 `end_at` |
 
 **紧急阈值**：默认 3 天，可切换 3 / 7 / 14，持久化到 `pm:view:matrix:urgentThreshold`。
@@ -352,9 +386,9 @@ Esc 或点「取消 ×」清空选择。
 
 2×2 网格 + 外围坐标轴标签：
 
-| | 紧急（左） | 不紧急（右） |
-|--|-----------|-------------|
-| **重要（上）** | I. 立即做（红） | II. 计划做（蓝） |
+|                  | 紧急（左）          | 不紧急（右）        |
+| ---------------- | ------------------- | ------------------- |
+| **重要（上）**   | I. 立即做（红）     | II. 计划做（蓝）    |
 | **不重要（下）** | III. 快速处理（黄） | IV. 少做/推迟（灰） |
 
 ### 9.3 坐标轴
@@ -366,6 +400,7 @@ Esc 或点「取消 ×」清空选择。
 ### 9.4 任务卡片
 
 紧凑版：
+
 - 标题
 - 左侧项目色条（3px border-left）
 - 项目色点 + 项目名
@@ -383,6 +418,7 @@ Esc 或点「取消 ×」清空选择。
 ### 9.7 无截止日期归类
 
 归入「不紧急」：
+
 - P0/P1 + 无截止 → 象限 II（计划做），鼓励定计划
 - P2/P3 + 无截止 → 象限 IV（少做），提示可能该清理
 
@@ -401,17 +437,18 @@ Esc 或点「取消 ×」清空选择。
 
 ### 10.2 新增接口（`pm.rs` + `CHANNEL_MAP`）
 
-| action | 用途 | 参数 |
-|--------|------|------|
-| `item_today_list` | 今日视图分区数据 | `project_id?, today_date` |
-| `item_today_counts` | 侧栏「今日」badge 计数 | `project_id?` |
-| `item_calendar_range` | 日历视图区间查询 | `project_id?, start_date, end_date` |
-| `item_matrix_bucket` | 四象限分桶数据 | `project_id?, urgent_threshold_days, hide_completed` |
-| `item_batch_update` | 列表视图批量操作 | `ids: i64[], fields: {...}` |
+| action                | 用途                   | 参数                                                 |
+| --------------------- | ---------------------- | ---------------------------------------------------- |
+| `item_today_list`     | 今日视图分区数据       | `project_id?, today_date`                            |
+| `item_today_counts`   | 侧栏「今日」badge 计数 | `project_id?`                                        |
+| `item_calendar_range` | 日历视图区间查询       | `project_id?, start_date, end_date`                  |
+| `item_matrix_bucket`  | 四象限分桶数据         | `project_id?, urgent_threshold_days, hide_completed` |
+| `item_batch_update`   | 列表视图批量操作       | `ids: i64[], fields: {...}`                          |
 
 ### 10.3 现有接口扩展
 
 `item_list`：
+
 - 新参数 `group_by?: string`（列表视图分组支持）
 - 参数 `project_id`：已支持为空表示跨项目
 
@@ -476,6 +513,7 @@ Esc 或点「取消 ×」清空选择。
 5. 列表视图复用 `PmDetailPanel`
 
 **验证**：
+
 - 今日视图各分区数据正确，侧栏 badge 实时
 - 列表视图行内改状态/优先级/截止后持久化，刷新后一致
 - 批量改状态能一次更新多条
@@ -489,6 +527,7 @@ Esc 或点「取消 ×」清空选择。
 5. 紧急阈值切换 + 隐藏已完成开关
 
 **验证**：
+
 - 月视图下拖拽任务改日期能持久化
 - 四象限分布正确，阈值切换实时生效
 
@@ -504,6 +543,7 @@ Esc 或点「取消 ×」清空选择。
 ### 13.1 跨项目查询性能
 
 全项目查询要全表扫描，> 10000 条时可能变慢。缓解：
+
 - 索引（见 10.4）
 - 今日视图限定时间范围 `end_at BETWEEN today-30d AND today+30d`
 - 列表视图强制分页或虚拟滚动
@@ -511,16 +551,18 @@ Esc 或点「取消 ×」清空选择。
 ### 13.2 上下文 × 视图的双向记忆复杂度
 
 `viewId` 和 `selectedProjectId` 双向记忆可能造成「切上下文时意外切视图」的感知。缓解：
+
 - 首次进入某上下文才用默认视图，之后完全按用户最后选择
 - 切换器本身作为主要交互路径（用户主动切，不意外切）
 
 ### 13.3 向后兼容
 
 已有用户的 `viewMode` 设置可能存在旧 user_settings 里。读取时做映射：
+
 ```typescript
 // 读取 pm:view:<context> 失败时 fallback
-const legacy = getSetting('pm:viewMode'); // 旧 key
-if (legacy === 'kanban' || legacy === 'gantt') return legacy;
+const legacy = getSetting("pm:viewMode"); // 旧 key
+if (legacy === "kanban" || legacy === "gantt") return legacy;
 return defaultView(context);
 ```
 
@@ -538,13 +580,13 @@ return defaultView(context);
 
 以下决策在原型页的决策卡里完整展开，设计文档不再重复：
 
-| 视图 | 关键决策 |
-|------|----------|
-| 切换器 | 形态 A Tab（图标+文字）；响应式降级；`viewId` + 注册对象 |
-| 今日 | 4+1 分区；Q4 项目筛选复用侧栏（对称模型） |
-| 列表 | 6 默认列 + 动态列；行内编辑 6 字段；批量操作 6 种；分组 5 维度 |
-| 日历 | 月视图默认；周起始周日；溢出阶梯规则；拖拽改日期 |
-| 四象限 | 紧急阈值默认 3 天可切；不支持拖拽；纵坐标竖排立字 |
+| 视图   | 关键决策                                                       |
+| ------ | -------------------------------------------------------------- |
+| 切换器 | 形态 A Tab（图标+文字）；响应式降级；`viewId` + 注册对象       |
+| 今日   | 4+1 分区；Q4 项目筛选复用侧栏（对称模型）                      |
+| 列表   | 6 默认列 + 动态列；行内编辑 6 字段；批量操作 6 种；分组 5 维度 |
+| 日历   | 月视图默认；周起始周日；溢出阶梯规则；拖拽改日期               |
+| 四象限 | 紧急阈值默认 3 天可切；不支持拖拽；纵坐标竖排立字              |
 
 ## 15. 未来迭代（不在本期）
 

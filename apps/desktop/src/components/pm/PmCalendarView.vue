@@ -262,8 +262,7 @@
             class="card-pill"
             :style="{
               color: PM_PRIORITY_MAP[popoverItem.priority]?.color,
-              borderColor:
-                (PM_PRIORITY_MAP[popoverItem.priority]?.color || '#999') + '40',
+              borderColor: (PM_PRIORITY_MAP[popoverItem.priority]?.color || '#999') + '40',
             }"
           >
             {{ PM_PRIORITY_MAP[popoverItem.priority]?.label }}
@@ -272,18 +271,18 @@
             {{ statusLabel(popoverItem.status) }}
           </span>
         </div>
-        <div v-if="popoverDateText" class="pop-date" :class="{ 'is-overdue': popoverItem.__overdue }">
+        <div
+          v-if="popoverDateText"
+          class="pop-date"
+          :class="{ 'is-overdue': popoverItem.__overdue }"
+        >
           {{ popoverDateText }}
         </div>
         <div v-if="popoverItem.description" class="pop-desc">
           {{ popoverDescText }}
         </div>
         <div class="pop-actions">
-          <el-button
-            v-if="popoverItem.status === 'todo'"
-            size="small"
-            @click="popoverQuickStart"
-          >
+          <el-button v-if="popoverItem.status === 'todo'" size="small" @click="popoverQuickStart">
             开始做
           </el-button>
           <el-button
@@ -565,7 +564,12 @@ function buildCells(start: Date, count: number): CalendarCell[] {
     let overflowText = "";
     if (items.length >= 5) {
       const hiddenProjects = Array.from(
-        new Set(items.slice(3).map((it) => it.projectName).filter(Boolean)),
+        new Set(
+          items
+            .slice(3)
+            .map((it) => it.projectName)
+            .filter(Boolean),
+        ),
       ) as string[];
       const label = hiddenProjects.slice(0, 2).join("、");
       const suffix = label ? `${label} 等项目` : "";
@@ -575,8 +579,7 @@ function buildCells(start: Date, count: number): CalendarCell[] {
       date: dateStr,
       day: d.getDate(),
       weekday: d.getDay(),
-      isCurrentMonth:
-        subview.value === "week" || d.getMonth() === anchor.value.getMonth(),
+      isCurrentMonth: subview.value === "week" || d.getMonth() === anchor.value.getMonth(),
       isToday: dateStr === today,
       isWeekend: d.getDay() === 0 || d.getDay() === 6,
       items,
@@ -710,15 +713,11 @@ async function onCellDrop(cell: CalendarCell) {
   if (currentEnd === cell.date) return;
 
   try {
-    await ElMessageBox.confirm(
-      `将「${item.title}」的截止日期改为 ${cell.date} ？`,
-      "移动任务",
-      {
-        confirmButtonText: "确认",
-        cancelButtonText: "取消",
-        type: "info",
-      },
-    );
+    await ElMessageBox.confirm(`将「${item.title}」的截止日期改为 ${cell.date} ？`, "移动任务", {
+      confirmButtonText: "确认",
+      cancelButtonText: "取消",
+      type: "info",
+    });
   } catch {
     return;
   }

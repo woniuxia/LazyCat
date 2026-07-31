@@ -53,7 +53,8 @@ export function sortPmProjectsForSidebar(
       if (left.status === "archived") {
         return compareByStableFallback(left, right);
       }
-      const totalDiff = getPmTotalCount(projectItemCounts[right.id]) - getPmTotalCount(projectItemCounts[left.id]);
+      const totalDiff =
+        getPmTotalCount(projectItemCounts[right.id]) - getPmTotalCount(projectItemCounts[left.id]);
       if (totalDiff !== 0) {
         return totalDiff;
       }

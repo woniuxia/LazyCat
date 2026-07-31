@@ -46,6 +46,7 @@
 - `apps/desktop/src/utils/calc.ts` 的 `calculateExpression` 已经做了中英文标点 / 空格 / `%` / `×÷` 归一化，对 `=1+1` 截取后的 `1+1` 完全兼容
 
 解析优先级（保持不变）：
+
 1. `parseKeywordCommand`（`;` 前缀）
 2. `parseQuickCommand`（`+ ` / `calc` / **新增 `=`**）
 3. `parseSpotlightQuery`（scope 别名）
@@ -68,21 +69,22 @@ if (trimmedLeft.startsWith("=")) {
 
 行为表：
 
-| 输入 | rest（slice(1).trim()） | 返回值 | 渲染结果 |
-|---|---|---|---|
-| `=` | `""` | `{ kind: "calc", text: "" }` | 计算器空态卡（标题"计算器"） |
-| `=1+1` | `"1+1"` | `{ kind: "calc", text: "1+1" }` | `1+1 = 2` 结果卡 |
-| `= 1+1` | `"1+1"` | `{ kind: "calc", text: "1+1" }` | 同上 |
-| `=(2+3)*4` | `"(2+3)*4"` | `{ kind: "calc", text: "(2+3)*4" }` | `(2+3)*4 = 20` 结果卡 |
-| `=1+` | `"1+"` | `{ kind: "calc", text: "1+" }` | `1+ ≈ 1` 预览卡（getCalcPreview 兜底） |
-| `=abc` | `"abc"` | `{ kind: "calc", text: "abc" }` | 错误卡（"仅支持数字和 + - * / ( ) 运算符"） |
-| `==` | `"="` | `null` | 普通搜索（守卫放行） |
-| `===` | `"=="` | `null` | 普通搜索（守卫放行） |
-| `=>` | `">"` | `null` | 普通搜索（守卫放行） |
-| `  =1+1`（前导空格） | `"1+1"` | `{ kind: "calc", text: "1+1" }` | 同 `=1+1`，因 `trimmedLeft = raw.replace(/^\s+/, "")` |
-| 禁用 `calc-eq` 时 `=1+1` | — | `null` | 普通搜索 |
+| 输入                     | rest（slice(1).trim()） | 返回值                              | 渲染结果                                              |
+| ------------------------ | ----------------------- | ----------------------------------- | ----------------------------------------------------- |
+| `=`                      | `""`                    | `{ kind: "calc", text: "" }`        | 计算器空态卡（标题"计算器"）                          |
+| `=1+1`                   | `"1+1"`                 | `{ kind: "calc", text: "1+1" }`     | `1+1 = 2` 结果卡                                      |
+| `= 1+1`                  | `"1+1"`                 | `{ kind: "calc", text: "1+1" }`     | 同上                                                  |
+| `=(2+3)*4`               | `"(2+3)*4"`             | `{ kind: "calc", text: "(2+3)*4" }` | `(2+3)*4 = 20` 结果卡                                 |
+| `=1+`                    | `"1+"`                  | `{ kind: "calc", text: "1+" }`      | `1+ ≈ 1` 预览卡（getCalcPreview 兜底）                |
+| `=abc`                   | `"abc"`                 | `{ kind: "calc", text: "abc" }`     | 错误卡（"仅支持数字和 + - \* / ( ) 运算符"）          |
+| `==`                     | `"="`                   | `null`                              | 普通搜索（守卫放行）                                  |
+| `===`                    | `"=="`                  | `null`                              | 普通搜索（守卫放行）                                  |
+| `=>`                     | `">"`                   | `null`                              | 普通搜索（守卫放行）                                  |
+| `  =1+1`（前导空格）     | `"1+1"`                 | `{ kind: "calc", text: "1+1" }`     | 同 `=1+1`，因 `trimmedLeft = raw.replace(/^\s+/, "")` |
+| 禁用 `calc-eq` 时 `=1+1` | —                       | `null`                              | 普通搜索                                              |
 
 **关键设计点**：
+
 - 返回的 `kind` 仍是 `"calc"`，而非新建 `"calc-eq"` kind——只有"触发来源"不同，下游不需要分支。
 - enabled 判断使用 `"calc-eq"` id，所以 `=` 触发可独立禁用，与 `calc` 开关解耦。
 - `=` 后的内容统一 `trim()`，与 calc 自身归一化协作（calc 内部还会再吃掉空格）。
@@ -117,11 +119,7 @@ export type QuickCommandId = "todo-create" | "calc" | "calc-eq";
 `apps/desktop/src/utils/spotlight-query.ts`：
 
 ```ts
-const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>([
-  "todo-create",
-  "calc",
-  "calc-eq",
-]);
+const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>(["todo-create", "calc", "calc-eq"]);
 ```
 
 ### 配置持久化
@@ -133,6 +131,7 @@ const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>([
 ## 渲染链路
 
 `SpotlightPanel.vue` 现有 `quickCommand.value?.kind === "calc"` 分支（约 `:343`）覆盖：
+
 - `text === ""` → 空态卡（`itemId: "calc:empty"`）
 - `text` 合法 → 结果卡（`itemId: "calc:<text>"`，标题 `{text} = {displayValue}`）
 - `text` 不完整但 `getCalcPreview` 有兜底 → 预览卡（`itemId: "calc:<text>:preview"`）
@@ -175,66 +174,66 @@ const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>([
 `apps/desktop/src/utils/spotlight-query.test.ts` 新增用例（与 `parseQuickCommand` 现有测试同一 describe）：
 
 ```ts
-it('= 前缀直达计算，不需要空格', () => {
-  expect(parseQuickCommand('=1+1')).toEqual({ kind: 'calc', text: '1+1' });
+it("= 前缀直达计算，不需要空格", () => {
+  expect(parseQuickCommand("=1+1")).toEqual({ kind: "calc", text: "1+1" });
 });
 
-it('= 后允许空格，与 =<expr> 等价', () => {
-  expect(parseQuickCommand('= 1+1')).toEqual({ kind: 'calc', text: '1+1' });
+it("= 后允许空格，与 =<expr> 等价", () => {
+  expect(parseQuickCommand("= 1+1")).toEqual({ kind: "calc", text: "1+1" });
 });
 
-it('单独 = 等价于空 calc', () => {
-  expect(parseQuickCommand('=')).toEqual({ kind: 'calc', text: '' });
+it("单独 = 等价于空 calc", () => {
+  expect(parseQuickCommand("=")).toEqual({ kind: "calc", text: "" });
 });
 
-it('= 前缀容忍前导空格', () => {
-  expect(parseQuickCommand('  =1+1')).toEqual({ kind: 'calc', text: '1+1' });
+it("= 前缀容忍前导空格", () => {
+  expect(parseQuickCommand("  =1+1")).toEqual({ kind: "calc", text: "1+1" });
 });
 
-it('= 非法表达式仍走 calc 分支，由渲染层报错', () => {
-  expect(parseQuickCommand('=abc')).toEqual({ kind: 'calc', text: 'abc' });
+it("= 非法表达式仍走 calc 分支，由渲染层报错", () => {
+  expect(parseQuickCommand("=abc")).toEqual({ kind: "calc", text: "abc" });
 });
 
-it('= 后接括号/小数等仍直达计算', () => {
-  expect(parseQuickCommand('=(2+3)*4')).toEqual({ kind: 'calc', text: '(2+3)*4' });
+it("= 后接括号/小数等仍直达计算", () => {
+  expect(parseQuickCommand("=(2+3)*4")).toEqual({ kind: "calc", text: "(2+3)*4" });
 });
 
-it('== / === / => 不当作算式，回落搜索', () => {
-  expect(parseQuickCommand('==')).toBeNull();
-  expect(parseQuickCommand('===')).toBeNull();
-  expect(parseQuickCommand('=>')).toBeNull();
-  expect(parseQuickCommand('=> item')).toBeNull();
+it("== / === / => 不当作算式，回落搜索", () => {
+  expect(parseQuickCommand("==")).toBeNull();
+  expect(parseQuickCommand("===")).toBeNull();
+  expect(parseQuickCommand("=>")).toBeNull();
+  expect(parseQuickCommand("=> item")).toBeNull();
 });
 
-it('禁用 calc-eq 时 = 不解析', () => {
-  const enabled = new Set<QuickCommandId>(['todo-create', 'calc']);
-  expect(parseQuickCommand('=1+1', enabled)).toBeNull();
+it("禁用 calc-eq 时 = 不解析", () => {
+  const enabled = new Set<QuickCommandId>(["todo-create", "calc"]);
+  expect(parseQuickCommand("=1+1", enabled)).toBeNull();
 });
 
-it('启用 calc-eq 但禁用 calc，= 仍生效', () => {
-  const enabled = new Set<QuickCommandId>(['calc-eq']);
-  expect(parseQuickCommand('=1+1', enabled)).toEqual({ kind: 'calc', text: '1+1' });
-  expect(parseQuickCommand('calc 1+1', enabled)).toBeNull();
+it("启用 calc-eq 但禁用 calc，= 仍生效", () => {
+  const enabled = new Set<QuickCommandId>(["calc-eq"]);
+  expect(parseQuickCommand("=1+1", enabled)).toEqual({ kind: "calc", text: "1+1" });
+  expect(parseQuickCommand("calc 1+1", enabled)).toBeNull();
 });
 ```
 
 `apps/desktop/src/spotlight/config-store.test.ts`：现有 `mergeView` 默认值用例（`uses descriptor defaults when config is empty`）追加一行断言，锁定默认启用契约：
 
 ```ts
-expect(view.enabledQuickCommands.has('calc-eq')).toBe(true);
+expect(view.enabledQuickCommands.has("calc-eq")).toBe(true);
 ```
 
 回归：现有 `parseQuickCommand` 测试（`+ ` / `calc 1+1` / `calc` 单独 / `calcXXX` 拒绝）全部应继续通过。`config-store.test.ts` 现有断言均用 `.has()`（非精确集合/长度比较），新增 `calc-eq` 不会破坏既有用例。
 
 ## 影响面
 
-| 文件 | 改动 |
-|---|---|
-| `apps/desktop/src/spotlight/types.ts` | `QuickCommandId` 联合类型加 `"calc-eq"` |
-| `apps/desktop/src/spotlight/quick-commands.ts` | `QUICK_COMMAND_DESCRIPTORS` 追加 `calc-eq` 描述符 |
-| `apps/desktop/src/utils/spotlight-query.ts` | `DEFAULT_ENABLED_QUICK_COMMANDS` 加 `"calc-eq"`；`parseQuickCommand` 加带 blocklist 守卫的 `=` 分支 |
-| `apps/desktop/src/utils/spotlight-query.test.ts` | 新增 9 条 `=` 解析测试（含 `==`/`===`/`=>` 放行） |
-| `apps/desktop/src/spotlight/config-store.test.ts` | 默认值用例追加 1 行 `calc-eq` 默认启用断言 |
+| 文件                                              | 改动                                                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/spotlight/types.ts`             | `QuickCommandId` 联合类型加 `"calc-eq"`                                                             |
+| `apps/desktop/src/spotlight/quick-commands.ts`    | `QUICK_COMMAND_DESCRIPTORS` 追加 `calc-eq` 描述符                                                   |
+| `apps/desktop/src/utils/spotlight-query.ts`       | `DEFAULT_ENABLED_QUICK_COMMANDS` 加 `"calc-eq"`；`parseQuickCommand` 加带 blocklist 守卫的 `=` 分支 |
+| `apps/desktop/src/utils/spotlight-query.test.ts`  | 新增 9 条 `=` 解析测试（含 `==`/`===`/`=>` 放行）                                                   |
+| `apps/desktop/src/spotlight/config-store.test.ts` | 默认值用例追加 1 行 `calc-eq` 默认启用断言                                                          |
 
 **不动**：`SpotlightPanel.vue`（渲染/执行/Enter 链路无变化）、`SpotlightSettings.vue`（模板已 `v-for` 自动覆盖）、`config-store.ts`（结构兼容，`mergeView` 已按描述符 + `defaultEnabled` 解析）、`calc.ts`（计算逻辑不变）、任何 Rust 端代码。
 

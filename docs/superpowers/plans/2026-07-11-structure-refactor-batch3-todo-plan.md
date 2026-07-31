@@ -7,12 +7,12 @@
 
 ## 总览
 
-| 阶段 | 内容 | 提交数 | 核心验收 |
-|------|------|--------|----------|
-| 3a | 9 个 Todo* 组件 + 5 个 colocated 测试迁入 `components/todo/` | 1 | typecheck + build:web + test + e2e |
-| 3b | TodoPanel.vue（2961 行）拆 5 个 composable | 5 | 同上 + 行为清单手工冒烟 |
-| 3c | todo.rs（3253 行）目录化拆分 | 约 7 | `cargo test todo` 用例数前后一致（基线 22） |
-| 3d | process.md 经验沉淀 | 1 | — |
+| 阶段 | 内容                                                          | 提交数 | 核心验收                                    |
+| ---- | ------------------------------------------------------------- | ------ | ------------------------------------------- |
+| 3a   | 9 个 Todo\* 组件 + 5 个 colocated 测试迁入 `components/todo/` | 1      | typecheck + build:web + test + e2e          |
+| 3b   | TodoPanel.vue（2961 行）拆 5 个 composable                    | 5      | 同上 + 行为清单手工冒烟                     |
+| 3c   | todo.rs（3253 行）目录化拆分                                  | 约 7   | `cargo test todo` 用例数前后一致（基线 22） |
+| 3d   | process.md 经验沉淀                                           | 1      | —                                           |
 
 前端路径均相对 `apps/desktop/src/`，Rust 路径相对 `apps/desktop/src-tauri/src/`。
 
@@ -49,6 +49,7 @@ script 段 455-2187；模板 1-454 与样式 2189+ 本阶段不动。五个抽�
 **共享状态留壳层**（批次 1b 先例）：`items/types/assignees/projectOptions`、`itemDraft`、`detailMode/itemDialogMode/selectedItemId/draftBaseline/editingItemSnapshot`、筛选条件 refs、`todoDetailEditRef`、右键菜单 `todoContextMenu`。composable 只接收 refs/回调、返回派生与函数。
 
 **测试约束（已核实断言目标）**：
+
 - `TodoPanel.quick-add.test.ts` 盯 `quickAddContext` 派生、`onQuickAddCreated`/`isItemVisibleInList`、高亮 timer、onBeforeUnmount 清理 → 这些**全部留壳层**，测试零改动。
 - `TodoPanel.title-enter.test.ts` 盯 `onTitleEnter` 函数体与 `void saveItem()` 调用 → `onTitleEnter`、`saveItem` 胶水**留壳层**，测试零改动。
 - `TodoPanel.edit-focus.test.ts` 盯 `enterEditMode` 签名与 focus 链 → 随编辑器状态机迁出，**同步把该测试对应断言的读取源改为 composable 文件**（行为断言本身不变，机械改路径）。
@@ -62,7 +63,7 @@ script 段 455-2187；模板 1-454 与样式 2189+ 本阶段不动。五个抽�
 
 ### 3b.2 `composables/useTodoScheduleFields.ts`(调度字段)
 
-- 搬移：616-637（pad2/splitDraftEventTime/composeDraftEventTime）、719-736（hourOptions/minuteOptions/repeatPresetOptions/weekdayOptions/priorityOptions）、592-601（reminderPresetOptions）、1085-1108（showRecurrenceFields/showCustomRepeatFields/showCronRepeatFields/eventHour/eventMinute；editingItemIsRecurring 见下）、1215-1221（disabled* 时间选择限制）、1243-1380（buildRulePayload/buildEndValue/buildEventAt/syncSimpleDraftFromRule/applyRepeatPresetRule/onRepeatPresetChange/onCustomFrequencyChange/onReminderPresetsChange/resetReminderPresetsToNone/clearEventSchedule/fillDefaultDateTime/fillQuickDate）、`isRepeating`（773）。
+- 搬移：616-637（pad2/splitDraftEventTime/composeDraftEventTime）、719-736（hourOptions/minuteOptions/repeatPresetOptions/weekdayOptions/priorityOptions）、592-601（reminderPresetOptions）、1085-1108（showRecurrenceFields/showCustomRepeatFields/showCronRepeatFields/eventHour/eventMinute；editingItemIsRecurring 见下）、1215-1221（disabled\* 时间选择限制）、1243-1380（buildRulePayload/buildEndValue/buildEventAt/syncSimpleDraftFromRule/applyRepeatPresetRule/onRepeatPresetChange/onCustomFrequencyChange/onReminderPresetsChange/resetReminderPresetsToNone/clearEventSchedule/fillDefaultDateTime/fillQuickDate）、`isRepeating`（773）。
 - 输入：`itemDraft`、`lastReminderPresetSelection`、`editingItemSnapshot`、`itemDialogMode`。`editingItemIsRecurring`（1085-1087）随迁（仅 onRepeatPresetChange 与模板使用，从返回值暴露）。
 - `initialCreateSchedule`（738）使用点实施时核实，跟随使用方。
 - **提交**：`refactor(todo): 抽取 useTodoScheduleFields`
@@ -98,6 +99,7 @@ script 段 455-2187；模板 1-454 与样式 2189+ 本阶段不动。五个抽�
 对账基准（2026-07-11 已核实）：ACTIONS 26 词条（83-104 行）；`execute` 分发 111-138；`#[cfg(test)] mod tests` 2730 行至文件尾，22 个 `#[test]`。
 
 **外部符号（必须经 mod.rs `pub use` 再导出保持调用点零改动，已核实 6 处调用方）**：
+
 - `execute`、`scheduler_tick`、`supported_actions`（cfg(test)）——留 mod.rs 本体
 - `ReminderDispatch`（main.rs:373/411）、`ReminderConfig` → types.rs 后 `pub use types::...`
 - `compute_remind_at`、`reminder_configs_from_presets`（pm_todo_link.rs:7）→ reminders.rs 后 `pub use`
@@ -115,7 +117,7 @@ script 段 455-2187；模板 1-454 与样式 2189+ 本阶段不动。五个抽�
 
 ### 3c.3 逐模块抽取（每步 `cargo test todo` 通过且用例数不变后提交）
 
-1. `types.rs`（常量 11-40 + 结构体 42-81：ReminderDispatch/SeriesRuleRow/ReminderConfig/TaskReminderSummary）+ `helpers.rs`（147-402：payload 解析/日期时间解析校验/scope/kind/优先级状态归一化/状态迁移 can_transit*/排序 sort_item_rows 簇）。
+1. `types.rs`（常量 11-40 + 结构体 42-81：ReminderDispatch/SeriesRuleRow/ReminderConfig/TaskReminderSummary）+ `helpers.rs`（147-402：payload 解析/日期时间解析校验/scope/kind/优先级状态归一化/状态迁移 can_transit\*/排序 sort_item_rows 簇）。
    **提交**：`refactor(todo): 抽取共享 types 与 helpers`
 2. `recurrence.rs`（402-632：rule mode/cron 构建/next occurrence/end rule + 1086-1275：load_series_rule/should_stop_series/has_other_open_in_series/generate_next_item）。
    **提交**：`refactor(todo): 抽取 recurrence 子模块`

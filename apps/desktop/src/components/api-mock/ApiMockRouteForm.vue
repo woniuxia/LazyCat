@@ -7,16 +7,44 @@
   >
     <div class="route-toolbar">
       <template v-if="fullUrl">
-        <span class="route-method" :style="{ color: getMockMethodColor(form.method) }">{{ form.method }}</span>
+        <span class="route-method" :style="{ color: getMockMethodColor(form.method) }">{{
+          form.method
+        }}</span>
         <span class="route-url">{{ fullUrl }}</span>
-        <el-button :icon="CopyDocument" size="small" text title="复制完整 URL" @click="copyFullUrl" />
+        <el-button
+          :icon="CopyDocument"
+          size="small"
+          text
+          title="复制完整 URL"
+          @click="copyFullUrl"
+        />
       </template>
       <span class="toolbar-status">
-        {{ getMockRouteSpecificityLabel(form.pathPattern) }}匹配<span v-if="dirty" class="dirty-hint"> · 有未保存修改</span>
+        {{ getMockRouteSpecificityLabel(form.pathPattern) }}匹配<span
+          v-if="dirty"
+          class="dirty-hint"
+        >
+          · 有未保存修改</span
+        >
       </span>
       <div class="toolbar-actions">
-        <el-button v-if="form.id !== null" :icon="Delete" size="small" type="danger" text @click="emit('delete')">删除</el-button>
-        <el-button type="primary" size="small" :disabled="!canSave" title="Ctrl+S" @click="emit('save')">保存路由</el-button>
+        <el-button
+          v-if="form.id !== null"
+          :icon="Delete"
+          size="small"
+          type="danger"
+          text
+          @click="emit('delete')"
+          >删除</el-button
+        >
+        <el-button
+          type="primary"
+          size="small"
+          :disabled="!canSave"
+          title="Ctrl+S"
+          @click="emit('save')"
+          >保存路由</el-button
+        >
       </div>
     </div>
 
@@ -27,14 +55,24 @@
         </el-form-item>
         <el-form-item label="方法" class="fi-method">
           <el-select v-model="form.method">
-            <el-option v-for="method in API_MOCK_METHODS" :key="method" :label="method" :value="method" />
+            <el-option
+              v-for="method in API_MOCK_METHODS"
+              :key="method"
+              :label="method"
+              :value="method"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="路径匹配" class="fi-path">
           <el-input v-model="form.pathPattern" placeholder="/api/users/:id 或 /files/*" />
         </el-form-item>
         <el-form-item label="状态码" class="fi-status">
-          <el-input-number v-model="form.statusCode" :min="100" :max="599" controls-position="right" />
+          <el-input-number
+            v-model="form.statusCode"
+            :min="100"
+            :max="599"
+            controls-position="right"
+          />
         </el-form-item>
         <el-form-item label="延迟 (ms)" class="fi-delay">
           <el-input-number
@@ -65,7 +103,9 @@
           <el-button :icon="Delete" text @click="form.headers.splice(index, 1)" />
         </div>
       </div>
-      <div v-else class="section-hint">未配置自定义响应头；Content-Type 与 CORS 头会按配置自动附加。</div>
+      <div v-else class="section-hint">
+        未配置自定义响应头；Content-Type 与 CORS 头会按配置自动附加。
+      </div>
     </section>
 
     <el-collapse class="cors-collapse">
@@ -89,7 +129,12 @@
               placeholder="留空自动使用路由方法"
               :disabled="!form.cors.enabled"
             >
-              <el-option v-for="method in API_MOCK_METHODS" :key="method" :label="method" :value="method" />
+              <el-option
+                v-for="method in API_MOCK_METHODS"
+                :key="method"
+                :label="method"
+                :value="method"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="Allow-Headers">
@@ -111,7 +156,8 @@
           </el-form-item>
         </div>
         <div v-if="form.cors.enabled" class="cors-hint">
-          启用后自动响应 OPTIONS 预检（204）；配置多个来源时按请求 Origin 回显，并自动附带 Vary: Origin。
+          启用后自动响应 OPTIONS 预检（204）；配置多个来源时按请求 Origin 回显，并自动附带 Vary:
+          Origin。
         </div>
         <div v-if="corsError" class="api-mock-error">{{ corsError }}</div>
       </el-collapse-item>
@@ -171,7 +217,8 @@
         <div>
           <strong>{{ file?.originalName || "未选择文件" }}</strong>
           <span v-if="file">
-            {{ file.contentType || "application/octet-stream" }} · {{ formatMockFileSize(file.size) }}
+            {{ file.contentType || "application/octet-stream" }} ·
+            {{ formatMockFileSize(file.size) }}
           </span>
         </div>
         <el-button :icon="Upload" @click="emit('pick-file')">导入文件</el-button>
@@ -184,9 +231,19 @@
 import { computed, ref } from "vue";
 import { CopyDocument, Delete, Plus, Upload } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-import { formatCss, formatHtml, formatJavaScript, formatJson, formatXml } from "@lazycat/formatters";
+import {
+  formatCss,
+  formatHtml,
+  formatJavaScript,
+  formatJson,
+  formatXml,
+} from "@lazycat/formatters";
 import MonacoPane from "../MonacoPane.vue";
-import type { ApiMockFileInfo, ApiMockProjectSummary, ApiMockRouteFormModel } from "../../types/api-mock";
+import type {
+  ApiMockFileInfo,
+  ApiMockProjectSummary,
+  ApiMockRouteFormModel,
+} from "../../types/api-mock";
 import {
   API_MOCK_CONTENT_TYPE_PRESETS,
   API_MOCK_METHODS,
@@ -230,7 +287,8 @@ const formattingBody = ref(false);
 const corsTitle = computed(() => {
   if (!props.form.cors.enabled) return "CORS（已关闭）";
   const origins = parseMockCorsOriginList(props.form.cors.allowOrigin);
-  const originSummary = origins.length === 0 ? "*" : origins.length === 1 ? origins[0] : `${origins.length} 个来源`;
+  const originSummary =
+    origins.length === 0 ? "*" : origins.length === 1 ? origins[0] : `${origins.length} 个来源`;
   return `CORS（已启用 · ${originSummary}）`;
 });
 

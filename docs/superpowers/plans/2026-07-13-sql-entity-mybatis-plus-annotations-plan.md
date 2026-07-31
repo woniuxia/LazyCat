@@ -35,9 +35,11 @@
 ### Task 1: 用失败测试固定 MyBatis-Plus Java 输出契约
 
 **Files:**
+
 - Modify/Test: `apps/desktop/src-tauri/src/tools/convert.rs:1512-1733`
 
 **Interfaces:**
+
 - Consumes: existing `execute("sql_to_entity", payload)` test entrypoint.
 - Produces: executable expectations for `options.mybatisPlus`, annotation imports, single primary keys, auto increment, renamed fields, and composite primary keys.
 
@@ -180,6 +182,7 @@ Expected: the new tests fail because `mybatisPlus` is ignored and no MyBatis-Plu
 ### Task 2: 解析主键/自增元数据并生成 Java 注解
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs:402-436`
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs:473-540`
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs:775-827`
@@ -187,6 +190,7 @@ Expected: the new tests fail because `mybatisPlus` is ignored and no MyBatis-Plu
 - Test: `apps/desktop/src-tauri/src/tools/convert.rs:1512-1733`
 
 **Interfaces:**
+
 - Consumes: `options.mybatisPlus: bool`, defaulting to `false`.
 - Produces: `generate_java(table: &SqlTable, naming: &str, comments: bool, mybatis_plus: bool) -> String`.
 - Produces: `SqlTable.primary_keys: Vec<String>` and `SqlColumn.auto_increment: bool`.
@@ -437,6 +441,7 @@ git commit -m "feat(sql-entity): 生成 MyBatis-Plus 实体注解"
 ### Task 3: 增加 Java 专属前端选项并传递参数
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/SqlEntityPanel.vue:2-13`
 - Modify: `apps/desktop/src/components/SqlEntityPanel.vue:43-56`
 - Modify: `apps/desktop/src/components/SqlEntityPanel.vue:81-91`
@@ -444,6 +449,7 @@ git commit -m "feat(sql-entity): 生成 MyBatis-Plus 实体注解"
 - Modify: `apps/desktop/src/components/SqlEntityPanel.vue:130-136`
 
 **Interfaces:**
+
 - Consumes: existing `language` state and `invokeToolByChannel("tool:convert:sql-to-entity", payload)`.
 - Produces: `options.mybatisPlus: boolean`; backend defaults remain compatible when absent.
 
@@ -525,11 +531,13 @@ git commit -m "feat(sql-entity): 添加 MyBatis-Plus 注解选项"
 ### Task 4: 完整验证与交付检查
 
 **Files:**
+
 - Verify: `apps/desktop/src-tauri/src/tools/convert.rs`
 - Verify: `apps/desktop/src/components/SqlEntityPanel.vue`
 - Verify: `docs/superpowers/specs/2026-07-13-sql-entity-mybatis-plus-annotations-design.md`
 
 **Interfaces:**
+
 - Consumes: Tasks 1-3 completed commits.
 - Produces: evidence that code matches the approved spec and existing conversion behavior remains intact.
 

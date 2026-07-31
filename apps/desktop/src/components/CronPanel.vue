@@ -34,7 +34,7 @@
         <h3>表达式</h3>
         <el-space>
           <el-tag :type="isExpressionValid ? 'success' : 'info'" effect="light">
-            {{ isExpressionValid ? '已校验' : '未校验' }}
+            {{ isExpressionValid ? "已校验" : "未校验" }}
           </el-tag>
         </el-space>
       </div>
@@ -77,7 +77,9 @@
 
     <section class="panel-block">
       <div class="section-head">
-        <h3>字段构建（{{ selectedStandard.label }} {{ cronStandard === 'linux5' ? '5' : '6' }} 字段）</h3>
+        <h3>
+          字段构建（{{ selectedStandard.label }} {{ cronStandard === "linux5" ? "5" : "6" }} 字段）
+        </h3>
       </div>
 
       <div class="field-grid">
@@ -145,8 +147,20 @@
 import { computed, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { CronDescribeResponse, CronFieldParts, CronNormalizeResponse, CronPreviewItem, CronPreviewV2Response, CronStandard } from "../types";
-import { buildCronExpression, coerceCronParts, CRON_STANDARD_OPTIONS, templatesForStandard } from "../utils/cron";
+import type {
+  CronDescribeResponse,
+  CronFieldParts,
+  CronNormalizeResponse,
+  CronPreviewItem,
+  CronPreviewV2Response,
+  CronStandard,
+} from "../types";
+import {
+  buildCronExpression,
+  coerceCronParts,
+  CRON_STANDARD_OPTIONS,
+  templatesForStandard,
+} from "../utils/cron";
 
 const baseFieldDefs: Array<{
   key: keyof CronFieldParts;
@@ -159,7 +173,12 @@ const baseFieldDefs: Array<{
   { key: "hour", label: "时", placeholder: "*", shortcuts: ["*", "*/2", "9-18", "0"] },
   { key: "dayOfMonth", label: "日", placeholder: "*", shortcuts: ["*", "1", "1-5", "*/2"] },
   { key: "month", label: "月", placeholder: "*", shortcuts: ["*", "1", "1-6", "7-12"] },
-  { key: "dayOfWeek", label: "周", placeholder: "*", shortcuts: ["*", "Mon-Fri", "Mon", "Sat,Sun"] },
+  {
+    key: "dayOfWeek",
+    label: "周",
+    placeholder: "*",
+    shortcuts: ["*", "Mon-Fri", "Mon", "Sat,Sun"],
+  },
 ];
 
 const timezoneOptions = [
@@ -181,19 +200,29 @@ const fields = reactive<CronFieldParts>({
 
 const cronStandard = ref<CronStandard>("linux5");
 const standardOptions = CRON_STANDARD_OPTIONS.map(({ label, value }) => ({ label, value }));
-const selectedStandard = computed(() => CRON_STANDARD_OPTIONS.find((item) => item.value === cronStandard.value)!);
+const selectedStandard = computed(
+  () => CRON_STANDARD_OPTIONS.find((item) => item.value === cronStandard.value)!,
+);
 const templates = computed(() => templatesForStandard(cronStandard.value));
-const fieldDefs = computed(() => baseFieldDefs
-  .filter((field) => cronStandard.value !== "linux5" || field.key !== "second")
-  .map((field) => {
-    if (cronStandard.value !== "quartz" || (field.key !== "dayOfMonth" && field.key !== "dayOfWeek")) return field;
-    return { ...field, shortcuts: [...field.shortcuts, "?"] };
-  }));
-const expressionPlaceholder = computed(() => cronStandard.value === "linux5"
-  ? "分 时 日 月 周，例如：0 9 * * Mon-Fri"
-  : cronStandard.value === "quartz"
-    ? "秒 分 时 日 月 周，例如：0 0 9 ? * Mon-Fri"
-    : "秒 分 时 日 月 周，例如：0 0 9 * * Mon-Fri");
+const fieldDefs = computed(() =>
+  baseFieldDefs
+    .filter((field) => cronStandard.value !== "linux5" || field.key !== "second")
+    .map((field) => {
+      if (
+        cronStandard.value !== "quartz" ||
+        (field.key !== "dayOfMonth" && field.key !== "dayOfWeek")
+      )
+        return field;
+      return { ...field, shortcuts: [...field.shortcuts, "?"] };
+    }),
+);
+const expressionPlaceholder = computed(() =>
+  cronStandard.value === "linux5"
+    ? "分 时 日 月 周，例如：0 9 * * Mon-Fri"
+    : cronStandard.value === "quartz"
+      ? "秒 分 时 日 月 周，例如：0 0 9 ? * Mon-Fri"
+      : "秒 分 时 日 月 周，例如：0 0 9 * * Mon-Fri",
+);
 const cronExpression = ref(buildCronExpression(fields, cronStandard.value));
 const warnings = ref<string[]>([]);
 const isExpressionValid = ref(false);
@@ -205,7 +234,9 @@ const previewCount = ref(8);
 const previewTimezone = ref("local");
 const previewItems = ref<CronPreviewItem[]>([]);
 
-const domDowHint = computed(() => !["*", "?"].includes(fields.dayOfMonth) && !["*", "?"].includes(fields.dayOfWeek));
+const domDowHint = computed(
+  () => !["*", "?"].includes(fields.dayOfMonth) && !["*", "?"].includes(fields.dayOfWeek),
+);
 const summaryDetailRows = computed(() =>
   summaryDetails.value.map((item) => {
     const idx = item.indexOf(":");

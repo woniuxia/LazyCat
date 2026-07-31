@@ -7,12 +7,12 @@
 
 ## 总览
 
-| Phase | 目标 | 预估 | 关键依赖 |
-|-------|------|------|---------|
-| Phase 0 | 类型 / 通道 / 事件契约对齐 | 0.5 天 | 无 |
-| Phase 1 | 特性 1：剪贴板智能首项 | 1 天 | Phase 0 |
-| Phase 2 | 特性 2：Todo 速建 | 0.5 天 | Phase 0 |
-| Phase 3 | 特性 3：Hosts 切换反馈 | 0.5 天 | Phase 0 |
+| Phase   | 目标                        | 预估   | 关键依赖  |
+| ------- | --------------------------- | ------ | --------- |
+| Phase 0 | 类型 / 通道 / 事件契约对齐  | 0.5 天 | 无        |
+| Phase 1 | 特性 1：剪贴板智能首项      | 1 天   | Phase 0   |
+| Phase 2 | 特性 2：Todo 速建           | 0.5 天 | Phase 0   |
+| Phase 3 | 特性 3：Hosts 切换反馈      | 0.5 天 | Phase 0   |
 | Phase 4 | 自测 + typecheck + 测试用例 | 0.5 天 | Phase 1-3 |
 
 **Phase 1 / 2 / 3 互不依赖，可串可并。Phase 0 的 payload 扩展是 Phase 1 的前置硬依赖。**
@@ -26,6 +26,7 @@
 **文件**：`apps/desktop/src-tauri/src/main.rs:978`
 
 **改动**：
+
 - `spotlight_pick(app, target: String)` 增加可选参数 `text: Option<String>` 和 `source: Option<String>`
 - `HotkeyNavigatePayload` 结构体（搜一下当前定义位置）增加同名可选字段
 - 透传到 `window.emit("hotkey-navigate", ...)`
@@ -37,13 +38,14 @@
 **文件**：`apps/desktop/src/App.vue` 中 `hotkey-navigate` 监听处
 
 **改动**：
+
 - 解构出 `text` / `source`
 - navigate 完成后（即工具切换 / 视图聚焦的现有逻辑跑完），如果 `text` 非空：
   ```ts
   useClipboardSuggestion().setPendingToolInput({
     toolId: target,
     text,
-    source: source as PendingToolInput["source"] ?? "clipboard-suggestion",
+    source: (source as PendingToolInput["source"]) ?? "clipboard-suggestion",
   });
   ```
 - 注意 `setPendingToolInput` 是模块级单例，主窗口直接调用即可
@@ -69,6 +71,7 @@
 **新增文件**：`apps/desktop/src/spotlight/providers/suggestion.ts`
 
 **结构**：
+
 - 导出 `suggestionProvider: SpotlightProvider`
 - `id: "suggestion"`（注意要在 `SpotlightProviderId` 联合类型新增）
 - `scopeKeys: []`（不暴露前缀）
@@ -89,6 +92,7 @@
 **文件**：`apps/desktop/src/components/SpotlightPanel.vue`
 
 **新增剪贴板状态**：
+
 ```ts
 import { detectClipboardContent } from "../utils/clipboard-detect";
 import { isRealToolId, getToolById } from "../composables/toolCatalog"; // 视实际导出补全
@@ -107,9 +111,12 @@ async function refreshClipboardSuggestion() {
   }
   try {
     const text = await navigator.clipboard.readText();
-    if (!text) { clipboardSuggestion.value = null; return; }
+    if (!text) {
+      clipboardSuggestion.value = null;
+      return;
+    }
     const detected = detectClipboardContent(text);
-    const toolAction = detected?.actions.find(a => a.kind === "tool");
+    const toolAction = detected?.actions.find((a) => a.kind === "tool");
     if (!toolAction || !isRealToolId(toolAction.toolId)) {
       clipboardSuggestion.value = null;
       return;
@@ -120,22 +127,28 @@ async function refreshClipboardSuggestion() {
       text,
       preview: text.replace(/\n/g, " ").slice(0, 32) + (text.length > 32 ? "…" : ""),
     };
-  } catch { clipboardSuggestion.value = null; }
+  } catch {
+    clipboardSuggestion.value = null;
+  }
 }
 ```
 
 **调用时机**：
+
 - `onMounted` 中 `prefetchAll()` 之后调用一次
 - `spotlight-reset` 监听器中再调用一次
 
 **results 计算改造**：
+
 ```ts
 const results = computed(() => {
   // 速建模式（Phase 2）优先
   // ...
   const text = parsed.value.query;
   const baseResults = !text.trim()
-    ? (itemsByProvider.value.get("tool") ?? []).slice(0, RESULT_LIMIT).map(item => ({ item, score: 0 }))
+    ? (itemsByProvider.value.get("tool") ?? [])
+        .slice(0, RESULT_LIMIT)
+        .map((item) => ({ item, score: 0 }))
     : searchItems(text, itemsByProvider.value, { scope: scope.value, limit: RESULT_LIMIT });
 
   // 仅空查询且建议项有效时前置插入
@@ -157,6 +170,7 @@ const results = computed(() => {
 ```
 
 **注册 provider 导入**：
+
 ```ts
 import "../spotlight/providers/suggestion";
 ```
@@ -183,6 +197,7 @@ import "../spotlight/providers/suggestion";
 **文件**：`apps/desktop/src/utils/spotlight-query.ts`
 
 **新增**：
+
 ```ts
 export interface QuickCommandTodoCreate {
   kind: "todo-create";
@@ -202,6 +217,7 @@ export function parseQuickCommand(raw: string): QuickCommand | null {
 **文件**：`apps/desktop/src/utils/spotlight-query.test.ts`
 
 **新增用例**：
+
 - `parseQuickCommand("+ 写周报")` -> `{ kind: "todo-create", text: "写周报" }`
 - `parseQuickCommand("+ ")` -> `{ kind: "todo-create", text: "" }`
 - `parseQuickCommand("+1")` -> `null`
@@ -213,11 +229,13 @@ export function parseQuickCommand(raw: string): QuickCommand | null {
 **文件**：`apps/desktop/src/components/SpotlightPanel.vue`
 
 **新增 computed**：
+
 ```ts
 const quickCommand = computed(() => parseQuickCommand(query.value.replace(/^\s+/, "")));
 ```
 
 **results 计算**：在最前增加分支
+
 ```ts
 if (quickCommand.value?.kind === "todo-create") {
   const text = quickCommand.value.text;
@@ -235,6 +253,7 @@ if (quickCommand.value?.kind === "todo-create") {
 ```
 
 **commitDefault 分支处理**：
+
 ```ts
 async function commitDefault(item: SpotlightItem) {
   if (item.payload?.kind === "todo-create") {
@@ -255,6 +274,7 @@ async function commitDefault(item: SpotlightItem) {
 **文件**：`apps/desktop/src/spotlight/providers/todo.ts`
 
 **导出**：
+
 ```ts
 export async function createTodoDraft(text: string): Promise<SpotlightExecuteResult> {
   try {
@@ -291,6 +311,7 @@ export async function createTodoDraft(text: string): Promise<SpotlightExecuteRes
 **文件**：`apps/desktop/src/spotlight/providers/hosts.ts`
 
 **改动**：在 `defaultAction` apply 成功路径之后：
+
 ```ts
 import { emit } from "@tauri-apps/api/event";
 // ...
@@ -304,9 +325,14 @@ await emit("hosts-applied", { name: profileName });
 **文件**：`apps/desktop/src/App.vue`
 
 **新增监听**：
+
 ```ts
 import { listen } from "@tauri-apps/api/event";
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { ElMessage } from "element-plus";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -326,7 +352,10 @@ await listen<{ name: string }>("hosts-applied", async (event) => {
   if (!granted) {
     const perm = await requestPermission();
     granted = perm === "granted";
-    if (!granted) { setSetting("hosts_notification_denied", "true"); return; }
+    if (!granted) {
+      setSetting("hosts_notification_denied", "true");
+      return;
+    }
   }
   await sendNotification({ title: "LazyCat", body: `已应用 Hosts 配置：${name}` });
 });
@@ -370,6 +399,7 @@ await listen<{ name: string }>("hosts-applied", async (event) => {
 ### 4.3 提交规范
 
 按 CLAUDE.md `08.1`：
+
 - `feat(spotlight): 剪贴板内容呼出后自动建议匹配工具`
 - `feat(spotlight): 支持 + 前缀速建 Todo`
 - `feat(spotlight): Hosts 切换后主窗口提示`
@@ -380,12 +410,12 @@ await listen<{ name: string }>("hosts-applied", async (event) => {
 
 ## 风险与回退
 
-| 风险 | 触发条件 | 回退策略 |
-|------|---------|---------|
-| Tauri webview 间 emit 不可达 | Phase 3 的 `emit('hosts-applied')` 主窗口收不到 | 在 Rust 端加桥接命令 `notify_main(event, payload)` |
-| `tool:todo:item-create` 字段命名/必填项与设计假设不符 | Phase 2 创建报错 | 按报错信息调整 payload；或引用 todo provider 已有 prefetch 中的 list 兜底 |
-| 建议项 `text` 含特殊字符（emoji / 多字节）显示溢出 | 极端长文本 | preview 已截断 32 字符；CSS 单行省略号已处理 |
-| 主窗口监听 `hotkey-navigate` 已有逻辑被 text 字段干扰 | text 在某些 navigate 路径下被误用 | 仅当 `source === 'clipboard-suggestion'` 才调 `setPendingToolInput` |
+| 风险                                                  | 触发条件                                        | 回退策略                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
+| Tauri webview 间 emit 不可达                          | Phase 3 的 `emit('hosts-applied')` 主窗口收不到 | 在 Rust 端加桥接命令 `notify_main(event, payload)`                        |
+| `tool:todo:item-create` 字段命名/必填项与设计假设不符 | Phase 2 创建报错                                | 按报错信息调整 payload；或引用 todo provider 已有 prefetch 中的 list 兜底 |
+| 建议项 `text` 含特殊字符（emoji / 多字节）显示溢出    | 极端长文本                                      | preview 已截断 32 字符；CSS 单行省略号已处理                              |
+| 主窗口监听 `hotkey-navigate` 已有逻辑被 text 字段干扰 | text 在某些 navigate 路径下被误用               | 仅当 `source === 'clipboard-suggestion'` 才调 `setPendingToolInput`       |
 
 ## 下一步
 

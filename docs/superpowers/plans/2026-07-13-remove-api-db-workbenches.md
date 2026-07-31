@@ -53,6 +53,7 @@
 ### Task 1: 移除前端入口、IPC 契约和专属前端代码
 
 **Files:**
+
 - Create: `apps/desktop/src/composables/toolCatalog.test.ts`
 - Modify: `apps/desktop/src/composables/toolCatalog.ts`
 - Modify: `apps/desktop/src/tool-registry.ts`
@@ -104,6 +105,7 @@
 - Delete: `apps/desktop/src/utils/dbSqlClassify.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getSidebarItems()`、`getAllTools()`、`isRealToolId()` 的现有公开接口。
 - Produces: 不包含 `api-workbench`、`db-workbench` 和空数据库分组的工具目录；仍包含 `api-mock`。
 
@@ -167,8 +169,8 @@ Expected: FAIL，至少出现 `api-workbench`、`db-workbench` 或 `database` �
 从 `apps/desktop/src/bridge/tauri.ts` 删除所有 key 前缀为以下值的映射：
 
 ```ts
-"tool:api-workbench:"
-"tool:db:"
+"tool:api-workbench:";
+"tool:db:";
 ```
 
 保留紧邻的 API Mock 映射和其他域映射。删除完成后，相邻结构应直接从 API Mock 进入 DNS 等其他域，不保留空注释或占位。
@@ -248,6 +250,7 @@ git commit -m "refactor(ui): 移除接口调试和数据库工作台"
 ### Task 2: 移除 Rust 域、schema 初始化和数据目录联动
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/settings.rs`
@@ -271,6 +274,7 @@ git commit -m "refactor(ui): 移除接口调试和数据库工作台"
 - Delete: `apps/desktop/src-tauri/src/tools/db_drivers/redis.rs`
 
 **Interfaces:**
+
 - Consumes: `execute_tool()` 和测试态 `supported_actions()` 的现有域分发结构。
 - Produces: 不再识别 `api_workbench` 和 `db` 域；API Mock、Vault、settings 和其他域行为不变。
 
@@ -398,10 +402,12 @@ git commit -m "refactor(tauri): 移除接口调试和数据库工作台后端"
 ### Task 3: 移除数据库驱动专属依赖并更新 Cargo.lock
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/Cargo.toml`
 - Modify: `apps/desktop/src-tauri/Cargo.lock`
 
 **Interfaces:**
+
 - Consumes: Task 2 已删除的 `db` 和 `db_drivers` 模块。
 - Produces: 不再直接依赖 `sqlx`、`rust_decimal`、`redis`、`futures-util` 的 Tauri 后端。
 
@@ -465,6 +471,7 @@ git commit -m "chore(tauri): 移除数据库工作台驱动依赖"
 ### Task 4: 删除专属历史文档并精确清理共享记录
 
 **Files:**
+
 - Delete: `docs/plans/2026-06-30-api-workbench-navigation.md`
 - Delete: `docs/plans/2026-07-11-api-workbench-request-bar-layout.md`
 - Delete: `docs/plans/2026-07-12-api-workbench-meta-actions-nowrap.md`
@@ -493,6 +500,7 @@ git commit -m "chore(tauri): 移除数据库工作台驱动依赖"
 - Keep: `docs/superpowers/plans/2026-07-13-remove-api-db-workbenches.md`
 
 **Interfaces:**
+
 - Consumes: 用户确认的“删除旧设计文档和 process.md 历史记录”决策。
 - Produces: 只有本次移除 spec/plan 仍说明两个工具；共享文档不再把它们当作现行或待实施能力。
 
@@ -644,9 +652,11 @@ git commit -m "docs: 清理已移除工作台历史文档"
 ### Task 5: 全仓残留扫描与完整验证
 
 **Files:**
+
 - Verify only; no planned source changes.
 
 **Interfaces:**
+
 - Consumes: Tasks 1-4 的全部提交。
 - Produces: 可交付的删除结果和验证证据。
 

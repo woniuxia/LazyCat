@@ -72,11 +72,12 @@ export function searchItems(
     }
   }
 
-  scored.sort((a, b) =>
-    Number(b.item.ranking?.contextual === true) - Number(a.item.ranking?.contextual === true) ||
-    b.score - a.score ||
-    a.item.providerId.localeCompare(b.item.providerId) ||
-    a.item.itemId.localeCompare(b.item.itemId),
+  scored.sort(
+    (a, b) =>
+      Number(b.item.ranking?.contextual === true) - Number(a.item.ranking?.contextual === true) ||
+      b.score - a.score ||
+      a.item.providerId.localeCompare(b.item.providerId) ||
+      a.item.itemId.localeCompare(b.item.itemId),
   );
   return scored.slice(0, limit);
 }

@@ -53,9 +53,16 @@ interface ProviderDescriptor {
   hiddenInSettings?: boolean;
   quickCommands?: QuickCommandDescriptor[];
   prefetch: () => Promise<SpotlightItem[]>;
-  defaultAction: (item: SpotlightItem, ctx: SpotlightExecuteContext) => Promise<SpotlightExecuteResult>;
+  defaultAction: (
+    item: SpotlightItem,
+    ctx: SpotlightExecuteContext,
+  ) => Promise<SpotlightExecuteResult>;
   buildActions?: (item: SpotlightItem) => SpotlightAction[];
-  executeAction?: (item: SpotlightItem, actionId: string, ctx: SpotlightExecuteContext) => Promise<SpotlightExecuteResult>;
+  executeAction?: (
+    item: SpotlightItem,
+    actionId: string,
+    ctx: SpotlightExecuteContext,
+  ) => Promise<SpotlightExecuteResult>;
 }
 
 interface QuickCommandDescriptor {
@@ -76,10 +83,13 @@ type QuickCommandId = "todo-create" | "calc";
 
 interface SpotlightConfig {
   version: 1;
-  providers: Record<SpotlightProviderId, {
-    enabled?: boolean;
-    aliases?: string[];
-  }>;
+  providers: Record<
+    SpotlightProviderId,
+    {
+      enabled?: boolean;
+      aliases?: string[];
+    }
+  >;
   quickCommands: Record<QuickCommandId, { enabled?: boolean }>;
 }
 ```
@@ -253,25 +263,25 @@ interface ResolvedProvider extends ProviderDescriptor {
 
 ## 改动文件清单
 
-| 文件 | 改动类型 | 说明 |
-|------|----------|------|
-| `apps/desktop/src/spotlight/types.ts` | 修改 | 新增 `launcher` 到 `SpotlightProviderId`;导出 `ProviderDescriptor` / `QuickCommandDescriptor` / `SpotlightConfig` / `SpotlightView` / `ResolvedProvider` |
-| `apps/desktop/src/spotlight/registry.ts` | 修改 | `registerProvider` 接受 descriptor;新增 `listDescriptors` / `getCurrentView`;`searchItems` 过滤 disabled |
-| `apps/desktop/src/spotlight/config-store.ts` | 新增 | 配置持久化 + 合并 + 广播 + 校验 |
-| `apps/desktop/src/spotlight/providers/tool.ts` | 修改 | 改为导出 descriptor,内置元信息 |
-| `apps/desktop/src/spotlight/providers/vault.ts` | 修改 | 同上 |
-| `apps/desktop/src/spotlight/providers/hosts.ts` | 修改 | 同上 |
-| `apps/desktop/src/spotlight/providers/todo.ts` | 修改 | 同上;`calc` 不属于 todo,quick command 拆到独立 descriptor 集 |
-| `apps/desktop/src/spotlight/providers/pm.ts` | 修改 | 同上 |
-| `apps/desktop/src/spotlight/providers/suggestion.ts` | 修改 | descriptor 标记 `hiddenInSettings: true` |
-| `apps/desktop/src/spotlight/providers/launcher.ts` | 新增 | launcher provider 全套实现 |
-| `apps/desktop/src/spotlight/quick-commands.ts` | 新增 | quick command descriptor 集中注册(`+ ` / `calc`) |
-| `apps/desktop/src/utils/spotlight-query.ts` | 修改 | 解析函数接收 alias map / enabled set 参数 |
-| `apps/desktop/src/utils/spotlight-query.test.ts` | 修改 | 单测对齐新签名 + 新增 alias / 禁用 quick command 用例 |
-| `apps/desktop/src/components/SpotlightPanel.vue` | 修改 | 启动 ensureLoaded;`SCOPE_LABEL` 改读 descriptor;监听配置变更 |
-| `apps/desktop/src/components/settings/SpotlightSettings.vue` | 新增 | Spotlight 设置子页 |
-| `apps/desktop/src/components/SettingsPanel.vue` | 修改 | 新增 Spotlight 子页签 |
-| `apps/desktop/src/spotlight/config-store.test.ts` | 新增 | 配置 store 单测 |
+| 文件                                                         | 改动类型 | 说明                                                                                                                                                     |
+| ------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/spotlight/types.ts`                        | 修改     | 新增 `launcher` 到 `SpotlightProviderId`;导出 `ProviderDescriptor` / `QuickCommandDescriptor` / `SpotlightConfig` / `SpotlightView` / `ResolvedProvider` |
+| `apps/desktop/src/spotlight/registry.ts`                     | 修改     | `registerProvider` 接受 descriptor;新增 `listDescriptors` / `getCurrentView`;`searchItems` 过滤 disabled                                                 |
+| `apps/desktop/src/spotlight/config-store.ts`                 | 新增     | 配置持久化 + 合并 + 广播 + 校验                                                                                                                          |
+| `apps/desktop/src/spotlight/providers/tool.ts`               | 修改     | 改为导出 descriptor,内置元信息                                                                                                                           |
+| `apps/desktop/src/spotlight/providers/vault.ts`              | 修改     | 同上                                                                                                                                                     |
+| `apps/desktop/src/spotlight/providers/hosts.ts`              | 修改     | 同上                                                                                                                                                     |
+| `apps/desktop/src/spotlight/providers/todo.ts`               | 修改     | 同上;`calc` 不属于 todo,quick command 拆到独立 descriptor 集                                                                                             |
+| `apps/desktop/src/spotlight/providers/pm.ts`                 | 修改     | 同上                                                                                                                                                     |
+| `apps/desktop/src/spotlight/providers/suggestion.ts`         | 修改     | descriptor 标记 `hiddenInSettings: true`                                                                                                                 |
+| `apps/desktop/src/spotlight/providers/launcher.ts`           | 新增     | launcher provider 全套实现                                                                                                                               |
+| `apps/desktop/src/spotlight/quick-commands.ts`               | 新增     | quick command descriptor 集中注册(`+ ` / `calc`)                                                                                                         |
+| `apps/desktop/src/utils/spotlight-query.ts`                  | 修改     | 解析函数接收 alias map / enabled set 参数                                                                                                                |
+| `apps/desktop/src/utils/spotlight-query.test.ts`             | 修改     | 单测对齐新签名 + 新增 alias / 禁用 quick command 用例                                                                                                    |
+| `apps/desktop/src/components/SpotlightPanel.vue`             | 修改     | 启动 ensureLoaded;`SCOPE_LABEL` 改读 descriptor;监听配置变更                                                                                             |
+| `apps/desktop/src/components/settings/SpotlightSettings.vue` | 新增     | Spotlight 设置子页                                                                                                                                       |
+| `apps/desktop/src/components/SettingsPanel.vue`              | 修改     | 新增 Spotlight 子页签                                                                                                                                    |
+| `apps/desktop/src/spotlight/config-store.test.ts`            | 新增     | 配置 store 单测                                                                                                                                          |
 
 ## 验证
 
@@ -297,13 +307,13 @@ interface ResolvedProvider extends ProviderDescriptor {
 
 ## 关键风险与对策
 
-| 风险 | 对策 |
-|------|------|
-| Provider 接口变更影响范围大,易破坏现有动作 | descriptor 兼容当前 `SpotlightProvider` 全字段,默认值与现状等价;增加回归手测项 |
-| 跨窗口 emit 不可达(主窗口 ↔ Spotlight 窗口) | 失败时下次呼出 Spotlight `ensureLoaded` 兜底;若仍不可达,在 Rust 端加桥接命令 |
-| 用户改 alias 后忘了原默认前缀,行为困惑 | UI 始终展示「默认 / 自定义」两行,提供恢复默认按钮 |
-| 中文 alias 与查询文字混淆 | 校验拒绝中文;只允许 `[a-zA-Z0-9_-]` |
-| Launcher 数据量大(数百条)拖慢 prefetch | launcher 已在后端按 `launch_count DESC` 排序,前端不做额外处理;若实测瓶颈,后续追加上限参数 |
+| 风险                                        | 对策                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Provider 接口变更影响范围大,易破坏现有动作  | descriptor 兼容当前 `SpotlightProvider` 全字段,默认值与现状等价;增加回归手测项            |
+| 跨窗口 emit 不可达(主窗口 ↔ Spotlight 窗口) | 失败时下次呼出 Spotlight `ensureLoaded` 兜底;若仍不可达,在 Rust 端加桥接命令              |
+| 用户改 alias 后忘了原默认前缀,行为困惑      | UI 始终展示「默认 / 自定义」两行,提供恢复默认按钮                                         |
+| 中文 alias 与查询文字混淆                   | 校验拒绝中文;只允许 `[a-zA-Z0-9_-]`                                                       |
+| Launcher 数据量大(数百条)拖慢 prefetch      | launcher 已在后端按 `launch_count DESC` 排序,前端不做额外处理;若实测瓶颈,后续追加上限参数 |
 
 ## 后续可演进(不在本版范围)
 

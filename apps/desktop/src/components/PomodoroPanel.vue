@@ -7,7 +7,11 @@
       </div>
       <div class="daily-toggle">
         <span>工作日自动询问</span>
-        <el-switch :model-value="state?.config.enabled ?? true" :loading="loading" @change="setDailyEnabled" />
+        <el-switch
+          :model-value="state?.config.enabled ?? true"
+          :loading="loading"
+          @change="setDailyEnabled"
+        />
       </div>
     </header>
 
@@ -46,11 +50,15 @@
       </div>
       <div class="detail-block">
         <div class="detail-label">默认节奏</div>
-        <div class="detail-value">{{ state?.config.focusMinutes ?? 25 }} / {{ state?.config.shortBreakMinutes ?? 5 }} 分钟</div>
+        <div class="detail-value">
+          {{ state?.config.focusMinutes ?? 25 }} / {{ state?.config.shortBreakMinutes ?? 5 }} 分钟
+        </div>
       </div>
       <div class="detail-block">
         <div class="detail-label">午休跳过</div>
-        <div class="detail-value">{{ state?.config.lunchStart ?? "12:00" }} - {{ state?.config.lunchEnd ?? "13:30" }}</div>
+        <div class="detail-value">
+          {{ state?.config.lunchStart ?? "12:00" }} - {{ state?.config.lunchEnd ?? "13:30" }}
+        </div>
       </div>
     </section>
   </div>
@@ -135,9 +143,8 @@ const ringStyle = computed(() => {
   if (!item || item.kind === "paused" || item.kind === "done") {
     return { "--progress": "0deg" };
   }
-  const totalSeconds = item.kind === "focus"
-    ? config.value.focusMinutes * 60
-    : config.value.shortBreakMinutes * 60;
+  const totalSeconds =
+    item.kind === "focus" ? config.value.focusMinutes * 60 : config.value.shortBreakMinutes * 60;
   const progress = totalSeconds > 0 ? 1 - item.remainingSeconds / totalSeconds : 0;
   return { "--progress": `${Math.max(0, Math.min(1, progress)) * 360}deg` };
 });
@@ -252,9 +259,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(17, 24, 39, 0.04), rgba(255, 255, 255, 0) 45%),
-    #ffffff;
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.04), rgba(255, 255, 255, 0) 45%), #ffffff;
 }
 
 .timer-surface::before {

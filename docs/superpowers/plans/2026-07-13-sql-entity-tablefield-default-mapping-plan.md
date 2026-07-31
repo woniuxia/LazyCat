@@ -31,11 +31,13 @@
 ### Task 1: 用 TDD 修正 TableField 自动映射规则
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs:630-662`
 - Modify: `apps/desktop/src-tauri/src/tools/convert.rs:824-924`
 - Test: `apps/desktop/src-tauri/src/tools/convert.rs:1666-1752`
 
 **Interfaces:**
+
 - Consumes: existing `to_camel_case(name: &str) -> String` and generated Java `field_name`.
 - Produces: `needs_table_field(column_name: &str, field_name: &str) -> bool`.
 

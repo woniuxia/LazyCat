@@ -1,20 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
-import type {
-  BrowserProfileItem,
-  BrowserProfilesListResponse,
-} from "../../types/browser-profiles";
+import type { BrowserProfileItem, BrowserProfilesListResponse } from "../../types/browser-profiles";
 import {
   buildBrowserProfileSearchFields,
   getBrowserProfileDisplayName,
 } from "../../utils/browserProfiles";
 import { notifyBrowserProfilesChanged } from "../browser-profiles-events";
 import { registerProvider } from "../registry";
-import type {
-  ProviderDescriptor,
-  SpotlightExecuteResult,
-  SpotlightItem,
-} from "../types";
+import type { ProviderDescriptor, SpotlightExecuteResult, SpotlightItem } from "../types";
 
 interface BrowserProfilePayload {
   browser: "edge" | "chrome";
@@ -22,15 +15,10 @@ interface BrowserProfilePayload {
   displayName: string;
 }
 
-export function buildBrowserProfileSpotlightItem(
-  profile: BrowserProfileItem,
-): SpotlightItem {
+export function buildBrowserProfileSpotlightItem(profile: BrowserProfileItem): SpotlightItem {
   const displayName = getBrowserProfileDisplayName(profile);
   const browserLabel = profile.browser === "chrome" ? "Chrome" : "Edge";
-  const subtitleParts = [
-    profile.edgeDisplayName.trim(),
-    profile.profileDir.trim(),
-  ].filter(Boolean);
+  const subtitleParts = [profile.edgeDisplayName.trim(), profile.profileDir.trim()].filter(Boolean);
 
   return {
     providerId: "browser-profiles",

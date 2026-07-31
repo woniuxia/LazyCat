@@ -5,7 +5,12 @@
       <div class="input-area">
         <div class="input-row">
           <span class="field-label">数字模式</span>
-          <el-input v-model="numericValue" style="width: 100px" maxlength="3" @change="onNumericChange" />
+          <el-input
+            v-model="numericValue"
+            style="width: 100px"
+            maxlength="3"
+            @change="onNumericChange"
+          />
           <span class="field-label" style="margin-left: 16px">符号模式</span>
           <el-input :model-value="symbolicValue" style="width: 140px" readonly />
         </div>

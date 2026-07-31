@@ -21,28 +21,29 @@
 
 ## 文件职责映射
 
-| 文件 | 本计划职责 |
-|---|---|
-| `apps/desktop/src/types/release-package.ts` | 项目、环境、草稿、事件和 IPC 类型 |
-| `apps/desktop/src/utils/releasePackage.ts` | 公共草稿/环境草稿转换、校验、dirty 判断、启动 payload |
-| `apps/desktop/src-tauri/src/tools/release_package.rs` | schema 迁移、项目/环境 CRUD、按环境 ID 解析所有 IPC |
-| `apps/desktop/src-tauri/src/tools/release_package_runtime.rs` | 环境运行身份、生产确认、运行快照、令牌绑定和事件 |
-| `apps/desktop/src-tauri/src/tools/release_package_remote.rs` | 预检绑定增加环境 ID 和配置指纹 |
-| `apps/desktop/src-tauri/src/tools/action_center/definitions.rs` | 动作目标从项目改为环境 |
-| `apps/desktop/src-tauri/src/tools/action_center/bindings.rs` | 环境目标校验与展示 |
-| `apps/desktop/src-tauri/src/tools/action_center/dispatches.rs` | 派发与环境运行关联 |
-| `apps/desktop/src-tauri/src/global_notification.rs` | 通知携带项目与环境快照 |
-| `apps/desktop/src/composables/useReleasePackageRuntime.ts` | 按环境 ID 隔离运行态与事件 |
-| `apps/desktop/src/composables/useReleasePackageUploadPreflight.ts` | 远程预检统一传环境 ID |
-| `apps/desktop/src/composables/useReleasePackageCommandRetry.ts` | 命令重试统一传环境 ID |
-| `apps/desktop/src/components/ReleasePackagePanel.vue` | 环境切换、公共/环境表单、生产确认、动作意图 |
-| `apps/desktop/src/types/global-notification.ts`、`apps/desktop/src/utils/globalNotification.ts` | 前端通知环境契约与校验 |
-| 对应 `*.test.ts` 和 Rust `#[cfg(test)]` 模块 | TDD 与回归覆盖 |
-| `docs/experience/release-package.md` | 沉淀固定环境、环境 ID 和生产保护经验 |
+| 文件                                                                                            | 本计划职责                                            |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `apps/desktop/src/types/release-package.ts`                                                     | 项目、环境、草稿、事件和 IPC 类型                     |
+| `apps/desktop/src/utils/releasePackage.ts`                                                      | 公共草稿/环境草稿转换、校验、dirty 判断、启动 payload |
+| `apps/desktop/src-tauri/src/tools/release_package.rs`                                           | schema 迁移、项目/环境 CRUD、按环境 ID 解析所有 IPC   |
+| `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`                                   | 环境运行身份、生产确认、运行快照、令牌绑定和事件      |
+| `apps/desktop/src-tauri/src/tools/release_package_remote.rs`                                    | 预检绑定增加环境 ID 和配置指纹                        |
+| `apps/desktop/src-tauri/src/tools/action_center/definitions.rs`                                 | 动作目标从项目改为环境                                |
+| `apps/desktop/src-tauri/src/tools/action_center/bindings.rs`                                    | 环境目标校验与展示                                    |
+| `apps/desktop/src-tauri/src/tools/action_center/dispatches.rs`                                  | 派发与环境运行关联                                    |
+| `apps/desktop/src-tauri/src/global_notification.rs`                                             | 通知携带项目与环境快照                                |
+| `apps/desktop/src/composables/useReleasePackageRuntime.ts`                                      | 按环境 ID 隔离运行态与事件                            |
+| `apps/desktop/src/composables/useReleasePackageUploadPreflight.ts`                              | 远程预检统一传环境 ID                                 |
+| `apps/desktop/src/composables/useReleasePackageCommandRetry.ts`                                 | 命令重试统一传环境 ID                                 |
+| `apps/desktop/src/components/ReleasePackagePanel.vue`                                           | 环境切换、公共/环境表单、生产确认、动作意图           |
+| `apps/desktop/src/types/global-notification.ts`、`apps/desktop/src/utils/globalNotification.ts` | 前端通知环境契约与校验                                |
+| 对应 `*.test.ts` 和 Rust `#[cfg(test)]` 模块                                                    | TDD 与回归覆盖                                        |
+| `docs/experience/release-package.md`                                                            | 沉淀固定环境、环境 ID 和生产保护经验                  |
 
 ### Task 1: 建立前端项目/环境类型与纯函数边界
 
 **Files:**
+
 - Modify: `apps/desktop/src/types/release-package.ts`
 - Modify: `apps/desktop/src/types/index.ts`
 - Modify: `apps/desktop/src/utils/releasePackage.ts`
@@ -126,15 +127,17 @@ it("separates shared project fields from fixed environment fields", () => {
 });
 
 it("builds starts from an environment id and explicit production confirmation", () => {
-  expect(createReleasePackageStartPayload("local_archive", {
-    environmentId: 42,
-    targets: ["frontend"],
-    folderName: "2026-07-28-portal",
-    overwriteExisting: false,
-    preflightToken: "",
-    overwriteRemoteTargets: [],
-    productionConfirmed: true,
-  })).toEqual({
+  expect(
+    createReleasePackageStartPayload("local_archive", {
+      environmentId: 42,
+      targets: ["frontend"],
+      folderName: "2026-07-28-portal",
+      overwriteExisting: false,
+      preflightToken: "",
+      overwriteRemoteTargets: [],
+      productionConfirmed: true,
+    }),
+  ).toEqual({
     environmentId: 42,
     targets: ["frontend"],
     folderName: "2026-07-28-portal",
@@ -149,9 +152,13 @@ it("detects shared and environment changes independently", () => {
   const projectDraft = projectToReleasePackageProjectDraft(project);
   const environmentDraft = environmentToReleasePackageDraft(production);
 
-  expect(isReleasePackageDraftDirty(project, production, projectDraft, environmentDraft)).toBe(false);
+  expect(isReleasePackageDraftDirty(project, production, projectDraft, environmentDraft)).toBe(
+    false,
+  );
   environmentDraft.backendBuildCommand = "mvn clean package -Pprod";
-  expect(isReleasePackageDraftDirty(project, production, projectDraft, environmentDraft)).toBe(true);
+  expect(isReleasePackageDraftDirty(project, production, projectDraft, environmentDraft)).toBe(
+    true,
+  );
 });
 ```
 
@@ -324,10 +331,12 @@ export function isReleasePackageDraftDirty(
   environmentDraft: ReleasePackageEnvironmentDraft,
 ): boolean {
   if (!project || !environment) return true;
-  return JSON.stringify(projectToReleasePackageProjectDraft(project))
-      !== JSON.stringify(normalizeReleasePackageProjectDraft(projectDraft))
-    || JSON.stringify(environmentToReleasePackageDraft(environment))
-      !== JSON.stringify(normalizeReleasePackageEnvironmentDraft(environmentDraft));
+  return (
+    JSON.stringify(projectToReleasePackageProjectDraft(project)) !==
+      JSON.stringify(normalizeReleasePackageProjectDraft(projectDraft)) ||
+    JSON.stringify(environmentToReleasePackageDraft(environment)) !==
+      JSON.stringify(normalizeReleasePackageEnvironmentDraft(environmentDraft))
+  );
 }
 
 export interface ReleasePackageStartPayloadInput {
@@ -362,6 +371,7 @@ git commit -m "feat(release-package): 拆分项目与环境配置模型"
 ### Task 2: 新增环境表并原子迁移既有项目
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Test: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
@@ -649,6 +659,7 @@ git commit -m "feat(release-package): 新增固定环境配置表"
 ### Task 3: 将项目 CRUD 改为公共配置加当前环境事务
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Test: `apps/desktop/src-tauri/src/tools/release_package.rs`
 
@@ -819,6 +830,7 @@ git commit -m "feat(release-package): 按环境保存项目配置"
 ### Task 4: 将动作中心目标和未完成派发迁移为环境 ID
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/action_center/definitions.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/action_center/bindings.rs`
@@ -949,6 +961,7 @@ git commit -m "feat(action-center): 绑定上线包环境目标"
 ### Task 5: 后端所有预检和启动入口改用环境 ID
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs`
 - Test: both Rust files
@@ -1049,6 +1062,7 @@ git commit -m "feat(release-package): 按环境执行预检与启动"
 ### Task 6: 让运行事件、重试令牌和通知携带环境身份
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Modify: `apps/desktop/src-tauri/src/global_notification.rs`
 - Modify: `apps/desktop/src/types/global-notification.ts`
@@ -1159,6 +1173,7 @@ git commit -m "feat(release-package): 隔离环境运行身份"
 ### Task 7: 前端运行态、预检和命令重试统一使用环境 ID
 
 **Files:**
+
 - Modify: `apps/desktop/src/composables/useReleasePackageRuntime.ts`
 - Modify: `apps/desktop/src/composables/useReleasePackageUploadPreflight.ts`
 - Modify: `apps/desktop/src/composables/useReleasePackageCommandRetry.ts`
@@ -1242,6 +1257,7 @@ git commit -m "feat(release-package): 按环境隔离前端运行态"
 ### Task 8: 改造面板为公共配置加固定环境切换
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 
@@ -1253,7 +1269,9 @@ git commit -m "feat(release-package): 按环境隔离前端运行态"
 it("renders fixed test and production environments and defaults to test", () => {
   expect(source).toContain('value="test"');
   expect(source).toContain('value="production"');
-  expect(source).toContain('const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test")');
+  expect(source).toContain(
+    'const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test")',
+  );
   expect(source).toContain('environment.configured ? "已配置" : "待配置"');
 });
 
@@ -1337,12 +1355,17 @@ Expected: FAIL，环境控件和拆分草稿不存在。
 
 ```ts
 const projectDraft = reactive<ReleasePackageProjectDraft>(createEmptyReleasePackageProjectDraft());
-const environmentDraft = reactive<ReleasePackageEnvironmentDraft>(createEmptyReleasePackageEnvironmentDraft());
+const environmentDraft = reactive<ReleasePackageEnvironmentDraft>(
+  createEmptyReleasePackageEnvironmentDraft(),
+);
 const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test");
 
-const selectedEnvironment = computed(() => selectedProject.value?.environments.find(
-  (item) => item.environment === selectedEnvironmentKind.value,
-) ?? null);
+const selectedEnvironment = computed(
+  () =>
+    selectedProject.value?.environments.find(
+      (item) => item.environment === selectedEnvironmentKind.value,
+    ) ?? null,
+);
 ```
 
 新增 `restoreSelectedDrafts()`，只从项目公共字段和当前环境复制草稿。`loadProjects`、`selectProject`、`newProject` 完成后都把环境重置为 `test`。`selectEnvironment` 先走现有 dirty 确认，再清理一次性预检/重试状态，最后恢复目标环境草稿。
@@ -1383,6 +1406,7 @@ git commit -m "feat(release-package): 增加测试生产环境切换"
 ### Task 9: 接通生产确认、动作意图和环境通知展示
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.vue`
 - Modify: `apps/desktop/src/components/ReleasePackagePanel.test.ts`
 - Modify: `apps/desktop/src/components/GlobalNotificationPopup.vue`
@@ -1417,7 +1441,7 @@ it("selects an action target by environment id without keeping the default test 
 it("renders the release environment without replacing the terminal status style", () => {
   expect(source).toContain('currentPackage.value.environment === "production"');
   expect(source).toContain('type="danger"');
-  expect(source).toContain('currentPackage.value.projectName');
+  expect(source).toContain("currentPackage.value.projectName");
   expect(source).toContain("生产环境");
   expect(source).toContain("测试环境");
   expect(source).toContain("releasePackageNotificationCopy");
@@ -1486,6 +1510,7 @@ git commit -m "feat(release-package): 增加生产发布保护"
 ### Task 10: 完整回归、经验文档与最终检查
 
 **Files:**
+
 - Modify: `docs/experience/release-package.md`
 - Verify: all files changed by Tasks 1-9
 

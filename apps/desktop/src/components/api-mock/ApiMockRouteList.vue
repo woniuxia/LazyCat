@@ -5,12 +5,16 @@
         <h2>路由</h2>
         <span v-if="enabledCount !== null">{{ enabledCount }}/{{ routes.length }} 启用</span>
       </div>
-      <el-button :icon="Plus" size="small" :disabled="!hasProject" @click="emit('create')">路由</el-button>
+      <el-button :icon="Plus" size="small" :disabled="!hasProject" @click="emit('create')"
+        >路由</el-button
+      >
     </div>
 
     <div v-if="!hasProject" class="api-mock-empty">选择或新建一个 Mock 项目。</div>
     <template v-else>
-      <div v-if="routes.length === 0" class="api-mock-empty">暂无路由。添加第一条路由后即可启动服务。</div>
+      <div v-if="routes.length === 0" class="api-mock-empty">
+        暂无路由。添加第一条路由后即可启动服务。
+      </div>
       <div ref="listRef" class="route-list">
         <div
           v-for="route in routes"
@@ -22,8 +26,20 @@
           @click="emit('select', route.id)"
           @keydown.enter="emit('select', route.id)"
         >
-          <span class="method" :style="{ color: route.enabled ? getMockMethodColor(route.method) : '#94a3b8' }">{{ route.method }}</span>
-          <span class="route-path" :title="route.name && route.name !== route.pathPattern ? `${route.name}\n${route.pathPattern}` : route.pathPattern">{{ route.pathPattern }}</span>
+          <span
+            class="method"
+            :style="{ color: route.enabled ? getMockMethodColor(route.method) : '#94a3b8' }"
+            >{{ route.method }}</span
+          >
+          <span
+            class="route-path"
+            :title="
+              route.name && route.name !== route.pathPattern
+                ? `${route.name}\n${route.pathPattern}`
+                : route.pathPattern
+            "
+            >{{ route.pathPattern }}</span
+          >
           <span class="route-controls" @click.stop>
             <el-button
               class="route-copy"
@@ -46,7 +62,9 @@
           </span>
         </div>
       </div>
-      <div v-if="routes.length > 1" class="route-order-note">同等级路由按列表顺序优先匹配，可拖拽调整</div>
+      <div v-if="routes.length > 1" class="route-order-note">
+        同等级路由按列表顺序优先匹配，可拖拽调整
+      </div>
     </template>
   </section>
 </template>
@@ -153,7 +171,9 @@ onBeforeUnmount(() => {
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .api-mock-route:hover {

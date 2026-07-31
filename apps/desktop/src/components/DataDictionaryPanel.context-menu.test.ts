@@ -21,8 +21,12 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("puts dictionary management actions in each dictionary item context menu", () => {
     expect(source).toContain('trigger="contextmenu"');
     expect(source).toContain(':ref="(el) => setDictionaryMenuRef(dictionary.id, el)"');
-    expect(source).toContain('@visible-change="(visible) => handleDictionaryMenuVisibleChange(visible, dictionary.id)"');
-    expect(source).toContain('@command="(command) => handleDictionaryCommand(command, dictionary)"');
+    expect(source).toContain(
+      '@visible-change="(visible) => handleDictionaryMenuVisibleChange(visible, dictionary.id)"',
+    );
+    expect(source).toContain(
+      '@command="(command) => handleDictionaryCommand(command, dictionary)"',
+    );
     expect(source).toContain('command="replace"');
     expect(source).toContain('command="fields"');
     expect(source).toContain('command="rebuild"');
@@ -44,7 +48,9 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   });
 
   it("keeps function-ref menu instances outside Vue reactivity", () => {
-    expect(source).toContain("const dictionaryMenuRefs = new Map<number, DictionaryMenuInstance>()");
+    expect(source).toContain(
+      "const dictionaryMenuRefs = new Map<number, DictionaryMenuInstance>()",
+    );
     expect(source).not.toContain("const dictionaryMenuRefs = ref");
     expect(source).not.toContain("dictionaryMenuRefs.value");
   });
@@ -88,11 +94,13 @@ describe("DataDictionaryPanel dictionary context menu", () => {
 
   it("supports dragging dictionary items to persist sidebar order", () => {
     expect(source).toContain('ref="dictionarySortListRef"');
-    expect(source).toContain('class="dd-dictionary-meta dd-dictionary-count dd-dictionary-drag-handle"');
+    expect(source).toContain(
+      'class="dd-dictionary-meta dd-dictionary-count dd-dictionary-drag-handle"',
+    );
     expect(source).toContain("拖拽右侧条数排序");
     expect(source).not.toContain('<el-icon class="dd-dictionary-drag-handle"');
     expect(source).toContain('import Sortable from "sortablejs"');
-    expect(source).toContain('Sortable.create(listEl');
+    expect(source).toContain("Sortable.create(listEl");
     expect(source).toContain('handle: ".dd-dictionary-drag-handle"');
     expect(source).toContain('draggable: ".dd-dictionary-menu"');
     expect(source).toContain("forceFallback: true");
@@ -126,9 +134,13 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).toContain("<h3>{{ detailTitle }}</h3>");
     expect(source).toContain("const detailTitle = computed");
     expect(source).toContain("return recordDetail.value.record.title;");
-    expect(source).toContain('return selectedItem.value ? resultTitle(selectedItem.value) : "未选择记录";');
+    expect(source).toContain(
+      'return selectedItem.value ? resultTitle(selectedItem.value) : "未选择记录";',
+    );
     expect(source).not.toContain("recordDetail.record.dictionaryName }} #");
-    expect(source).not.toContain('v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>');
+    expect(source).not.toContain(
+      'v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>',
+    );
   });
 
   it("uses JsonTreeViewer for the raw JSON detail copy and folding actions", () => {
@@ -198,11 +210,11 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   });
 
   it("renders search failures as a retryable result panel state", () => {
-    expect(source).toContain("const searchError = ref(\"\")");
+    expect(source).toContain('const searchError = ref("")');
     expect(source).toContain('v-if="searchError"');
     expect(source).toContain("搜索失败");
     expect(source).toContain('@click="runSearch"');
-    expect(source).toContain("searchError.value = (error as Error).message || \"搜索失败\"");
+    expect(source).toContain('searchError.value = (error as Error).message || "搜索失败"');
     expect(source).toContain("searchItems.value = []");
   });
 
@@ -217,9 +229,9 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   });
 
   it("requires primary field selection when creating a dictionary", () => {
-    expect(source).toContain("const importPrimaryPath = ref(\"\")");
+    expect(source).toContain('const importPrimaryPath = ref("")');
     expect(source).toContain("primaryFieldPath: importPrimaryPath.value");
-    expect(source).toContain("v-model=\"importPrimaryPath\"");
+    expect(source).toContain('v-model="importPrimaryPath"');
     expect(source).toContain("选择用于唯一定位记录的字段");
   });
 

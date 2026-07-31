@@ -95,7 +95,9 @@ describe("jsonTreeView", () => {
     expect(emptyObject.summary).toBe("empty object");
     expect(emptyArray.summary).toBe("empty array");
 
-    expect(collectExpandableKeys(root)).toEqual(new Set([root.key, user.key, profile.key, roles.key]));
+    expect(collectExpandableKeys(root)).toEqual(
+      new Set([root.key, user.key, profile.key, roles.key]),
+    );
     expect(collectExpandedKeysByDepth(root, "all")).toEqual(collectExpandableKeys(root));
     expect(collectExpandedKeysByDepth(root, 2)).toEqual(new Set([root.key, user.key, roles.key]));
   });

@@ -74,9 +74,9 @@ describe("buildClipboardSuggestionItems", () => {
 
   it("忽略空白文本和超过 8 MiB 的文本", () => {
     expect(buildClipboardSuggestionItems(" \r\n\t ")).toEqual([]);
-    expect(
-      buildClipboardSuggestionItems("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES + 1)),
-    ).toEqual([]);
+    expect(buildClipboardSuggestionItems("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES + 1))).toEqual(
+      [],
+    );
   });
 
   it("接近 8 MiB 的有效文本只生成带截断预览的参考卡", () => {

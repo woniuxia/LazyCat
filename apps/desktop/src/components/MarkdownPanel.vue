@@ -8,7 +8,12 @@
 
       <div class="md-toolbar-actions">
         <el-button size="small" :loading="opening" @click="openFile">打开</el-button>
-        <el-button size="small" :loading="saving" :disabled="!isDirty && Boolean(currentPath)" @click="saveFile(false)">
+        <el-button
+          size="small"
+          :loading="saving"
+          :disabled="!isDirty && Boolean(currentPath)"
+          @click="saveFile(false)"
+        >
           保存
         </el-button>
         <el-button size="small" :loading="saving" @click="saveFile(true)">另存为</el-button>
@@ -85,9 +90,11 @@ const opening = ref(false);
 const saving = ref(false);
 
 const renderedHtml = computed(() => renderMarkdown(source.value));
-const lineCount = computed(() => source.value ? source.value.split(/\r?\n/).length : 0);
+const lineCount = computed(() => (source.value ? source.value.split(/\r?\n/).length : 0));
 const isDirty = computed(() => source.value !== lastSavedSource.value);
-const currentFileName = computed(() => currentPath.value ? fileNameFromPath(currentPath.value) : "未命名.md");
+const currentFileName = computed(() =>
+  currentPath.value ? fileNameFromPath(currentPath.value) : "未命名.md",
+);
 
 async function confirmDiscard(): Promise<boolean> {
   if (!isDirty.value) return true;
@@ -112,7 +119,9 @@ async function openFile() {
       filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx", "txt"] }],
     });
     if (typeof selected !== "string") return;
-    const result = await invokeToolByChannel("tool:file:read-text", { path: selected }) as ReadTextResponse;
+    const result = (await invokeToolByChannel("tool:file:read-text", {
+      path: selected,
+    })) as ReadTextResponse;
     source.value = result.content;
     currentPath.value = result.path;
     lastSavedSource.value = result.content;

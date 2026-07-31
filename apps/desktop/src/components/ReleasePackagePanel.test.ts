@@ -13,19 +13,21 @@ const panelHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(async (
-    event: string,
-    callback: (event: { payload: ReleasePackageStatusEvent }) => void,
-  ) => {
-    panelHarness.listeners.set(event, callback);
-    return () => undefined;
-  }),
+  listen: vi.fn(
+    async (event: string, callback: (event: { payload: ReleasePackageStatusEvent }) => void) => {
+      panelHarness.listeners.set(event, callback);
+      return () => undefined;
+    },
+  ),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("../bridge/tauri", () => ({ invokeToolByChannel: panelHarness.invoke }));
 
-const source = readFileSync(resolve(process.cwd(), "src/components/ReleasePackagePanel.vue"), "utf8");
+const source = readFileSync(
+  resolve(process.cwd(), "src/components/ReleasePackagePanel.vue"),
+  "utf8",
+);
 const appSource = readFileSync(resolve(process.cwd(), "src/App.vue"), "utf8");
 interface HostNode {
   type: string;
@@ -77,7 +79,7 @@ function createPanelRenderer() {
     nextSibling(node) {
       const siblings = node.parent?.children ?? [];
       const index = siblings.indexOf(node);
-      return index >= 0 ? siblings[index + 1] ?? null : null;
+      return index >= 0 ? (siblings[index + 1] ?? null) : null;
     },
     setScopeId() {},
     insertStaticContent(content, parent, anchor) {
@@ -91,7 +93,9 @@ function createPanelRenderer() {
   });
 }
 
-function registerElementStubs(app: ReturnType<ReturnType<typeof createPanelRenderer>["createApp"]>): void {
+function registerElementStubs(
+  app: ReturnType<ReturnType<typeof createPanelRenderer>["createApp"]>,
+): void {
   for (const name of [
     "el-checkbox",
     "el-checkbox-group",
@@ -110,25 +114,34 @@ function registerElementStubs(app: ReturnType<ReturnType<typeof createPanelRende
     "el-select",
     "el-switch",
   ]) {
-    app.component(name, defineComponent({
+    app.component(
+      name,
+      defineComponent({
+        inheritAttrs: false,
+        setup(_props, { attrs, slots }) {
+          return () => h("div", attrs, slots.default?.());
+        },
+      }),
+    );
+  }
+  app.component(
+    "el-button",
+    defineComponent({
       inheritAttrs: false,
       setup(_props, { attrs, slots }) {
-        return () => h("div", attrs, slots.default?.());
+        return () => h("button", attrs, slots.default?.());
       },
-    }));
-  }
-  app.component("el-button", defineComponent({
-    inheritAttrs: false,
-    setup(_props, { attrs, slots }) {
-      return () => h("button", attrs, slots.default?.());
-    },
-  }));
-  app.component("el-tag", defineComponent({
-    inheritAttrs: false,
-    setup(_props, { attrs, slots }) {
-      return () => h("span", attrs, slots.default?.());
-    },
-  }));
+    }),
+  );
+  app.component(
+    "el-tag",
+    defineComponent({
+      inheritAttrs: false,
+      setup(_props, { attrs, slots }) {
+        return () => h("span", attrs, slots.default?.());
+      },
+    }),
+  );
 }
 
 function nodeText(node: HostNode): string {
@@ -256,7 +269,9 @@ describe("ReleasePackagePanel", () => {
   it("renders fixed test and production environments and defaults to test", () => {
     expect(source).toContain('value="test"');
     expect(source).toContain('value="production"');
-    expect(source).toContain('const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test")');
+    expect(source).toContain(
+      'const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test")',
+    );
     expect(source).toContain('environment.configured ? "已配置" : "待配置"');
   });
 
@@ -278,7 +293,9 @@ describe("ReleasePackagePanel", () => {
     expect(findButton(root, "保存配置")?.props.disabled).toBe(true);
     const commandInput = findNode(root, (node) => node.props.modelValue === "pnpm build:test");
     expect(commandInput).not.toBeNull();
-    (commandInput?.props["onUpdate:modelValue"] as ((value: string) => void))("pnpm build:test --changed");
+    (commandInput?.props["onUpdate:modelValue"] as (value: string) => void)(
+      "pnpm build:test --changed",
+    );
     await nextTick();
 
     expect(findButton(root, "保存配置")?.props.disabled).toBe(false);
@@ -302,7 +319,7 @@ describe("ReleasePackagePanel", () => {
 
     const copyToProduction = findButton(root, "复制到生产环境");
     expect(copyToProduction?.props.disabled).toBe(false);
-    await (copyToProduction?.props.onClick as (() => Promise<void>))();
+    await (copyToProduction?.props.onClick as () => Promise<void>)();
     await nextTick();
 
     expect(findNode(root, (node) => node.props["model-value"] === "production")).not.toBeNull();
@@ -310,7 +327,10 @@ describe("ReleasePackagePanel", () => {
     expect(modelValues(root)).not.toContain("pnpm build:prod");
     expect(findButton(root, "复制到测试环境")).not.toBeNull();
     expect(findButton(root, "保存配置")?.props.disabled).toBe(false);
-    expect(panelHarness.invoke).not.toHaveBeenCalledWith("tool:release-package:project-update", expect.anything());
+    expect(panelHarness.invoke).not.toHaveBeenCalledWith(
+      "tool:release-package:project-update",
+      expect.anything(),
+    );
     app.unmount();
   });
 
@@ -330,9 +350,9 @@ describe("ReleasePackagePanel", () => {
     await flushMountedPanel();
 
     const environmentControl = findNode(root, (node) => node.props["model-value"] === "test");
-    await (environmentControl?.props.onChange as ((value: string) => Promise<void>))("production");
+    await (environmentControl?.props.onChange as (value: string) => Promise<void>)("production");
     await nextTick();
-    await (findButton(root, "复制到测试环境")?.props.onClick as (() => Promise<void>))();
+    await (findButton(root, "复制到测试环境")?.props.onClick as () => Promise<void>)();
     await nextTick();
 
     expect(findNode(root, (node) => node.props["model-value"] === "test")).not.toBeNull();
@@ -396,7 +416,7 @@ describe("ReleasePackagePanel", () => {
 
     const saveButton = findButton(root, "保存配置");
     expect(saveButton).not.toBeNull();
-    await (saveButton?.props.onClick as (() => Promise<void>))();
+    await (saveButton?.props.onClick as () => Promise<void>)();
 
     const {
       id: _id,
@@ -443,12 +463,12 @@ describe("ReleasePackagePanel", () => {
     app.mount(root);
     await flushMountedPanel();
 
-    const savePromise = (findButton(root, "保存配置")?.props.onClick as (() => Promise<void>))();
+    const savePromise = (findButton(root, "保存配置")?.props.onClick as () => Promise<void>)();
     await nextTick();
     const environmentControl = findNode(root, (node) => node.props["model-value"] === "test");
     expect(environmentControl).not.toBeNull();
 
-    await (environmentControl?.props.onChange as ((value: string) => Promise<void>))("production");
+    await (environmentControl?.props.onChange as (value: string) => Promise<void>)("production");
     resolveUpdate({ id: 7, environmentId: 41 });
     await savePromise;
     expect(findNode(root, (node) => node.props["model-value"] === "test")).not.toBeNull();
@@ -478,14 +498,22 @@ describe("ReleasePackagePanel", () => {
     app.mount(root);
     await flushMountedPanel();
 
-    await (findButton(root, "保存配置")?.props.onClick as (() => Promise<void>))();
+    await (findButton(root, "保存配置")?.props.onClick as () => Promise<void>)();
     expect(findButton(root, "重试刷新")).not.toBeNull();
-    expect(panelHarness.invoke.mock.calls.filter(([channel]) => channel === "tool:release-package:project-update")).toHaveLength(1);
+    expect(
+      panelHarness.invoke.mock.calls.filter(
+        ([channel]) => channel === "tool:release-package:project-update",
+      ),
+    ).toHaveLength(1);
 
     failRefresh = false;
-    await (findButton(root, "重试刷新")?.props.onClick as (() => Promise<void>))();
+    await (findButton(root, "重试刷新")?.props.onClick as () => Promise<void>)();
     expect(findButton(root, "保存配置")).not.toBeNull();
-    expect(panelHarness.invoke.mock.calls.filter(([channel]) => channel === "tool:release-package:project-update")).toHaveLength(1);
+    expect(
+      panelHarness.invoke.mock.calls.filter(
+        ([channel]) => channel === "tool:release-package:project-update",
+      ),
+    ).toHaveLength(1);
     app.unmount();
   });
 
@@ -542,7 +570,9 @@ describe("ReleasePackagePanel", () => {
 
   it("checks an existing target before start and requires explicit overwrite confirmation", () => {
     expect(source).toContain("tool:release-package:target-check");
-    expect(source).toContain("目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。");
+    expect(source).toContain(
+      "目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。",
+    );
     expect(source).toContain('confirmButtonText: "直接覆盖"');
     expect(source).toContain('cancelButtonText: "取消"');
     expect(source).toContain("overwriteExisting");
@@ -566,8 +596,8 @@ describe("ReleasePackagePanel", () => {
 
   it("restores the active runtime project and uses prepare paths after refresh", () => {
     expect(source).toContain("runtime.activeEnvironmentId");
-    expect(source).toContain(
-      'const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running"',
+    expect(source).toMatch(
+      /const preferActiveProject\s*=\s*\(selectedId\.value === null && !dirty\.value\)\s*\|\|\s*runtime\.status\.value === "running"/,
     );
     expect(source).toContain('prepareResult.value?.packageType !== "local_archive"');
     expect(source).toContain("prepareResult.value.outputRoot");
@@ -750,8 +780,8 @@ describe("ReleasePackagePanel", () => {
   it("binds a Vault server credential for password auth without rendering a password field", () => {
     expect(source).toContain('label="密码库凭据"');
     expect(source).toContain('v-model="environmentDraft.vaultEntryId"');
-    expect(source).toContain('tool:vault:meta-list');
-    expect(source).toContain('v-if="environmentDraft.sshAuthType === \'password\'"');
+    expect(source).toContain("tool:vault:meta-list");
+    expect(source).toContain("v-if=\"environmentDraft.sshAuthType === 'password'\"");
     expect(source).toContain("密码由密码库提供");
     expect(source).not.toContain("请输入服务器密码");
     expect(source).not.toContain("? { password: credentialSecret.value }");
@@ -760,16 +790,16 @@ describe("ReleasePackagePanel", () => {
   it("uses the Vault server port for password auth and keeps manual port input private-key only", () => {
     const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
 
-    expect(source).toContain(
-      '<el-form-item v-if="environmentDraft.sshAuthType === \'private_key\'" label="SSH 端口" required>',
+    expect(source).toMatch(
+      /<el-form-item\s+v-if="environmentDraft\.sshAuthType === 'private_key'"\s+label="SSH 端口"\s+required\s*>/,
     );
     expect(source).not.toContain('<el-form-item label="SSH 端口" required>');
     expect(source).toContain("port?: unknown");
     expect(source).toContain("normalizeVaultServerPort(entry.plainFields?.port)");
     expect(source).toContain("complete: Boolean(address && account && port !== null)");
     expect(source).toContain(':disabled="!option.complete"');
-    expect(source).toContain(
-      "&& (!selectedVaultCredential.value || !selectedVaultCredential.value.complete)",
+    expect(source).toMatch(
+      /&&\s*\(!selectedVaultCredential\.value\s*\|\|\s*!selectedVaultCredential\.value\.complete\)/,
     );
     expect(source).toContain("{{ selectedVaultCredential.port }}");
     expect(source).toContain("缺少地址、端口、账号或密码");
@@ -818,7 +848,9 @@ describe("ReleasePackagePanel", () => {
     expect(dirtyBranch).toContain('stopPendingActionDispatch("failed"');
     expect(dirtyBranch).not.toContain("selectedId.value =");
     expect(dirtyBranch).not.toContain("restoreSelectedDrafts");
-    expect(applySource).toContain('stopPendingActionDispatch("failed", "已有发布打包任务正在运行")');
+    expect(applySource).toContain(
+      'stopPendingActionDispatch("failed", "已有发布打包任务正在运行")',
+    );
   });
 
   it("reloads and selects the exact intent target before using the existing prepare flow", () => {
@@ -878,7 +910,9 @@ describe("ReleasePackagePanel", () => {
     expect(prepareStart.indexOf("try {")).toBeLessThan(
       prepareStart.indexOf("await resetStartDialog()"),
     );
-    expect(prepareStart).toContain("return error instanceof Error ? error : new Error(String(error))");
+    expect(prepareStart).toContain(
+      "return error instanceof Error ? error : new Error(String(error))",
+    );
   });
 
   it("renders an explicit state when the saved Vault binding no longer exists", () => {
@@ -888,10 +922,12 @@ describe("ReleasePackagePanel", () => {
 
   it("renders a separate upload lane and explicit remote replacement confirmation", () => {
     expect(source).toContain("上传日志");
-    expect(source).toContain(
-      '<section v-if="environmentDraft.packageType === \'server_upload\'" class="release-package-log-lane upload-log-lane">',
+    expect(source).toMatch(
+      /<section\s+v-if="environmentDraft\.packageType === 'server_upload'"\s+class="release-package-log-lane upload-log-lane"\s*>/,
     );
-    expect(source).toContain(":class=\"{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }\"");
+    expect(source).toContain(
+      ":class=\"{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }\"",
+    );
     expect(source).toContain("uploadProgress");
     expect(source).toContain("完整替换以上远程目标");
     expect(source).toContain("package_succeeded_upload_failed");
@@ -936,9 +972,11 @@ describe("ReleasePackagePanel", () => {
   it("mounts with mutually exclusive upload and command retry actions", async () => {
     const retryProject: ReleasePackageProject = {
       ...mountedProject,
-      environments: mountedProject.environments.map((environment) => environment.environment === "test"
-        ? { ...environment, packageType: "server_upload" }
-        : environment),
+      environments: mountedProject.environments.map((environment) =>
+        environment.environment === "test"
+          ? { ...environment, packageType: "server_upload" }
+          : environment,
+      ),
     };
     panelHarness.invoke.mockImplementation(async (channel: string) => {
       if (channel === "tool:release-package:project-list") return { projects: [retryProject] };
@@ -1018,7 +1056,9 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('class="server-target-grid"');
 
     const authDetailsStart = source.indexOf('class="server-auth-details"');
-    const targetSectionStart = source.indexOf('class="server-config-section server-target-section"');
+    const targetSectionStart = source.indexOf(
+      'class="server-config-section server-target-section"',
+    );
     expect(authDetailsStart).toBeGreaterThan(-1);
     expect(targetSectionStart).toBeGreaterThan(authDetailsStart);
     expect(source.slice(targetSectionStart)).toContain('label="前端远程目录"');
@@ -1036,7 +1076,9 @@ describe("ReleasePackagePanel", () => {
       /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
     );
     const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
-    expect(mobileStyles).toMatch(/\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
+    expect(mobileStyles).toMatch(
+      /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su,
+    );
     expect(mobileStyles).toMatch(/\.server-target-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
   });
 

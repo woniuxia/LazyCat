@@ -5,7 +5,9 @@
         <i class="status-dot" />
         {{ statusLabel }}
       </span>
-      <el-button size="small" text :disabled="logs.length === 0" @click="emit('clear')">清空</el-button>
+      <el-button size="small" text :disabled="logs.length === 0" @click="emit('clear')"
+        >清空</el-button
+      >
     </div>
 
     <div v-if="logs.length === 0" class="api-mock-empty">暂无运行期请求日志。</div>

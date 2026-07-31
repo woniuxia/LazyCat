@@ -94,7 +94,11 @@ function sanitizeCols(raw: unknown): PmListColId[] {
   const known = new Set<PmListColId>(ALL_LIST_COLS);
   const result: PmListColId[] = [];
   for (const v of raw) {
-    if (typeof v === "string" && known.has(v as PmListColId) && !result.includes(v as PmListColId)) {
+    if (
+      typeof v === "string" &&
+      known.has(v as PmListColId) &&
+      !result.includes(v as PmListColId)
+    ) {
       result.push(v as PmListColId);
     }
   }
@@ -108,7 +112,9 @@ function sanitizeFilters(raw: unknown): PmListFilters {
   return {
     tags: Array.isArray(r.tags) ? (r.tags.filter((x) => typeof x === "string") as string[]) : [],
     dateRange:
-      Array.isArray(rangeSource) && rangeSource.length === 2 && rangeSource.every((x) => typeof x === "string")
+      Array.isArray(rangeSource) &&
+      rangeSource.length === 2 &&
+      rangeSource.every((x) => typeof x === "string")
         ? ([rangeSource[0], rangeSource[1]] as [string, string])
         : null,
   };

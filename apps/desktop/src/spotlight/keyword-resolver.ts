@@ -1,9 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../bridge/tauri";
-import {
-  writeSecretToClipboard,
-  scheduleClipboardClear,
-} from "../utils/vaultClipboard";
+import { writeSecretToClipboard, scheduleClipboardClear } from "../utils/vaultClipboard";
 import type {
   KeywordCommandDescriptor,
   KeywordCommandInvocation,
@@ -141,10 +138,9 @@ function fallbackUuid(): string {
     Math.floor(Math.random() * 16 ** n)
       .toString(16)
       .padStart(n, "0");
-  return `${hex(8)}-${hex(4)}-4${hex(3)}-${(
-    8 +
-    Math.floor(Math.random() * 4)
-  ).toString(16)}${hex(3)}-${hex(12)}`;
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-${(8 + Math.floor(Math.random() * 4)).toString(
+    16,
+  )}${hex(3)}-${hex(12)}`;
 }
 
 function produceTimestamp(): SpotlightItem[] {
@@ -213,8 +209,7 @@ async function produceHash(text: string): Promise<SpotlightItem[]> {
         | string
         | { result?: string }
         | null;
-      const value =
-        typeof raw === "string" ? raw : (raw?.result as string | undefined) ?? "";
+      const value = typeof raw === "string" ? raw : ((raw?.result as string | undefined) ?? "");
       if (!value) {
         items.push(buildHintItem(`hash-${label}-empty`, label, "未返回结果"));
         continue;
@@ -269,12 +264,7 @@ async function produceVaultTag(tag: string, filterArg: string): Promise<Spotligh
   }
   if (!status?.setup) {
     return [
-      buildJumpToolItem(
-        "vault-not-setup",
-        "凭据库未初始化",
-        "Enter 跳转到凭据工具",
-        "vault",
-      ),
+      buildJumpToolItem("vault-not-setup", "凭据库未初始化", "Enter 跳转到凭据工具", "vault"),
     ];
   }
   let list: VaultMetaEntry[];
@@ -291,14 +281,10 @@ async function produceVaultTag(tag: string, filterArg: string): Promise<Spotligh
     ];
   }
   const target = tag.toLowerCase();
-  let filtered = list.filter((entry) =>
-    (entry.tags ?? []).some((t) => t.toLowerCase() === target),
-  );
+  let filtered = list.filter((entry) => (entry.tags ?? []).some((t) => t.toLowerCase() === target));
   if (filterArg) {
     const lower = filterArg.toLowerCase();
-    filtered = filtered.filter((entry) =>
-      entry.title.toLowerCase().includes(lower),
-    );
+    filtered = filtered.filter((entry) => entry.title.toLowerCase().includes(lower));
   }
   if (filtered.length === 0) {
     return [
@@ -325,9 +311,7 @@ async function produceVaultTag(tag: string, filterArg: string): Promise<Spotligh
       title: entry.title || "(无标题)",
       subtitle: `凭据 · #${tag}${entry.environment ? ` · ${entry.environment}` : ""}`,
       badge: { short: "凭", tone: "warn" },
-      status: unlocked
-        ? { text: "解锁", tone: "success" }
-        : { text: "需主密码", tone: "muted" },
+      status: unlocked ? { text: "解锁", tone: "success" } : { text: "需主密码", tone: "muted" },
       searchFields: [],
       payload: payload as unknown as Record<string, unknown>,
     };
@@ -344,9 +328,7 @@ interface SnippetEntry {
 
 async function produceSnippetTag(tag: string, filterArg: string): Promise<SpotlightItem[]> {
   if (!tag) {
-    return [
-      buildHintItem("snippet-tag-empty", "未配置 tag", "前往设置补全 snippet-tag 关键字"),
-    ];
+    return [buildHintItem("snippet-tag-empty", "未配置 tag", "前往设置补全 snippet-tag 关键字")];
   }
   let list: SnippetEntry[];
   try {
@@ -366,9 +348,7 @@ async function produceSnippetTag(tag: string, filterArg: string): Promise<Spotli
   if (filterArg) {
     const lower = filterArg.toLowerCase();
     list = list.filter(
-      (e) =>
-        e.title.toLowerCase().includes(lower) ||
-        e.description.toLowerCase().includes(lower),
+      (e) => e.title.toLowerCase().includes(lower) || e.description.toLowerCase().includes(lower),
     );
   }
   if (list.length === 0) {
@@ -441,12 +421,9 @@ async function produceShowValue(
   }
 }
 
-function produceOpenToolSuggestion(
-  command: KeywordCommandDescriptor,
-  args: string,
-): SpotlightItem {
+function produceOpenToolSuggestion(command: KeywordCommandDescriptor, args: string): SpotlightItem {
   const toolId = command.toolId ?? "";
-  const text = command.forwardArgs ?? true ? args : "";
+  const text = (command.forwardArgs ?? true) ? args : "";
   const preview = text ? `(${truncatePreview(text, 28)})` : "";
   const payload: KeywordItemOpenTool = {
     __keyword: true,
@@ -458,9 +435,7 @@ function produceOpenToolSuggestion(
     providerId: "__keyword__",
     itemId: `kw-open:${toolId}:${text ? text.slice(0, 16) : "empty"}`,
     title: `${command.name}${preview}`,
-    subtitle: text
-      ? "Enter 打开工具并预填参数"
-      : "Enter 打开工具",
+    subtitle: text ? "Enter 打开工具并预填参数" : "Enter 打开工具",
     badge: { short: "跳", tone: "primary" },
     searchFields: [],
     payload: payload as unknown as Record<string, unknown>,
@@ -525,10 +500,7 @@ async function openToolAction(toolId: string, text: string): Promise<SpotlightEx
   }
 }
 
-async function jumpToolAction(
-  toolId: string,
-  toast?: string,
-): Promise<SpotlightExecuteResult> {
+async function jumpToolAction(toolId: string, toast?: string): Promise<SpotlightExecuteResult> {
   if (!toolId) return { errorMessage: "未配置目标工具" };
   try {
     await invoke("spotlight_pick", { target: toolId, source: "keyword" });
@@ -649,9 +621,7 @@ export function buildKeywordItemActions(item: SpotlightItem): Array<{
     case "show-value":
       return [{ id: "copy", label: "复制", icon: "copy", shortcut: "Enter" }];
     case "open-tool":
-      return [
-        { id: "open", label: "打开工具并预填", icon: "external", shortcut: "Enter" },
-      ];
+      return [{ id: "open", label: "打开工具并预填", icon: "external", shortcut: "Enter" }];
     case "vault-entry":
       return [
         { id: "copy_password", label: "复制密码", icon: "lock", shortcut: "Enter" },

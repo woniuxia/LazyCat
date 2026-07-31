@@ -163,7 +163,9 @@ function onSelect(act: CtxMenuAction) {
 
 /* Context menu transition */
 .ctx-fade-enter-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.1s ease;
 }
 .ctx-fade-leave-active {
   transition: opacity 0.08s ease;

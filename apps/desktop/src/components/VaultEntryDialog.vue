@@ -19,12 +19,24 @@
           @click="form.category = cat.value"
         >
           <div class="vault-type-icon">
-            <svg v-if="cat.value === 'app'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg
+              v-if="cat.value === 'app'"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
               <rect x="2" y="3" width="20" height="14" rx="2" />
               <path d="M8 21h8" />
               <path d="M12 17v4" />
             </svg>
-            <svg v-else-if="cat.value === 'server'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg
+              v-else-if="cat.value === 'server'"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
               <rect x="2" y="2" width="20" height="8" rx="2" />
               <rect x="2" y="14" width="20" height="8" rx="2" />
               <circle cx="6" cy="6" r="1" fill="currentColor" />
@@ -63,10 +75,18 @@
           <el-form-item label="网址 / 应用">
             <el-input v-model="form.url" placeholder="https://... 或应用名称">
               <template #prefix>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  class="vault-input-icon"
+                >
                   <circle cx="12" cy="12" r="10" />
                   <path d="M2 12h20" />
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                  <path
+                    d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                  />
                 </svg>
               </template>
             </el-input>
@@ -75,7 +95,13 @@
             <el-form-item label="账号" class="vault-form-item-flex">
               <el-input v-model="form.account" placeholder="用户名或邮箱">
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
@@ -83,9 +109,21 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input :key="`app-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input
+                :key="`app-password-${props.maskVersion ?? 0}`"
+                v-model="form.password"
+                type="password"
+                show-password
+                placeholder="密码"
+              >
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <rect x="3" y="11" width="18" height="11" rx="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
@@ -107,13 +145,25 @@
               </el-select>
             </el-form-item>
             <el-form-item label="端口" class="vault-form-item-port">
-              <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+              <el-input-number
+                v-model="form.port"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
             </el-form-item>
           </div>
           <el-form-item label="地址">
             <el-input v-model="form.address" placeholder="IP 或域名">
               <template #prefix>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  class="vault-input-icon"
+                >
                   <rect x="2" y="2" width="20" height="8" rx="2" />
                   <rect x="2" y="14" width="20" height="8" rx="2" />
                   <circle cx="6" cy="6" r="1" fill="currentColor" />
@@ -126,7 +176,13 @@
             <el-form-item label="账号" class="vault-form-item-flex">
               <el-input v-model="form.account" placeholder="用户名">
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
@@ -134,9 +190,21 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input :key="`server-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input
+                :key="`server-password-${props.maskVersion ?? 0}`"
+                v-model="form.password"
+                type="password"
+                show-password
+                placeholder="密码"
+              >
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <rect x="3" y="11" width="18" height="11" rx="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
@@ -165,13 +233,25 @@
               </el-select>
             </el-form-item>
             <el-form-item label="端口" class="vault-form-item-port">
-              <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+              <el-input-number
+                v-model="form.port"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
             </el-form-item>
           </div>
           <el-form-item label="地址">
             <el-input v-model="form.address" placeholder="IP 或域名">
               <template #prefix>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  class="vault-input-icon"
+                >
                   <ellipse cx="12" cy="5" rx="9" ry="3" />
                   <path d="M3 5v14a9 3 0 0 0 18 0V5" />
                 </svg>
@@ -182,7 +262,13 @@
             <el-form-item label="账号" class="vault-form-item-flex">
               <el-input v-model="form.account" placeholder="用户名">
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
@@ -190,9 +276,21 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input :key="`database-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input
+                :key="`database-password-${props.maskVersion ?? 0}`"
+                v-model="form.password"
+                type="password"
+                show-password
+                placeholder="密码"
+              >
                 <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    class="vault-input-icon"
+                  >
                     <rect x="3" y="11" width="18" height="11" rx="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
@@ -225,12 +323,7 @@
             placeholder="输入标签后按回车添加"
             class="vault-tags-select"
           >
-            <el-option
-              v-for="tag in existingTags"
-              :key="tag"
-              :label="tag"
-              :value="tag"
-            />
+            <el-option v-for="tag in existingTags" :key="tag" :label="tag" :value="tag" />
           </el-select>
         </el-form-item>
       </div>
@@ -238,14 +331,26 @@
       <div class="vault-form-section">
         <div class="vault-section-title">备注</div>
         <el-form-item>
-          <el-input v-model="form.notes" type="textarea" :rows="2" placeholder="添加备注信息（可选）" />
+          <el-input
+            v-model="form.notes"
+            type="textarea"
+            :rows="2"
+            placeholder="添加备注信息（可选）"
+          />
         </el-form-item>
       </div>
     </el-form>
 
     <template #footer>
       <div class="vault-dialog-footer">
-        <el-button @click="onBeforeClose(() => { visible = false })">取消</el-button>
+        <el-button
+          @click="
+            onBeforeClose(() => {
+              visible = false;
+            })
+          "
+          >取消</el-button
+        >
         <el-button type="primary" :loading="saving" @click="onSave">
           {{ isEdit ? "保存" : "创建" }}
         </el-button>
@@ -346,40 +451,51 @@ function isDirty(): boolean {
   return formSnapshot() !== snapshot;
 }
 
-watch(() => form.dbType, (newType) => {
-  if (form.category === "database" && newType in DB_DEFAULT_PORT) {
-    form.port = DB_DEFAULT_PORT[newType];
-  }
-}, { flush: "sync" });
-
-watch(() => form.category, (newCat, oldCat) => {
-  if (isEdit.value) {
-    // app <-> server/database: 互迁 url <-> address
-    if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
-      if (!form.address && form.url) form.address = form.url;
-    } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
-      if (!form.url && form.address) form.url = form.address;
+watch(
+  () => form.dbType,
+  (newType) => {
+    if (form.category === "database" && newType in DB_DEFAULT_PORT) {
+      form.port = DB_DEFAULT_PORT[newType];
     }
-  }
-  if (newCat === "server") {
-    form.port = SERVER_DEFAULT_PORT;
-  } else if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
-    form.port = DB_DEFAULT_PORT[form.dbType];
-  }
-}, { flush: "sync" });
+  },
+  { flush: "sync" },
+);
+
+watch(
+  () => form.category,
+  (newCat, oldCat) => {
+    if (isEdit.value) {
+      // app <-> server/database: 互迁 url <-> address
+      if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
+        if (!form.address && form.url) form.address = form.url;
+      } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
+        if (!form.url && form.address) form.url = form.address;
+      }
+    }
+    if (newCat === "server") {
+      form.port = SERVER_DEFAULT_PORT;
+    } else if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
+      form.port = DB_DEFAULT_PORT[form.dbType];
+    }
+  },
+  { flush: "sync" },
+);
 
 const emit = defineEmits<{
   (e: "saved"): void;
 }>();
 
-function show(entry?: {
-  id: number;
-  category: string;
-  title: string;
-  environment: string;
-  fields: Record<string, unknown>;
-  tags?: string[];
-}, seed?: VaultEntrySeed) {
+function show(
+  entry?: {
+    id: number;
+    category: string;
+    title: string;
+    environment: string;
+    fields: Record<string, unknown>;
+    tags?: string[];
+  },
+  seed?: VaultEntrySeed,
+) {
   forceClosing = false;
   Object.assign(form, defaultForm());
   if (entry) {
@@ -396,11 +512,8 @@ function show(entry?: {
     form.address = (f.address as string) || "";
     form.serverType = (f.serverType as string) || "Linux";
     form.dbType = (f.dbType as string) || "MySQL";
-    form.port = typeof f.port === "number"
-      ? f.port
-      : form.category === "server"
-        ? SERVER_DEFAULT_PORT
-        : 3306;
+    form.port =
+      typeof f.port === "number" ? f.port : form.category === "server" ? SERVER_DEFAULT_PORT : 3306;
     form.dbName = (f.dbName as string) || "";
     form.schema = (f.schema as string) || "";
     form.tags = entry.tags || [];
@@ -419,11 +532,12 @@ function show(entry?: {
       form.serverType = (fields.serverType as string) || "Linux";
       form.dbType = (fields.dbType as string) || form.dbType;
       const seedPort = Number(fields.port);
-      form.port = Number.isInteger(seedPort) && seedPort >= 1 && seedPort <= 65535
-        ? seedPort
-        : form.category === "server"
-          ? SERVER_DEFAULT_PORT
-          : form.port;
+      form.port =
+        Number.isInteger(seedPort) && seedPort >= 1 && seedPort <= 65535
+          ? seedPort
+          : form.category === "server"
+            ? SERVER_DEFAULT_PORT
+            : form.port;
       form.dbName = (fields.dbName as string) || "";
       form.schema = (fields.schema as string) || "";
       form.tags = seed.tags || [];

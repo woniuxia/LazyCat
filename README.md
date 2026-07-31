@@ -22,12 +22,12 @@
 
 前往 [GitHub Releases](https://github.com/woniuxia/LazyCat/releases/latest) 下载最新版本。
 
-| 产物 | 文件名格式 | 说明 |
-|------|-----------|------|
-| 轻量安装包 | `Lazycat_x.y.z_x64_setup-lite.exe` | 需联网安装 WebView2 |
-| 离线安装包 | `Lazycat_x.y.z_x64_setup-full.exe` | 内含 WebView2，离线可用 |
+| 产物       | 文件名格式                            | 说明                          |
+| ---------- | ------------------------------------- | ----------------------------- |
+| 轻量安装包 | `Lazycat_x.y.z_x64_setup-lite.exe`    | 需联网安装 WebView2           |
+| 离线安装包 | `Lazycat_x.y.z_x64_setup-full.exe`    | 内含 WebView2，离线可用       |
 | 轻量便携版 | `Lazycat_x.y.z_x64_portable-lite.zip` | 解压即用，需系统已有 WebView2 |
-| 离线便携版 | `Lazycat_x.y.z_x64_portable-full.zip` | 解压即用，离线可用 |
+| 离线便携版 | `Lazycat_x.y.z_x64_portable-full.zip` | 解压即用，离线可用            |
 
 系统要求：Windows 10+
 
@@ -37,14 +37,14 @@
 
 ![首页总览](img/home.png)
 
-| 快捷启动 | 代码片段 |
-|------|------|
-| ![快捷启动](img/launcher.png) | ![代码片段](img/code.png) |
+| 快捷启动                         | 代码片段                     |
+| -------------------------------- | ---------------------------- |
+| ![快捷启动](img/launcher.png)    | ![代码片段](img/code.png)    |
 | 管理常用应用，一键拉起本地工具链 | 片段收藏、标签过滤、快速复用 |
 
-| 密码库 | Hosts 管理 |
-|------|------|
-| ![密码库](img/valut.png) | ![Hosts 管理](img/hosts.png) |
+| 密码库                            | Hosts 管理                          |
+| --------------------------------- | ----------------------------------- |
+| ![密码库](img/valut.png)          | ![Hosts 管理](img/hosts.png)        |
 | 按环境/分类管理敏感信息，本地存储 | 多配置切换 + 备份历史，适合联调场景 |
 
 ## 工作流亮点
@@ -84,114 +84,114 @@ PM、Todo 描述基于 TipTap，支持图片粘贴、附件引用、文件路径
 
 ### 常用工具（5）
 
-| 工具 | 说明 |
-|------|------|
+| 工具       | 说明                              |
+| ---------- | --------------------------------- |
 | 代码格式化 | JSON/XML/HTML/Java/SQL 自动格式化 |
-| 计算草稿 | 草稿式计算，保留历史记录 |
-| 正则工具 | 表达式生成与测试 |
-| 文本对比 | 双栏文本差异对比 |
-| Markdown | Markdown 编辑与实时预览 |
+| 计算草稿   | 草稿式计算，保留历史记录          |
+| 正则工具   | 表达式生成与测试                  |
+| 文本对比   | 双栏文本差异对比                  |
+| Markdown   | Markdown 编辑与实时预览           |
 
 ### 更多工具（7）
 
-| 工具 | 说明 |
-|------|------|
-| 代码片段 | 代码片段收藏与管理 |
-| 快捷启动 | 常用程序快速启动与管理 |
-| 任务清单 | 任务与周期事件管理 |
+| 工具     | 说明                                                                   |
+| -------- | ---------------------------------------------------------------------- |
+| 代码片段 | 代码片段收藏与管理                                                     |
+| 快捷启动 | 常用程序快速启动与管理                                                 |
+| 任务清单 | 任务与周期事件管理                                                     |
 | 项目管理 | 工作项跟踪，看板/今日/列表/甘特/日历/四象限 6 种视图，PM-Todo 双向打通 |
-| 本周工作 | 按本周时间范围汇总工作项与小结 |
-| 收纳箱 | 后台剪贴板收件箱与历史整理 |
-| 桌面挂件 | 桌面常驻挂件，显示今日 Todo 与 PM 仪表盘 |
+| 本周工作 | 按本周时间范围汇总工作项与小结                                         |
+| 收纳箱   | 后台剪贴板收件箱与历史整理                                             |
+| 桌面挂件 | 桌面常驻挂件，显示今日 Todo 与 PM 仪表盘                               |
 
 ### 编解码（5）
 
-| 工具 | 说明 |
-|------|------|
-| Base64 | Base64 编码与解码 |
-| URL 编解码 | URL Encode / Decode |
-| MD5 | 计算 MD5 摘要 |
-| SHA/HMAC | SHA-1/256/512 与 HMAC-SHA256 |
-| 二维码生成 | 根据文本生成二维码 |
+| 工具       | 说明                         |
+| ---------- | ---------------------------- |
+| Base64     | Base64 编码与解码            |
+| URL 编解码 | URL Encode / Decode          |
+| MD5        | 计算 MD5 摘要                |
+| SHA/HMAC   | SHA-1/256/512 与 HMAC-SHA256 |
+| 二维码生成 | 根据文本生成二维码           |
 
 ### 加密与安全（7）
 
-| 工具 | 说明 |
-|------|------|
-| RSA 加解密 | RSA 公私钥加解密 |
-| AES/DES | AES / DES / 3DES 加解密 |
-| JWT 解析 | 离线解析 JWT Token |
-| UUID/GUID | UUID 与 GUID 生成 |
-| 密码工具 | 随机密码生成与强度分析 |
-| Bcrypt | Bcrypt 哈希生成与验证 |
-| 密码管理 | 应用/服务器/数据库密码加密存储 |
+| 工具       | 说明                           |
+| ---------- | ------------------------------ |
+| RSA 加解密 | RSA 公私钥加解密               |
+| AES/DES    | AES / DES / 3DES 加解密        |
+| JWT 解析   | 离线解析 JWT Token             |
+| UUID/GUID  | UUID 与 GUID 生成              |
+| 密码工具   | 随机密码生成与强度分析         |
+| Bcrypt     | Bcrypt 哈希生成与验证          |
+| 密码管理   | 应用/服务器/数据库密码加密存储 |
 
 ### 数据转换（13）
 
-| 工具 | 说明 |
-|------|------|
-| JSON 处理 | JSON 格式化/压缩/XML/YAML 互转 |
-| JSON Schema | JSON Schema 校验与样例生成 |
-| CSV/JSON | CSV 转 JSON |
-| JavaBean 转 JS | Java Bean 转 JSON 与 JS Object |
-| MyBatis 助手 | 动态 SQL 渲染与占位符展开 |
-| Maven 定位 | 本地 Maven 仓库 Jar 包定位与版本查询 |
-| 进制转换 | 二/八/十/十六进制转换 |
-| 颜色转换 | 颜色格式互转与对比度检查 |
-| 转义/反转义 | JSON/HTML/SQL/JS 字符串转义与反转义 |
-| 文本处理 | 文本清洗、过滤提取与结果统计 |
-| 命名转换 | camelCase/snake_case/PascalCase 互转 |
-| 配置互转 | Properties/YAML/TOML/.env 格式互转 |
-| SQL 转实体类 | CREATE TABLE 转 Java/TS/Go/Python 实体 |
+| 工具           | 说明                                   |
+| -------------- | -------------------------------------- |
+| JSON 处理      | JSON 格式化/压缩/XML/YAML 互转         |
+| JSON Schema    | JSON Schema 校验与样例生成             |
+| CSV/JSON       | CSV 转 JSON                            |
+| JavaBean 转 JS | Java Bean 转 JSON 与 JS Object         |
+| MyBatis 助手   | 动态 SQL 渲染与占位符展开              |
+| Maven 定位     | 本地 Maven 仓库 Jar 包定位与版本查询   |
+| 进制转换       | 二/八/十/十六进制转换                  |
+| 颜色转换       | 颜色格式互转与对比度检查               |
+| 转义/反转义    | JSON/HTML/SQL/JS 字符串转义与反转义    |
+| 文本处理       | 文本清洗、过滤提取与结果统计           |
+| 命名转换       | camelCase/snake_case/PascalCase 互转   |
+| 配置互转       | Properties/YAML/TOML/.env 格式互转     |
+| SQL 转实体类   | CREATE TABLE 转 Java/TS/Go/Python 实体 |
 
 ### 网络与系统（10）
 
-| 工具 | 说明 |
-|------|------|
-| IP/端口连通 | TCP 与 HTTP 连通性测试 |
-| DNS 查询 | 域名解析与记录查询 |
-| Hosts 管理 | 多配置保存与切换 |
-| 端口占用 | 端口占用与进程分析 |
-| 环境检测 | 检测 Node 与 Java 版本 |
-| Nginx 助手 | 静态站点 + API 反代配置生成与校验 |
-| 快捷键检测 | 全局快捷键冲突检测 |
-| HTTP 状态码 | HTTP 状态码速查与说明 |
-| chmod 计算器 | Linux 文件权限数字/符号互转 |
+| 工具         | 说明                              |
+| ------------ | --------------------------------- |
+| IP/端口连通  | TCP 与 HTTP 连通性测试            |
+| DNS 查询     | 域名解析与记录查询                |
+| Hosts 管理   | 多配置保存与切换                  |
+| 端口占用     | 端口占用与进程分析                |
+| 环境检测     | 检测 Node 与 Java 版本            |
+| Nginx 助手   | 静态站点 + API 反代配置生成与校验 |
+| 快捷键检测   | 全局快捷键冲突检测                |
+| HTTP 状态码  | HTTP 状态码速查与说明             |
+| chmod 计算器 | Linux 文件权限数字/符号互转       |
 
 ### 文件与媒体（3）
 
-| 工具 | 说明 |
-|------|------|
-| 切分与合并 | 大文件切片与合并 |
-| PDF 工具 | PDF 合并、拆分与信息查看 |
-| 图片转换 | 格式转换、缩放、裁剪、压缩 |
+| 工具       | 说明                       |
+| ---------- | -------------------------- |
+| 切分与合并 | 大文件切片与合并           |
+| PDF 工具   | PDF 合并、拆分与信息查看   |
+| 图片转换   | 格式转换、缩放、裁剪、压缩 |
 
 ### 时间工具（3）
 
-| 工具 | 说明 |
-|------|------|
-| 时间戳转换 | 时间戳与日期互转 |
-| Cron 工具 | Cron 表达式生成与预览 |
+| 工具       | 说明                   |
+| ---------- | ---------------------- |
+| 时间戳转换 | 时间戳与日期互转       |
+| Cron 工具  | Cron 表达式生成与预览  |
 | 日期计算器 | 日期间隔与日期加减计算 |
 
 ### 离线手册（3）
 
-| 手册 | 说明 |
-|------|------|
-| Vue 3 手册 | Vue 3 中文开发手册 |
-| Element Plus | Element Plus 组件文档 |
-| JavaScript | MDN JavaScript 中文参考手册 |
+| 手册         | 说明                        |
+| ------------ | --------------------------- |
+| Vue 3 手册   | Vue 3 中文开发手册          |
+| Element Plus | Element Plus 组件文档       |
+| JavaScript   | MDN JavaScript 中文参考手册 |
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 框架 | Tauri 2（Rust backend + WebView frontend） |
-| 前端 | Vue 3 + Vite + Element Plus + TypeScript |
-| 富文本 | TipTap + ProseMirror（PM/Todo 描述、图片、附件、文件引用） |
-| 后端 | Rust + rusqlite（SQLite） |
-| 附件存储 | 内容寻址（hash 命名），按引用计数清理 |
-| 工程 | pnpm workspace（monorepo） |
+| 层级     | 技术                                                       |
+| -------- | ---------------------------------------------------------- |
+| 框架     | Tauri 2（Rust backend + WebView frontend）                 |
+| 前端     | Vue 3 + Vite + Element Plus + TypeScript                   |
+| 富文本   | TipTap + ProseMirror（PM/Todo 描述、图片、附件、文件引用） |
+| 后端     | Rust + rusqlite（SQLite）                                  |
+| 附件存储 | 内容寻址（hash 命名），按引用计数清理                      |
+| 工程     | pnpm workspace（monorepo）                                 |
 
 ## 目录结构
 
@@ -216,17 +216,17 @@ pnpm install
 pnpm dev
 ```
 
-| 命令 | 说明 |
-|------|------|
-| `pnpm dev` | 启动开发模式（Tauri dev） |
-| `pnpm typecheck` | 全工作区 TypeScript 类型检查 |
-| `pnpm build` | 构建全部 packages + 桌面端 |
-| `pnpm test` | 运行全部单元测试 |
-| `pnpm test:e2e` | 运行端到端测试 |
-| `pnpm package:win` | 本地构建 lite portable zip 和 SHA256，不上传 GitHub |
-| `pnpm build:win` | 构建 Windows NSIS 安装包 |
-| `pnpm build:portable` | 构建 Windows 便携版 |
-| `pnpm release:win -- -Tag vX.Y.Z` | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release |
+| 命令                                  | 说明                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `pnpm dev`                            | 启动开发模式（Tauri dev）                                                  |
+| `pnpm typecheck`                      | 全工作区 TypeScript 类型检查                                               |
+| `pnpm build`                          | 构建全部 packages + 桌面端                                                 |
+| `pnpm test`                           | 运行全部单元测试                                                           |
+| `pnpm test:e2e`                       | 运行端到端测试                                                             |
+| `pnpm package:win`                    | 本地构建 lite portable zip 和 SHA256，不上传 GitHub                        |
+| `pnpm build:win`                      | 构建 Windows NSIS 安装包                                                   |
+| `pnpm build:portable`                 | 构建 Windows 便携版                                                        |
+| `pnpm release:win -- -Tag vX.Y.Z`     | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release        |
 | `pnpm release:all:win -- -Tag vX.Y.Z` | 构建 lite/full 安装包与绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
 ## 参与贡献

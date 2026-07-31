@@ -91,16 +91,13 @@ describe("normalizeGlobalNotificationPayload", () => {
     },
   );
 
-  it.each(["cancelled"] as const)(
-    "accepts release terminal status %s",
-    (status) => {
-      const notification = {
-        ...succeededNotification,
-        status,
-      };
-      expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
-    },
-  );
+  it.each(["cancelled"] as const)("accepts release terminal status %s", (status) => {
+    const notification = {
+      ...succeededNotification,
+      status,
+    };
+    expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
+  });
 
   it("accepts an upload failure notification without an archive path", () => {
     const { archivePath: _archivePath, ...uploadNotification } = succeededNotification;
@@ -126,28 +123,36 @@ describe("normalizeGlobalNotificationPayload", () => {
   });
 
   it("rejects an upload failure status for a local archive notification", () => {
-    expect(() => normalizeGlobalNotificationPayload({
-      ...succeededNotification,
-      status: "package_succeeded_upload_failed",
-    })).toThrow("无效的全局通知");
+    expect(() =>
+      normalizeGlobalNotificationPayload({
+        ...succeededNotification,
+        status: "package_succeeded_upload_failed",
+      }),
+    ).toThrow("无效的全局通知");
   });
 
   it("rejects an archive path on a server upload notification", () => {
-    expect(() => normalizeGlobalNotificationPayload({
-      ...succeededNotification,
-      packageType: "server_upload",
-    })).toThrow("无效的全局通知");
+    expect(() =>
+      normalizeGlobalNotificationPayload({
+        ...succeededNotification,
+        packageType: "server_upload",
+      }),
+    ).toThrow("无效的全局通知");
   });
 
-  it.each([undefined, "archive_then_upload", ""])("rejects invalid package type %s", (packageType) => {
-    expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, packageType }))
-      .toThrow("无效的全局通知");
-  });
+  it.each([undefined, "archive_then_upload", ""])(
+    "rejects invalid package type %s",
+    (packageType) => {
+      expect(() =>
+        normalizeGlobalNotificationPayload({ ...succeededNotification, packageType }),
+      ).toThrow("无效的全局通知");
+    },
+  );
 
   it("throws explicitly for an invalid notification kind", () => {
-    expect(() => normalizeGlobalNotificationPayload({ ...todoNotification, kind: "unknown" })).toThrow(
-      "无效的全局通知",
-    );
+    expect(() =>
+      normalizeGlobalNotificationPayload({ ...todoNotification, kind: "unknown" }),
+    ).toThrow("无效的全局通知");
   });
 
   it("throws explicitly when required fields are missing", () => {
@@ -157,9 +162,9 @@ describe("normalizeGlobalNotificationPayload", () => {
   });
 
   it("accepts the empty reminder preset used by the existing reminder contract", () => {
-    expect(normalizeGlobalNotificationPayload({ ...todoNotification, reminderPreset: "" })).toEqual([
-      { ...todoNotification, reminderPreset: "" },
-    ]);
+    expect(normalizeGlobalNotificationPayload({ ...todoNotification, reminderPreset: "" })).toEqual(
+      [{ ...todoNotification, reminderPreset: "" }],
+    );
   });
 
   it("accepts a complete Todo action summary", () => {
@@ -196,16 +201,17 @@ describe("normalizeGlobalNotificationPayload", () => {
   ] as const)("rejects invalid todo identifier %s=%s", (field, value) => {
     const id = field === "eventId" ? `todo-reminder:${value}` : todoNotification.id;
 
-    expect(() => normalizeGlobalNotificationPayload({ ...todoNotification, id, [field]: value }))
-      .toThrow("无效的全局通知");
+    expect(() =>
+      normalizeGlobalNotificationPayload({ ...todoNotification, id, [field]: value }),
+    ).toThrow("无效的全局通知");
   });
 
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     "rejects invalid release projectId=%s",
     (projectId) => {
-      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, projectId })).toThrow(
-        "无效的全局通知",
-      );
+      expect(() =>
+        normalizeGlobalNotificationPayload({ ...succeededNotification, projectId }),
+      ).toThrow("无效的全局通知");
     },
   );
 
@@ -218,16 +224,18 @@ describe("normalizeGlobalNotificationPayload", () => {
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     "rejects invalid release environmentId=%s",
     (environmentId) => {
-      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, environmentId }))
-        .toThrow("无效的全局通知");
+      expect(() =>
+        normalizeGlobalNotificationPayload({ ...succeededNotification, environmentId }),
+      ).toThrow("无效的全局通知");
     },
   );
 
   it.each([undefined, "staging", "Production", ""])(
     "rejects invalid release environment=%s",
     (environment) => {
-      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, environment }))
-        .toThrow("无效的全局通知");
+      expect(() =>
+        normalizeGlobalNotificationPayload({ ...succeededNotification, environment }),
+      ).toThrow("无效的全局通知");
     },
   );
 
@@ -262,10 +270,9 @@ describe("mergeGlobalNotificationQueue", () => {
     };
 
     expect(
-      mergeGlobalNotificationQueue(
-        [todoNotification],
-        [todoNotification, incoming, incoming],
-      ).map((notification) => notification.id),
+      mergeGlobalNotificationQueue([todoNotification], [todoNotification, incoming, incoming]).map(
+        (notification) => notification.id,
+      ),
     ).toEqual(["todo-reminder:41", "release-package:run-2"]);
   });
 });
@@ -322,11 +329,13 @@ describe("globalNotificationActions", () => {
   it.each(["succeeded", "failed"] as const)(
     "never returns the directory action for a server upload with status %s",
     (status) => {
-      expect(globalNotificationActions({
-      ...succeededNotification,
-        packageType: "server_upload",
-        status,
-      })).toEqual(["open-tool", "acknowledge"]);
+      expect(
+        globalNotificationActions({
+          ...succeededNotification,
+          packageType: "server_upload",
+          status,
+        }),
+      ).toEqual(["open-tool", "acknowledge"]);
     },
   );
 });
@@ -343,34 +352,36 @@ describe("actionCombinationNotificationCopy", () => {
 
 describe("releasePackageNotificationCopy", () => {
   it("uses the delivery type in release notification copy", () => {
-    expect(releasePackageNotificationCopy("succeeded", "local_archive").detail).toContain("本地归档完成");
-    expect(releasePackageNotificationCopy("succeeded", "server_upload").detail).toContain("服务器上传完成");
-    expect(releasePackageNotificationCopy("package_succeeded_upload_failed", "server_upload").detail)
-      .toContain("构建成功、上传失败");
+    expect(releasePackageNotificationCopy("succeeded", "local_archive").detail).toContain(
+      "本地归档完成",
+    );
+    expect(releasePackageNotificationCopy("succeeded", "server_upload").detail).toContain(
+      "服务器上传完成",
+    );
+    expect(
+      releasePackageNotificationCopy("package_succeeded_upload_failed", "server_upload").detail,
+    ).toContain("构建成功、上传失败");
   });
 
   it("describes a post-upload command failure without calling it an upload failure", () => {
-    expect(releasePackageNotificationCopy(
-      "upload_succeeded_command_failed",
-      "server_upload",
-    )).toEqual({
+    expect(
+      releasePackageNotificationCopy("upload_succeeded_command_failed", "server_upload"),
+    ).toEqual({
       title: "服务器命令执行失败",
       detail: "服务器文件已上传，但上传后命令未全部成功，请打开上线包工具查看日志。",
     });
   });
 
   it("describes a deployed service whose health check failed", () => {
-    expect(releasePackageNotificationCopy(
-      "deployed_health_check_failed",
-      "server_upload",
-    )).toEqual({
-      title: "部署验证失败",
-      detail: "服务器文件已部署且后置命令已完成，但健康检查未通过，请查看上传日志。",
-    });
-    expect(() => releasePackageNotificationCopy(
-      "deployed_health_check_failed",
-      "local_archive",
-    )).toThrow("无效的上线包终态组合");
+    expect(releasePackageNotificationCopy("deployed_health_check_failed", "server_upload")).toEqual(
+      {
+        title: "部署验证失败",
+        detail: "服务器文件已部署且后置命令已完成，但健康检查未通过，请查看上传日志。",
+      },
+    );
+    expect(() =>
+      releasePackageNotificationCopy("deployed_health_check_failed", "local_archive"),
+    ).toThrow("无效的上线包终态组合");
   });
 
   it("describes partial server uploads as not uploaded", () => {
@@ -380,13 +391,14 @@ describe("releasePackageNotificationCopy", () => {
     expect(detail).not.toContain("已上传服务器");
   });
 
-  it.each([
-    "package_succeeded_upload_failed",
-    "upload_succeeded_command_failed",
-  ] as const)("rejects impossible local archive server terminal %s", (status) => {
-    expect(() => releasePackageNotificationCopy(status, "local_archive"))
-      .toThrow("无效的上线包终态组合");
-  });
+  it.each(["package_succeeded_upload_failed", "upload_succeeded_command_failed"] as const)(
+    "rejects impossible local archive server terminal %s",
+    (status) => {
+      expect(() => releasePackageNotificationCopy(status, "local_archive")).toThrow(
+        "无效的上线包终态组合",
+      );
+    },
+  );
 
   it.each([
     ["succeeded", "上线包打包成功", "所选产物本地归档完成"],

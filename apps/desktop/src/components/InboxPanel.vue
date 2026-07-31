@@ -337,11 +337,7 @@
         <div v-if="detailEditExpanded" class="detail-section">
           <div class="section-title-row">
             <div class="section-title">编辑</div>
-            <button
-              type="button"
-              class="section-link-btn"
-              @click="detailEditExpanded = false"
-            >
+            <button type="button" class="section-link-btn" @click="detailEditExpanded = false">
               收起
             </button>
           </div>
@@ -390,7 +386,9 @@
                 <strong>{{ fileRef.fileName }}</strong>
                 <div class="file-ref-path">{{ fileRef.filePath }}</div>
                 <div class="file-ref-submeta">
-                  <span>{{ fileRef.fileSize ? formatByteSize(fileRef.fileSize) : "未知大小" }}</span>
+                  <span>{{
+                    fileRef.fileSize ? formatByteSize(fileRef.fileSize) : "未知大小"
+                  }}</span>
                   <span v-if="fileRef.modifiedAt"
                     >修改于 {{ formatDateTime(fileRef.modifiedAt) }}</span
                   >
@@ -400,7 +398,6 @@
             </div>
           </el-collapse-item>
         </el-collapse>
-
       </template>
 
       <div v-else class="detail-placeholder">
@@ -670,7 +667,9 @@ const detailText = computed(() => {
   return buildDisplayText(detail.value);
 });
 const copyableText = computed(() => (detail.value ? buildTransferText(detail.value) : ""));
-const shouldShowDetailBody = computed(() => (detail.value ? hasVisibleDetailBody(detail.value) : false));
+const shouldShowDetailBody = computed(() =>
+  detail.value ? hasVisibleDetailBody(detail.value) : false,
+);
 const detailPreviewText = computed(() => {
   if (!detail.value) return "";
   if (detail.value.preview) return detail.value.preview;
@@ -1346,8 +1345,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   border: 1px solid var(--lc-border);
   border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 251, 0.96));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 251, 0.96));
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
 }
 

@@ -62,11 +62,21 @@
     <!-- Copy Buttons -->
     <div class="color-copy-row">
       <el-button size="small" @click="copyText(hexInput)">HEX</el-button>
-      <el-button size="small" @click="copyText(`rgb(${rInput}, ${gInput}, ${bInput})`)">RGB</el-button>
-      <el-button size="small" @click="copyText(`hsl(${hInput}, ${sInput}%, ${lInput}%)`)">HSL</el-button>
-      <el-button size="small" @click="copyText(`hsv(${hvInput}, ${svInput}%, ${vvInput}%)`)">HSV</el-button>
-      <el-button size="small" @click="copyText(`hwb(${hwbHInput} ${hwbWInput}% ${hwbBInput}%)`)">HWB</el-button>
-      <el-button size="small" @click="copyText(`cmyk(${cmykC}%, ${cmykM}%, ${cmykY}%, ${cmykK}%)`)">CMYK</el-button>
+      <el-button size="small" @click="copyText(`rgb(${rInput}, ${gInput}, ${bInput})`)"
+        >RGB</el-button
+      >
+      <el-button size="small" @click="copyText(`hsl(${hInput}, ${sInput}%, ${lInput}%)`)"
+        >HSL</el-button
+      >
+      <el-button size="small" @click="copyText(`hsv(${hvInput}, ${svInput}%, ${vvInput}%)`)"
+        >HSV</el-button
+      >
+      <el-button size="small" @click="copyText(`hwb(${hwbHInput} ${hwbWInput}% ${hwbBInput}%)`)"
+        >HWB</el-button
+      >
+      <el-button size="small" @click="copyText(`cmyk(${cmykC}%, ${cmykM}%, ${cmykY}%, ${cmykK}%)`)"
+        >CMYK</el-button
+      >
     </div>
 
     <!-- Section 2: Color Harmony -->
@@ -75,25 +85,13 @@
       <div v-for="scheme in harmonySchemes" :key="scheme.name" class="harmony-row">
         <span class="harmony-label">{{ scheme.name }}</span>
         <div class="harmony-swatches">
-          <el-tooltip
-            v-for="(c, i) in scheme.colors"
-            :key="i"
-            :content="c"
-            placement="top"
-          >
-            <div
-              class="harmony-swatch"
-              :style="{ background: c }"
-              @click="applyColor(c)"
-            ></div>
+          <el-tooltip v-for="(c, i) in scheme.colors" :key="i" :content="c" placement="top">
+            <div class="harmony-swatch" :style="{ background: c }" @click="applyColor(c)"></div>
           </el-tooltip>
         </div>
-        <el-button
-          size="small"
-          text
-          @click="copyText(scheme.colors.join(', '))"
-          title="复制全部"
-        >复制</el-button>
+        <el-button size="small" text @click="copyText(scheme.colors.join(', '))" title="复制全部"
+          >复制</el-button
+        >
       </div>
     </div>
 
@@ -108,7 +106,8 @@
             class="palette-tab"
             :class="{ active: activePalette === tab.key }"
             @click="activePalette = tab.key"
-          >{{ tab.name }}</span>
+            >{{ tab.name }}</span
+          >
         </div>
       </div>
       <div class="palette-grid">
@@ -131,7 +130,9 @@
     <div class="color-section">
       <div class="color-section-title">
         对比度检查 (WCAG)
-        <el-button size="small" text @click="useCurrentAsContrast" title="使用当前颜色作为前景色">使用当前色</el-button>
+        <el-button size="small" text @click="useCurrentAsContrast" title="使用当前颜色作为前景色"
+          >使用当前色</el-button
+        >
       </div>
       <div class="contrast-row">
         <div class="contrast-input-group">
@@ -159,15 +160,18 @@
         <div class="contrast-result">
           <div class="contrast-ratio">{{ contrastRatio }}:1</div>
           <div class="contrast-badges">
-            <span class="contrast-badge" :class="wcagAA ? 'pass' : 'fail'">AA {{ wcagAA ? '通过' : '未通过' }}</span>
-            <span class="contrast-badge" :class="wcagAAA ? 'pass' : 'fail'">AAA {{ wcagAAA ? '通过' : '未通过' }}</span>
+            <span class="contrast-badge" :class="wcagAA ? 'pass' : 'fail'"
+              >AA {{ wcagAA ? "通过" : "未通过" }}</span
+            >
+            <span class="contrast-badge" :class="wcagAAA ? 'pass' : 'fail'"
+              >AAA {{ wcagAAA ? "通过" : "未通过" }}</span
+            >
           </div>
         </div>
       </div>
-      <div
-        class="contrast-preview"
-        :style="{ background: contrastBg, color: contrastFg }"
-      >示例文字 The quick brown fox jumps over the lazy dog</div>
+      <div class="contrast-preview" :style="{ background: contrastBg, color: contrastFg }">
+        示例文字 The quick brown fox jumps over the lazy dog
+      </div>
     </div>
   </div>
 </template>
@@ -212,15 +216,32 @@ const contrastFg = ref("#000000");
 const contrastBg = ref("#FFFFFF");
 
 // Palettes
-type PaletteKey = "web" | "chinese" | "material" | "flat" | "pastel" | "antd" | "arco" | "apple" | "ibm";
+type PaletteKey =
+  | "web"
+  | "chinese"
+  | "material"
+  | "flat"
+  | "pastel"
+  | "antd"
+  | "arco"
+  | "apple"
+  | "ibm";
 const activePalette = ref<PaletteKey>("web");
 
 const previewColor = computed(() => hexInput.value || "#000000");
 
 // Quick predefine colors for el-color-picker dropdown
 const quickPredefine = [
-  "#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#00FFFF",
-  "#0000FF", "#8B00FF", "#FF1493", "#000000", "#FFFFFF",
+  "#FF0000",
+  "#FF7F00",
+  "#FFFF00",
+  "#00FF00",
+  "#00FFFF",
+  "#0000FF",
+  "#8B00FF",
+  "#FF1493",
+  "#000000",
+  "#FFFFFF",
 ];
 
 // ─── Color Conversion Functions ──────────────────────────
@@ -241,15 +262,25 @@ function hexToRgb(hex: string): [number, number, number] | null {
 }
 
 function rgbToHex(r: number, g: number, b: number): string {
-  return "#" + [r, g, b]
-    .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase();
+  return (
+    "#" +
+    [r, g, b]
+      .map((v) =>
+        Math.max(0, Math.min(255, Math.round(v)))
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+      .toUpperCase()
+  );
 }
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
   const l = (max + min) / 2;
   if (max === min) return [0, 0, Math.round(l * 100)];
   const d = max - min;
@@ -262,8 +293,13 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
 }
 
 function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  h /= 360; s /= 100; l /= 100;
-  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  h /= 360;
+  s /= 100;
+  l /= 100;
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
   const hue2rgb = (p: number, q: number, t: number) => {
     if (t < 0) t += 1;
     if (t > 1) t -= 1;
@@ -282,8 +318,11 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
   const d = max - min;
   const v = max;
   const s = max === 0 ? 0 : d / max;
@@ -297,20 +336,48 @@ function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
 }
 
 function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
-  h /= 360; s /= 100; v /= 100;
+  h /= 360;
+  s /= 100;
+  v /= 100;
   const i = Math.floor(h * 6);
   const f = h * 6 - i;
   const p = v * (1 - s);
   const q = v * (1 - f * s);
   const t = v * (1 - (1 - f) * s);
-  let r = 0, g = 0, b = 0;
+  let r = 0,
+    g = 0,
+    b = 0;
   switch (i % 6) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    case 5: r = v; g = p; b = q; break;
+    case 0:
+      r = v;
+      g = t;
+      b = p;
+      break;
+    case 1:
+      r = q;
+      g = v;
+      b = p;
+      break;
+    case 2:
+      r = p;
+      g = v;
+      b = t;
+      break;
+    case 3:
+      r = p;
+      g = q;
+      b = v;
+      break;
+    case 4:
+      r = t;
+      g = p;
+      b = v;
+      break;
+    case 5:
+      r = v;
+      g = p;
+      b = q;
+      break;
   }
   return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
@@ -323,7 +390,8 @@ function rgbToHwb(r: number, g: number, b: number): [number, number, number] {
 }
 
 function hwbToRgb(h: number, w: number, b: number): [number, number, number] {
-  w /= 100; b /= 100;
+  w /= 100;
+  b /= 100;
   if (w + b >= 1) {
     const gray = Math.round((w / (w + b)) * 255);
     return [gray, gray, gray];
@@ -334,7 +402,9 @@ function hwbToRgb(h: number, w: number, b: number): [number, number, number] {
 }
 
 function rgbToCmyk(r: number, g: number, b: number): [number, number, number, number] {
-  const r1 = r / 255, g1 = g / 255, b1 = b / 255;
+  const r1 = r / 255,
+    g1 = g / 255,
+    b1 = b / 255;
   const k = 1 - Math.max(r1, g1, b1);
   if (k === 1) return [0, 0, 0, 100];
   const c = (1 - r1 - k) / (1 - k);
@@ -344,7 +414,10 @@ function rgbToCmyk(r: number, g: number, b: number): [number, number, number, nu
 }
 
 function cmykToRgb(c: number, m: number, y: number, k: number): [number, number, number] {
-  c /= 100; m /= 100; y /= 100; k /= 100;
+  c /= 100;
+  m /= 100;
+  y /= 100;
+  k /= 100;
   return [
     Math.round(255 * (1 - c) * (1 - k)),
     Math.round(255 * (1 - m) * (1 - k)),
@@ -393,55 +466,77 @@ watch(hexInput, (val) => {
 
 watch([rInput, gInput, bInput], ([r, g, b]) => {
   if (updating) return;
-  const rn = parseInt(r), gn = parseInt(g), bn = parseInt(b);
+  const rn = parseInt(r),
+    gn = parseInt(g),
+    bn = parseInt(b);
   if ([rn, gn, bn].some(isNaN)) return;
   updating = true;
   syncFromRgb(rn, gn, bn);
-  rInput.value = r; gInput.value = g; bInput.value = b;
+  rInput.value = r;
+  gInput.value = g;
+  bInput.value = b;
   updating = false;
 });
 
 watch([hInput, sInput, lInput], ([h, s, l]) => {
   if (updating) return;
-  const hn = parseInt(h), sn = parseInt(s), ln = parseInt(l);
+  const hn = parseInt(h),
+    sn = parseInt(s),
+    ln = parseInt(l);
   if ([hn, sn, ln].some(isNaN)) return;
   updating = true;
   const [r, g, b] = hslToRgb(hn, sn, ln);
   syncFromRgb(r, g, b);
-  hInput.value = h; sInput.value = s; lInput.value = l;
+  hInput.value = h;
+  sInput.value = s;
+  lInput.value = l;
   updating = false;
 });
 
 watch([hvInput, svInput, vvInput], ([h, s, v]) => {
   if (updating) return;
-  const hn = parseInt(h), sn = parseInt(s), vn = parseInt(v);
+  const hn = parseInt(h),
+    sn = parseInt(s),
+    vn = parseInt(v);
   if ([hn, sn, vn].some(isNaN)) return;
   updating = true;
   const [r, g, b] = hsvToRgb(hn, sn, vn);
   syncFromRgb(r, g, b);
-  hvInput.value = h; svInput.value = s; vvInput.value = v;
+  hvInput.value = h;
+  svInput.value = s;
+  vvInput.value = v;
   updating = false;
 });
 
 watch([hwbHInput, hwbWInput, hwbBInput], ([h, w, bv]) => {
   if (updating) return;
-  const hn = parseInt(h), wn = parseInt(w), bn = parseInt(bv);
+  const hn = parseInt(h),
+    wn = parseInt(w),
+    bn = parseInt(bv);
   if ([hn, wn, bn].some(isNaN)) return;
   updating = true;
   const [r, g, b] = hwbToRgb(hn, wn, bn);
   syncFromRgb(r, g, b);
-  hwbHInput.value = h; hwbWInput.value = w; hwbBInput.value = bv;
+  hwbHInput.value = h;
+  hwbWInput.value = w;
+  hwbBInput.value = bv;
   updating = false;
 });
 
 watch([cmykC, cmykM, cmykY, cmykK], ([c, m, y, k]) => {
   if (updating) return;
-  const cn = parseInt(c), mn = parseInt(m), yn = parseInt(y), kn = parseInt(k);
+  const cn = parseInt(c),
+    mn = parseInt(m),
+    yn = parseInt(y),
+    kn = parseInt(k);
   if ([cn, mn, yn, kn].some(isNaN)) return;
   updating = true;
   const [r, g, b] = cmykToRgb(cn, mn, yn, kn);
   syncFromRgb(r, g, b);
-  cmykC.value = c; cmykM.value = m; cmykY.value = y; cmykK.value = k;
+  cmykC.value = c;
+  cmykM.value = m;
+  cmykY.value = y;
+  cmykK.value = k;
   updating = false;
 });
 
@@ -578,96 +673,210 @@ const paletteTabs = [
 ];
 
 const webPalette = [
-  { name: "Slate 50", hex: "#F8FAFC" }, { name: "Slate 500", hex: "#64748B" }, { name: "Slate 900", hex: "#0F172A" },
-  { name: "Red 500", hex: "#EF4444" }, { name: "Orange 500", hex: "#F97316" }, { name: "Amber 500", hex: "#F59E0B" },
-  { name: "Yellow 500", hex: "#EAB308" }, { name: "Lime 500", hex: "#84CC16" }, { name: "Green 500", hex: "#22C55E" },
-  { name: "Emerald 500", hex: "#10B981" }, { name: "Teal 500", hex: "#14B8A6" }, { name: "Cyan 500", hex: "#06B6D4" },
-  { name: "Sky 500", hex: "#0EA5E9" }, { name: "Blue 500", hex: "#3B82F6" }, { name: "Indigo 500", hex: "#6366F1" },
-  { name: "Violet 500", hex: "#8B5CF6" }, { name: "Purple 500", hex: "#A855F7" }, { name: "Fuchsia 500", hex: "#D946EF" },
-  { name: "Pink 500", hex: "#EC4899" }, { name: "Rose 500", hex: "#F43F5E" },
+  { name: "Slate 50", hex: "#F8FAFC" },
+  { name: "Slate 500", hex: "#64748B" },
+  { name: "Slate 900", hex: "#0F172A" },
+  { name: "Red 500", hex: "#EF4444" },
+  { name: "Orange 500", hex: "#F97316" },
+  { name: "Amber 500", hex: "#F59E0B" },
+  { name: "Yellow 500", hex: "#EAB308" },
+  { name: "Lime 500", hex: "#84CC16" },
+  { name: "Green 500", hex: "#22C55E" },
+  { name: "Emerald 500", hex: "#10B981" },
+  { name: "Teal 500", hex: "#14B8A6" },
+  { name: "Cyan 500", hex: "#06B6D4" },
+  { name: "Sky 500", hex: "#0EA5E9" },
+  { name: "Blue 500", hex: "#3B82F6" },
+  { name: "Indigo 500", hex: "#6366F1" },
+  { name: "Violet 500", hex: "#8B5CF6" },
+  { name: "Purple 500", hex: "#A855F7" },
+  { name: "Fuchsia 500", hex: "#D946EF" },
+  { name: "Pink 500", hex: "#EC4899" },
+  { name: "Rose 500", hex: "#F43F5E" },
 ];
 
 const antdPalette = [
-  { name: "Red", hex: "#F5222D" }, { name: "Volcano", hex: "#FA541C" }, { name: "Orange", hex: "#FA8C16" },
-  { name: "Gold", hex: "#FAAD14" }, { name: "Yellow", hex: "#FADB14" }, { name: "Lime", hex: "#A0D911" },
-  { name: "Green", hex: "#52C41A" }, { name: "Cyan", hex: "#13C2C2" }, { name: "Blue", hex: "#1677FF" },
-  { name: "Geekblue", hex: "#2F54EB" }, { name: "Purple", hex: "#722ED1" }, { name: "Magenta", hex: "#EB2F96" },
-  { name: "Blue-1", hex: "#E6F4FF" }, { name: "Blue-3", hex: "#91CAFF" }, { name: "Blue-5", hex: "#4096FF" },
-  { name: "Blue-7", hex: "#0958D9" }, { name: "Blue-9", hex: "#002C8C" },
-  { name: "Grey-1", hex: "#FAFAFA" }, { name: "Grey-5", hex: "#D9D9D9" }, { name: "Grey-9", hex: "#434343" },
+  { name: "Red", hex: "#F5222D" },
+  { name: "Volcano", hex: "#FA541C" },
+  { name: "Orange", hex: "#FA8C16" },
+  { name: "Gold", hex: "#FAAD14" },
+  { name: "Yellow", hex: "#FADB14" },
+  { name: "Lime", hex: "#A0D911" },
+  { name: "Green", hex: "#52C41A" },
+  { name: "Cyan", hex: "#13C2C2" },
+  { name: "Blue", hex: "#1677FF" },
+  { name: "Geekblue", hex: "#2F54EB" },
+  { name: "Purple", hex: "#722ED1" },
+  { name: "Magenta", hex: "#EB2F96" },
+  { name: "Blue-1", hex: "#E6F4FF" },
+  { name: "Blue-3", hex: "#91CAFF" },
+  { name: "Blue-5", hex: "#4096FF" },
+  { name: "Blue-7", hex: "#0958D9" },
+  { name: "Blue-9", hex: "#002C8C" },
+  { name: "Grey-1", hex: "#FAFAFA" },
+  { name: "Grey-5", hex: "#D9D9D9" },
+  { name: "Grey-9", hex: "#434343" },
 ];
 
 const arcoPalette = [
-  { name: "Red", hex: "#F53F3F" }, { name: "OrangeRed", hex: "#F77234" }, { name: "Orange", hex: "#FF7D00" },
-  { name: "Gold", hex: "#F7BA1E" }, { name: "Yellow", hex: "#FADC19" }, { name: "Lime", hex: "#9FDB1D" },
-  { name: "Green", hex: "#00B42A" }, { name: "Cyan", hex: "#14C9C9" }, { name: "Blue", hex: "#3491FA" },
-  { name: "ArcoBlue", hex: "#165DFF" }, { name: "Purple", hex: "#722ED1" }, { name: "PinkPurple", hex: "#D91AD9" },
-  { name: "Magenta", hex: "#F5319D" }, { name: "Gray", hex: "#C9CDD4" },
-  { name: "ArcoBlue-1", hex: "#E8F3FF" }, { name: "ArcoBlue-3", hex: "#94BFFF" },
-  { name: "ArcoBlue-7", hex: "#0E42D2" }, { name: "ArcoBlue-9", hex: "#081C70" },
-  { name: "Gray-3", hex: "#E5E6EB" }, { name: "Gray-8", hex: "#4E5969" },
+  { name: "Red", hex: "#F53F3F" },
+  { name: "OrangeRed", hex: "#F77234" },
+  { name: "Orange", hex: "#FF7D00" },
+  { name: "Gold", hex: "#F7BA1E" },
+  { name: "Yellow", hex: "#FADC19" },
+  { name: "Lime", hex: "#9FDB1D" },
+  { name: "Green", hex: "#00B42A" },
+  { name: "Cyan", hex: "#14C9C9" },
+  { name: "Blue", hex: "#3491FA" },
+  { name: "ArcoBlue", hex: "#165DFF" },
+  { name: "Purple", hex: "#722ED1" },
+  { name: "PinkPurple", hex: "#D91AD9" },
+  { name: "Magenta", hex: "#F5319D" },
+  { name: "Gray", hex: "#C9CDD4" },
+  { name: "ArcoBlue-1", hex: "#E8F3FF" },
+  { name: "ArcoBlue-3", hex: "#94BFFF" },
+  { name: "ArcoBlue-7", hex: "#0E42D2" },
+  { name: "ArcoBlue-9", hex: "#081C70" },
+  { name: "Gray-3", hex: "#E5E6EB" },
+  { name: "Gray-8", hex: "#4E5969" },
 ];
 
 const materialPalette = [
-  { name: "Red", hex: "#F44336" }, { name: "Pink", hex: "#E91E63" }, { name: "Purple", hex: "#9C27B0" },
-  { name: "Deep Purple", hex: "#673AB7" }, { name: "Indigo", hex: "#3F51B5" }, { name: "Blue", hex: "#2196F3" },
-  { name: "Light Blue", hex: "#03A9F4" }, { name: "Cyan", hex: "#00BCD4" }, { name: "Teal", hex: "#009688" },
-  { name: "Green", hex: "#4CAF50" }, { name: "Light Green", hex: "#8BC34A" }, { name: "Lime", hex: "#CDDC39" },
-  { name: "Yellow", hex: "#FFEB3B" }, { name: "Amber", hex: "#FFC107" }, { name: "Orange", hex: "#FF9800" },
-  { name: "Deep Orange", hex: "#FF5722" }, { name: "Brown", hex: "#795548" }, { name: "Grey", hex: "#9E9E9E" },
-  { name: "Blue Grey", hex: "#607D8B" }, { name: "Black", hex: "#000000" },
+  { name: "Red", hex: "#F44336" },
+  { name: "Pink", hex: "#E91E63" },
+  { name: "Purple", hex: "#9C27B0" },
+  { name: "Deep Purple", hex: "#673AB7" },
+  { name: "Indigo", hex: "#3F51B5" },
+  { name: "Blue", hex: "#2196F3" },
+  { name: "Light Blue", hex: "#03A9F4" },
+  { name: "Cyan", hex: "#00BCD4" },
+  { name: "Teal", hex: "#009688" },
+  { name: "Green", hex: "#4CAF50" },
+  { name: "Light Green", hex: "#8BC34A" },
+  { name: "Lime", hex: "#CDDC39" },
+  { name: "Yellow", hex: "#FFEB3B" },
+  { name: "Amber", hex: "#FFC107" },
+  { name: "Orange", hex: "#FF9800" },
+  { name: "Deep Orange", hex: "#FF5722" },
+  { name: "Brown", hex: "#795548" },
+  { name: "Grey", hex: "#9E9E9E" },
+  { name: "Blue Grey", hex: "#607D8B" },
+  { name: "Black", hex: "#000000" },
 ];
 
 const applePalette = [
-  { name: "Blue", hex: "#007AFF" }, { name: "Green", hex: "#34C759" }, { name: "Indigo", hex: "#5856D6" },
-  { name: "Orange", hex: "#FF9500" }, { name: "Pink", hex: "#FF2D55" }, { name: "Purple", hex: "#AF52DE" },
-  { name: "Red", hex: "#FF3B30" }, { name: "Teal", hex: "#5AC8FA" }, { name: "Yellow", hex: "#FFCC00" },
-  { name: "Mint", hex: "#00C7BE" }, { name: "Cyan", hex: "#32ADE6" }, { name: "Brown", hex: "#A2845E" },
-  { name: "Gray", hex: "#8E8E93" }, { name: "Gray 2", hex: "#AEAEB2" }, { name: "Gray 3", hex: "#C7C7CC" },
-  { name: "Gray 4", hex: "#D1D1D6" }, { name: "Gray 5", hex: "#E5E5EA" }, { name: "Gray 6", hex: "#F2F2F7" },
-  { name: "Label", hex: "#3C3C43" }, { name: "Background", hex: "#F2F2F7" },
+  { name: "Blue", hex: "#007AFF" },
+  { name: "Green", hex: "#34C759" },
+  { name: "Indigo", hex: "#5856D6" },
+  { name: "Orange", hex: "#FF9500" },
+  { name: "Pink", hex: "#FF2D55" },
+  { name: "Purple", hex: "#AF52DE" },
+  { name: "Red", hex: "#FF3B30" },
+  { name: "Teal", hex: "#5AC8FA" },
+  { name: "Yellow", hex: "#FFCC00" },
+  { name: "Mint", hex: "#00C7BE" },
+  { name: "Cyan", hex: "#32ADE6" },
+  { name: "Brown", hex: "#A2845E" },
+  { name: "Gray", hex: "#8E8E93" },
+  { name: "Gray 2", hex: "#AEAEB2" },
+  { name: "Gray 3", hex: "#C7C7CC" },
+  { name: "Gray 4", hex: "#D1D1D6" },
+  { name: "Gray 5", hex: "#E5E5EA" },
+  { name: "Gray 6", hex: "#F2F2F7" },
+  { name: "Label", hex: "#3C3C43" },
+  { name: "Background", hex: "#F2F2F7" },
 ];
 
 const ibmPalette = [
-  { name: "Blue 60", hex: "#0F62FE" }, { name: "Blue 40", hex: "#78A9FF" }, { name: "Blue 80", hex: "#002D9C" },
-  { name: "Cyan 50", hex: "#1192E8" }, { name: "Cyan 30", hex: "#82CFFF" }, { name: "Cyan 70", hex: "#003A6D" },
-  { name: "Teal 50", hex: "#009D9A" }, { name: "Teal 70", hex: "#005D5D" },
-  { name: "Green 50", hex: "#24A148" }, { name: "Green 70", hex: "#0E6027" },
-  { name: "Purple 60", hex: "#8A3FFC" }, { name: "Purple 40", hex: "#BE95FF" },
-  { name: "Magenta 50", hex: "#EE5396" }, { name: "Magenta 70", hex: "#9F1853" },
-  { name: "Red 60", hex: "#DA1E28" }, { name: "Red 40", hex: "#FF8389" },
-  { name: "Orange 40", hex: "#FF832B" }, { name: "Yellow 30", hex: "#F1C21B" },
-  { name: "Gray 50", hex: "#8D8D8D" }, { name: "Gray 80", hex: "#393939" },
+  { name: "Blue 60", hex: "#0F62FE" },
+  { name: "Blue 40", hex: "#78A9FF" },
+  { name: "Blue 80", hex: "#002D9C" },
+  { name: "Cyan 50", hex: "#1192E8" },
+  { name: "Cyan 30", hex: "#82CFFF" },
+  { name: "Cyan 70", hex: "#003A6D" },
+  { name: "Teal 50", hex: "#009D9A" },
+  { name: "Teal 70", hex: "#005D5D" },
+  { name: "Green 50", hex: "#24A148" },
+  { name: "Green 70", hex: "#0E6027" },
+  { name: "Purple 60", hex: "#8A3FFC" },
+  { name: "Purple 40", hex: "#BE95FF" },
+  { name: "Magenta 50", hex: "#EE5396" },
+  { name: "Magenta 70", hex: "#9F1853" },
+  { name: "Red 60", hex: "#DA1E28" },
+  { name: "Red 40", hex: "#FF8389" },
+  { name: "Orange 40", hex: "#FF832B" },
+  { name: "Yellow 30", hex: "#F1C21B" },
+  { name: "Gray 50", hex: "#8D8D8D" },
+  { name: "Gray 80", hex: "#393939" },
 ];
 
 const flatPalette = [
-  { name: "Turquoise", hex: "#1ABC9C" }, { name: "Emerald", hex: "#2ECC71" }, { name: "Peter River", hex: "#3498DB" },
-  { name: "Amethyst", hex: "#9B59B6" }, { name: "Wet Asphalt", hex: "#34495E" }, { name: "Green Sea", hex: "#16A085" },
-  { name: "Nephritis", hex: "#27AE60" }, { name: "Belize Hole", hex: "#2980B9" }, { name: "Wisteria", hex: "#8E44AD" },
-  { name: "Midnight Blue", hex: "#2C3E50" }, { name: "Sun Flower", hex: "#F1C40F" }, { name: "Carrot", hex: "#E67E22" },
-  { name: "Alizarin", hex: "#E74C3C" }, { name: "Clouds", hex: "#ECF0F1" }, { name: "Concrete", hex: "#95A5A6" },
-  { name: "Orange", hex: "#F39C12" }, { name: "Pumpkin", hex: "#D35400" }, { name: "Pomegranate", hex: "#C0392B" },
-  { name: "Silver", hex: "#BDC3C7" }, { name: "Asbestos", hex: "#7F8C8D" },
+  { name: "Turquoise", hex: "#1ABC9C" },
+  { name: "Emerald", hex: "#2ECC71" },
+  { name: "Peter River", hex: "#3498DB" },
+  { name: "Amethyst", hex: "#9B59B6" },
+  { name: "Wet Asphalt", hex: "#34495E" },
+  { name: "Green Sea", hex: "#16A085" },
+  { name: "Nephritis", hex: "#27AE60" },
+  { name: "Belize Hole", hex: "#2980B9" },
+  { name: "Wisteria", hex: "#8E44AD" },
+  { name: "Midnight Blue", hex: "#2C3E50" },
+  { name: "Sun Flower", hex: "#F1C40F" },
+  { name: "Carrot", hex: "#E67E22" },
+  { name: "Alizarin", hex: "#E74C3C" },
+  { name: "Clouds", hex: "#ECF0F1" },
+  { name: "Concrete", hex: "#95A5A6" },
+  { name: "Orange", hex: "#F39C12" },
+  { name: "Pumpkin", hex: "#D35400" },
+  { name: "Pomegranate", hex: "#C0392B" },
+  { name: "Silver", hex: "#BDC3C7" },
+  { name: "Asbestos", hex: "#7F8C8D" },
 ];
 
 const pastelPalette = [
-  { name: "暮云灰", hex: "#B5B5B5" }, { name: "雾蓝", hex: "#8EA2B0" }, { name: "灰豆绿", hex: "#A2B5A0" },
-  { name: "藕粉", hex: "#D4A5A5" }, { name: "燕麦色", hex: "#C8B896" }, { name: "烟紫", hex: "#A89BB5" },
-  { name: "青瓷", hex: "#9ABCB0" }, { name: "灰粉", hex: "#C9A9A6" }, { name: "雾绿", hex: "#A0B8A8" },
-  { name: "银杏黄", hex: "#D4C48A" }, { name: "枯玫瑰", hex: "#BF8B8B" }, { name: "石灰蓝", hex: "#8CA0A8" },
-  { name: "奶咖", hex: "#C4A882" }, { name: "灰丁香", hex: "#B0A0BA" }, { name: "莫兰迪绿", hex: "#8FAF8F" },
-  { name: "沙色", hex: "#C6B598" }, { name: "雾灰", hex: "#A8A8A8" }, { name: "暮蓝", hex: "#7E95A5" },
-  { name: "暖灰", hex: "#B8AFA0" }, { name: "柿红", hex: "#C08070" },
+  { name: "暮云灰", hex: "#B5B5B5" },
+  { name: "雾蓝", hex: "#8EA2B0" },
+  { name: "灰豆绿", hex: "#A2B5A0" },
+  { name: "藕粉", hex: "#D4A5A5" },
+  { name: "燕麦色", hex: "#C8B896" },
+  { name: "烟紫", hex: "#A89BB5" },
+  { name: "青瓷", hex: "#9ABCB0" },
+  { name: "灰粉", hex: "#C9A9A6" },
+  { name: "雾绿", hex: "#A0B8A8" },
+  { name: "银杏黄", hex: "#D4C48A" },
+  { name: "枯玫瑰", hex: "#BF8B8B" },
+  { name: "石灰蓝", hex: "#8CA0A8" },
+  { name: "奶咖", hex: "#C4A882" },
+  { name: "灰丁香", hex: "#B0A0BA" },
+  { name: "莫兰迪绿", hex: "#8FAF8F" },
+  { name: "沙色", hex: "#C6B598" },
+  { name: "雾灰", hex: "#A8A8A8" },
+  { name: "暮蓝", hex: "#7E95A5" },
+  { name: "暖灰", hex: "#B8AFA0" },
+  { name: "柿红", hex: "#C08070" },
 ];
 
 const chinesePalette = [
-  { name: "靛青", hex: "#177CB0" }, { name: "朱砂", hex: "#FF461F" }, { name: "月白", hex: "#D6ECF0" },
-  { name: "竹青", hex: "#789262" }, { name: "藕荷", hex: "#E4C6D0" }, { name: "鸦青", hex: "#424C50" },
-  { name: "胭脂", hex: "#9D2933" }, { name: "黛", hex: "#4A4266" }, { name: "缃色", hex: "#F0C239" },
-  { name: "秋香", hex: "#D9B611" }, { name: "松花", hex: "#BCE672" }, { name: "石青", hex: "#1685A9" },
-  { name: "赤金", hex: "#F2BE45" }, { name: "雪白", hex: "#F0FCFF" }, { name: "玄色", hex: "#622A1D" },
-  { name: "绛紫", hex: "#8C4356" }, { name: "青白", hex: "#C0EBD7" }, { name: "丁香", hex: "#CCA4E3" },
-  { name: "琥珀", hex: "#CA6924" }, { name: "苍色", hex: "#75878A" },
+  { name: "靛青", hex: "#177CB0" },
+  { name: "朱砂", hex: "#FF461F" },
+  { name: "月白", hex: "#D6ECF0" },
+  { name: "竹青", hex: "#789262" },
+  { name: "藕荷", hex: "#E4C6D0" },
+  { name: "鸦青", hex: "#424C50" },
+  { name: "胭脂", hex: "#9D2933" },
+  { name: "黛", hex: "#4A4266" },
+  { name: "缃色", hex: "#F0C239" },
+  { name: "秋香", hex: "#D9B611" },
+  { name: "松花", hex: "#BCE672" },
+  { name: "石青", hex: "#1685A9" },
+  { name: "赤金", hex: "#F2BE45" },
+  { name: "雪白", hex: "#F0FCFF" },
+  { name: "玄色", hex: "#622A1D" },
+  { name: "绛紫", hex: "#8C4356" },
+  { name: "青白", hex: "#C0EBD7" },
+  { name: "丁香", hex: "#CCA4E3" },
+  { name: "琥珀", hex: "#CA6924" },
+  { name: "苍色", hex: "#75878A" },
 ];
 
 const currentPalette = computed(() => {
@@ -849,7 +1058,9 @@ async function copyText(text: string) {
   border-radius: 4px;
   cursor: pointer;
   color: var(--lc-text-muted);
-  transition: color var(--lc-duration) var(--lc-ease), background var(--lc-duration) var(--lc-ease);
+  transition:
+    color var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration) var(--lc-ease);
   user-select: none;
 }
 
@@ -894,7 +1105,9 @@ async function copyText(text: string) {
   border-radius: 4px;
   border: 1px solid var(--lc-border);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .harmony-swatch:hover {
@@ -914,7 +1127,9 @@ async function copyText(text: string) {
   border-radius: 4px;
   border: 1px solid var(--lc-border);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .palette-swatch:hover {

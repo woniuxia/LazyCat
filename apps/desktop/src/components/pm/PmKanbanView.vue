@@ -8,13 +8,11 @@
     >
       <div class="column-header" :style="{ borderBottomColor: col.color }">
         <span class="column-title">{{ col.label }}</span>
-        <span class="column-count" :style="{ background: col.color + '1a', color: col.color }">{{ columnItems(col.key).length }}</span>
+        <span class="column-count" :style="{ background: col.color + '1a', color: col.color }">{{
+          columnItems(col.key).length
+        }}</span>
       </div>
-      <div
-        :ref="(el) => setColumnRef(col.key, el)"
-        class="column-body"
-        :data-status="col.key"
-      >
+      <div :ref="(el) => setColumnRef(col.key, el)" class="column-body" :data-status="col.key">
         <div
           v-for="item in columnItems(col.key)"
           :key="item.id"
@@ -34,61 +32,122 @@
           <div class="card-topbar" :class="{ 'is-overview': isOverview }">
             <div class="card-topbar-left">
               <template v-if="isOverview && item.projectName">
-                <span class="card-project-badge" :style="{ backgroundColor: (item.projectColor || '#0ea5e9') + '18', color: item.projectColor || '#0ea5e9' }">
-                  <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#0ea5e9' }" />
+                <span
+                  class="card-project-badge"
+                  :style="{
+                    backgroundColor: (item.projectColor || '#0ea5e9') + '18',
+                    color: item.projectColor || '#0ea5e9',
+                  }"
+                >
+                  <span
+                    class="card-project-dot"
+                    :style="{ backgroundColor: item.projectColor || '#0ea5e9' }"
+                  />
                   <span class="card-project-name">{{ item.projectName }}</span>
                 </span>
               </template>
               <template v-else>
-                <span class="card-meta-pill" :style="{ color: PM_ITEM_TYPE_MAP[item.itemType]?.color, borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40' }">
+                <span
+                  class="card-meta-pill"
+                  :style="{
+                    color: PM_ITEM_TYPE_MAP[item.itemType]?.color,
+                    borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40',
+                  }"
+                >
                   {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
                 </span>
-                <span class="card-meta-pill" :style="{ color: PM_PRIORITY_MAP[item.priority]?.color, borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40' }">
+                <span
+                  class="card-meta-pill"
+                  :style="{
+                    color: PM_PRIORITY_MAP[item.priority]?.color,
+                    borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40',
+                  }"
+                >
                   {{ PM_PRIORITY_MAP[item.priority]?.label }}
                 </span>
               </template>
             </div>
             <div class="card-topbar-right">
               <el-icon v-if="item.pinned" class="badge-pin" title="已置顶"><Top /></el-icon>
-              <el-icon v-if="isOverdue(item)" class="badge-overdue" title="已逾期"><AlarmClock /></el-icon>
+              <el-icon v-if="isOverdue(item)" class="badge-overdue" title="已逾期"
+                ><AlarmClock
+              /></el-icon>
               <span
                 v-if="hasPmDateSchedule(item.startAt, item.endAt)"
                 class="card-date-chip"
                 :class="{ 'is-overdue-date': isOverdue(item) }"
               >
-                {{ formatPmDateRangeForDisplay(item.startAt, item.endAt, { mode: 'short', emptyText: '' }) }}
+                {{
+                  formatPmDateRangeForDisplay(item.startAt, item.endAt, {
+                    mode: "short",
+                    emptyText: "",
+                  })
+                }}
               </span>
             </div>
           </div>
           <div class="card-title-row">
             <span class="card-title">{{ item.title }}</span>
-            <el-tooltip v-if="item.status !== 'done'" :content="'推进到「' + nextStatusLabel(item) + '」'" placement="top">
-              <button
-                class="card-advance-btn"
-                @click.stop="emit('quick-advance', item)"
-              >
+            <el-tooltip
+              v-if="item.status !== 'done'"
+              :content="'推进到「' + nextStatusLabel(item) + '」'"
+              placement="top"
+            >
+              <button class="card-advance-btn" @click.stop="emit('quick-advance', item)">
                 <el-icon :size="12"><CaretRight /></el-icon>
               </button>
             </el-tooltip>
           </div>
           <div v-if="isOverview" class="card-meta">
-            <span class="card-meta-pill" :style="{ color: PM_ITEM_TYPE_MAP[item.itemType]?.color, borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40' }">
+            <span
+              class="card-meta-pill"
+              :style="{
+                color: PM_ITEM_TYPE_MAP[item.itemType]?.color,
+                borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40',
+              }"
+            >
               {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
             </span>
-            <span class="card-meta-pill" :style="{ color: PM_PRIORITY_MAP[item.priority]?.color, borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40' }">
+            <span
+              class="card-meta-pill"
+              :style="{
+                color: PM_PRIORITY_MAP[item.priority]?.color,
+                borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40',
+              }"
+            >
               {{ PM_PRIORITY_MAP[item.priority]?.label }}
             </span>
           </div>
           <div v-if="item.tags.length > 0" class="card-tags">
-            <el-tag v-for="tag in getItemTagSummary(item).visibleTags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
-            <el-tag v-if="getItemTagSummary(item).hiddenCount > 0" size="small" type="info">+{{ getItemTagSummary(item).hiddenCount }}</el-tag>
+            <el-tag
+              v-for="tag in getItemTagSummary(item).visibleTags"
+              :key="tag"
+              size="small"
+              type="info"
+              >{{ tag }}</el-tag
+            >
+            <el-tag v-if="getItemTagSummary(item).hiddenCount > 0" size="small" type="info"
+              >+{{ getItemTagSummary(item).hiddenCount }}</el-tag
+            >
           </div>
         </div>
-        <div v-if="columnItems(col.key).length === 0 && dragState?.draggingItemId.value" class="column-drop-hint">
+        <div
+          v-if="columnItems(col.key).length === 0 && dragState?.draggingItemId.value"
+          class="column-drop-hint"
+        >
           拖放到此列
         </div>
-        <div v-if="columnItems(col.key).length === 0 && !dragState?.draggingItemId.value" class="column-empty-state">
-          <span class="column-empty-text">{{ col.key === 'todo' ? '暂无待办事项' : col.key === 'done' ? '还没有完成的工作项' : '暂无工作项' }}</span>
+        <div
+          v-if="columnItems(col.key).length === 0 && !dragState?.draggingItemId.value"
+          class="column-empty-state"
+        >
+          <span class="column-empty-text">{{
+            col.key === "todo"
+              ? "暂无待办事项"
+              : col.key === "done"
+                ? "还没有完成的工作项"
+                : "暂无工作项"
+          }}</span>
           <el-button
             v-if="col.key === 'todo'"
             size="small"
@@ -150,7 +209,9 @@ const { invoke } = useToolInvoke();
 const dragState = inject(PM_KANBAN_DRAG_KEY, null);
 
 const visibleStatusColumns = computed(() => getVisiblePmStatusColumns(props.selectedStatuses));
-const visibleStatusColumnKey = computed(() => visibleStatusColumns.value.map((column) => column.key).join("|"));
+const visibleStatusColumnKey = computed(() =>
+  visibleStatusColumns.value.map((column) => column.key).join("|"),
+);
 
 const columnItemsMap = computed(() => {
   const map = new Map<PmItemStatus, PmItem[]>();
@@ -231,7 +292,8 @@ function initSortable() {
       },
       onMove: (evt) => {
         if (dragState) {
-          dragState.draggingOverColumn.value = ((evt.to as HTMLElement).dataset.status as PmItemStatus) || null;
+          dragState.draggingOverColumn.value =
+            ((evt.to as HTMLElement).dataset.status as PmItemStatus) || null;
         }
       },
       onEnd: async (evt) => {
@@ -370,7 +432,10 @@ onBeforeUnmount(() => {
   padding: 12px 12px 12px 12px;
   margin-bottom: 8px;
   cursor: grab;
-  transition: box-shadow 0.15s, border-color 0.15s, margin 0.15s;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s,
+    margin 0.15s;
 }
 .kanban-card:hover {
   margin-top: -1px;
@@ -396,7 +461,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.06), var(--el-bg-color) 60%);
 }
 .kanban-card.is-overdue::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   right: 0;
@@ -406,7 +471,7 @@ onBeforeUnmount(() => {
   border-top-right-radius: 5px;
 }
 .kanban-card.is-overdue:hover {
-  background: linear-gradient(135deg, rgba(248, 113, 113, 0.10), var(--el-bg-color) 60%);
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.1), var(--el-bg-color) 60%);
 }
 .card-header {
   display: flex;
@@ -519,7 +584,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   cursor: pointer;
   opacity: 0.35;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
   color: var(--el-text-color-secondary);
 }
 .card-advance-btn:hover {
@@ -549,13 +617,15 @@ onBeforeUnmount(() => {
 .kanban-column.is-drag-over {
   background: var(--el-color-primary-light-9);
   box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5);
-  transition: background 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 .kanban-column.is-drag-over .column-header {
   color: var(--el-color-primary);
 }
 .kanban-column.is-drag-over .column-header::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   right: 0;
@@ -565,8 +635,12 @@ onBeforeUnmount(() => {
   animation: drag-bar-in 0.2s ease;
 }
 @keyframes drag-bar-in {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 
 /* Empty column drop hint */

@@ -27,7 +27,11 @@
       show-icon
     />
 
-    <section v-if="result?.diagnostics.length" class="diagnostics-section" aria-labelledby="diagnostics-title">
+    <section
+      v-if="result?.diagnostics.length"
+      class="diagnostics-section"
+      aria-labelledby="diagnostics-title"
+    >
       <div class="section-heading">
         <strong id="diagnostics-title">诊断与处理建议</strong>
         <span>按错误、警告、提示排序</span>
@@ -45,7 +49,9 @@
           <div>
             <strong>{{ diagnostic.title }}</strong>
             <p>{{ diagnostic.detail }}</p>
-            <p v-if="diagnostic.suggestion" class="diagnostic-suggestion">处理：{{ diagnostic.suggestion }}</p>
+            <p v-if="diagnostic.suggestion" class="diagnostic-suggestion">
+              处理：{{ diagnostic.suggestion }}
+            </p>
           </div>
         </article>
       </div>
@@ -58,15 +64,21 @@
       </div>
       <el-table :data="result.tools" border stripe size="small" class="env-table">
         <el-table-column label="工具" min-width="120">
-          <template #default="{ row }"><span class="tool-name">{{ row.name }}</span></template>
+          <template #default="{ row }"
+            ><span class="tool-name">{{ row.name }}</span></template
+          >
         </el-table-column>
         <el-table-column label="状态" width="92" align="center">
           <template #default="{ row }">
-            <el-tag size="small" :type="toolTagType(row.status)">{{ toolStatusLabel(row.status) }}</el-tag>
+            <el-tag size="small" :type="toolTagType(row.status)">{{
+              toolStatusLabel(row.status)
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="版本" min-width="210" show-overflow-tooltip>
-          <template #default="{ row }"><code>{{ row.version }}</code></template>
+          <template #default="{ row }"
+            ><code>{{ row.version }}</code></template
+          >
         </el-table-column>
         <el-table-column label="当前命令路径" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
@@ -77,7 +89,9 @@
           </template>
         </el-table-column>
         <el-table-column label="检测说明" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }"><span class="text-muted">{{ row.error || row.suggestion || "正常" }}</span></template>
+          <template #default="{ row }"
+            ><span class="text-muted">{{ row.error || row.suggestion || "正常" }}</span></template
+          >
         </el-table-column>
       </el-table>
     </section>
@@ -91,11 +105,15 @@
         <el-table-column prop="key" label="变量" min-width="140" />
         <el-table-column label="状态" width="92" align="center">
           <template #default="{ row }">
-            <el-tag size="small" :type="toolTagType(row.status)">{{ toolStatusLabel(row.status) }}</el-tag>
+            <el-tag size="small" :type="toolTagType(row.status)">{{
+              toolStatusLabel(row.status)
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="值" min-width="300" show-overflow-tooltip>
-          <template #default="{ row }"><code>{{ row.value || "-" }}</code></template>
+          <template #default="{ row }"
+            ><code>{{ row.value || "-" }}</code></template
+          >
         </el-table-column>
         <el-table-column prop="detail" label="说明" min-width="240" />
       </el-table>
@@ -135,26 +153,35 @@ const detecting = ref(false);
 const result = ref<EnvDetectResponse | null>(envPanelState.result);
 const inspectedAt = ref(envPanelState.inspectedAt);
 const operationError = ref("");
-const rawOutput = computed(() => result.value ? JSON.stringify(result.value, null, 2) : "");
-const summaryType = computed(() => result.value ? environmentSummaryType(result.value) : "success");
+const rawOutput = computed(() => (result.value ? JSON.stringify(result.value, null, 2) : ""));
+const summaryType = computed(() =>
+  result.value ? environmentSummaryType(result.value) : "success",
+);
 const summaryTitle = computed(() => {
   if (!result.value) return "";
-  if (result.value.summary.problems) return `发现 ${result.value.summary.problems} 项命令异常或超时`;
-  if (result.value.summary.warnings) return `环境可用，但有 ${result.value.summary.warnings} 项配置建议`;
+  if (result.value.summary.problems)
+    return `发现 ${result.value.summary.problems} 项命令异常或超时`;
+  if (result.value.summary.warnings)
+    return `环境可用，但有 ${result.value.summary.warnings} 项配置建议`;
   return "已完成检测，未发现需要立即处理的问题";
 });
 const sortedDiagnostics = computed(() => {
   const weights = { error: 0, warning: 1, info: 2 };
-  return [...(result.value?.diagnostics ?? [])].sort((left, right) => weights[left.level] - weights[right.level]);
+  return [...(result.value?.diagnostics ?? [])].sort(
+    (left, right) => weights[left.level] - weights[right.level],
+  );
 });
 
 async function detectEnv() {
   detecting.value = true;
   operationError.value = "";
   try {
-    const data = await invokeToolByChannel("tool:env:detect", {}) as EnvDetectResponse;
+    const data = (await invokeToolByChannel("tool:env:detect", {})) as EnvDetectResponse;
     result.value = data;
-    inspectedAt.value = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    inspectedAt.value = new Date().toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
     envPanelState.result = data;
     envPanelState.inspectedAt = inspectedAt.value;
   } catch (error) {
@@ -243,9 +270,15 @@ function diagnosticLevelLabel(level: EnvDiagnostic["level"]) {
   background: var(--lc-bg-panel, #fff);
 }
 
-.diagnostic-item.is-error { border-left-color: var(--el-color-danger); }
-.diagnostic-item.is-warning { border-left-color: var(--el-color-warning); }
-.diagnostic-item.is-info { border-left-color: var(--el-color-info); }
+.diagnostic-item.is-error {
+  border-left-color: var(--el-color-danger);
+}
+.diagnostic-item.is-warning {
+  border-left-color: var(--el-color-warning);
+}
+.diagnostic-item.is-info {
+  border-left-color: var(--el-color-info);
+}
 
 .diagnostic-item strong,
 .diagnostic-item p {

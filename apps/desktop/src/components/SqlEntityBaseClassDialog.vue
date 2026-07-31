@@ -18,7 +18,12 @@
 
       <el-table v-loading="loading" :data="items" empty-text="暂无基类配置" max-height="420">
         <el-table-column prop="alias" label="别名" min-width="130" />
-        <el-table-column prop="qualifiedName" label="完整类名" min-width="270" show-overflow-tooltip />
+        <el-table-column
+          prop="qualifiedName"
+          label="完整类名"
+          min-width="270"
+          show-overflow-tooltip
+        />
         <el-table-column label="字段数" width="88" align="center">
           <template #default="scope">{{ scope.row.fields.length }}</template>
         </el-table-column>
@@ -47,10 +52,7 @@
         <el-input v-model="draft.alias" maxlength="50" placeholder="例如：审计基类" />
       </el-form-item>
       <el-form-item label="完整类名" required>
-        <el-input
-          v-model="draft.qualifiedName"
-          placeholder="例如：com.example.common.BaseEntity"
-        />
+        <el-input v-model="draft.qualifiedName" placeholder="例如：com.example.common.BaseEntity" />
       </el-form-item>
       <el-form-item label="包含字段">
         <el-input
@@ -85,10 +87,7 @@ import type {
   SqlEntityBaseClassDraft,
   SqlEntityBaseClassListResponse,
 } from "../types/sql-entity";
-import {
-  parseBaseClassFields,
-  validateJavaQualifiedName,
-} from "../utils/sqlEntityBaseClass";
+import { parseBaseClassFields, validateJavaQualifiedName } from "../utils/sqlEntityBaseClass";
 
 const emit = defineEmits<{
   changed: [items: SqlEntityBaseClass[]];

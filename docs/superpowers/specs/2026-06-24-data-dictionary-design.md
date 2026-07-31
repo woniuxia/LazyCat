@@ -83,17 +83,17 @@
 
 通道映射：
 
-| Channel | Action | 说明 |
-|---|---|---|
-| `tool:data-dictionary:list` | `list` | 字典列表 |
-| `tool:data-dictionary:get` | `get` | 字典详情和字段配置 |
-| `tool:data-dictionary:import-preview` | `import_preview` | 解析 JSON，返回字段推断和样例 |
-| `tool:data-dictionary:create` | `create` | 创建字典并导入记录 |
-| `tool:data-dictionary:rename` | `rename` | 重命名字典 |
-| `tool:data-dictionary:replace-records` | `replace_records` | 替换某字典的全部记录 |
-| `tool:data-dictionary:update-fields` | `update_fields` | 保存字段配置 |
-| `tool:data-dictionary:search` | `search` | 当前字典或全部字典检索 |
-| `tool:data-dictionary:delete` | `delete` | 删除字典 |
+| Channel                                | Action            | 说明                          |
+| -------------------------------------- | ----------------- | ----------------------------- |
+| `tool:data-dictionary:list`            | `list`            | 字典列表                      |
+| `tool:data-dictionary:get`             | `get`             | 字典详情和字段配置            |
+| `tool:data-dictionary:import-preview`  | `import_preview`  | 解析 JSON，返回字段推断和样例 |
+| `tool:data-dictionary:create`          | `create`          | 创建字典并导入记录            |
+| `tool:data-dictionary:rename`          | `rename`          | 重命名字典                    |
+| `tool:data-dictionary:replace-records` | `replace_records` | 替换某字典的全部记录          |
+| `tool:data-dictionary:update-fields`   | `update_fields`   | 保存字段配置                  |
+| `tool:data-dictionary:search`          | `search`          | 当前字典或全部字典检索        |
+| `tool:data-dictionary:delete`          | `delete`          | 删除字典                      |
 
 ## 数据模型
 
@@ -235,11 +235,11 @@ interface DataDictionarySearchRequest {
 1. `scope = "current"` 时必须传 `dictionaryId`；`scope = "all"` 时忽略 `dictionaryId`。
 2. 空 keyword 在当前字典返回该字典前 `limit` 条记录，在全部字典返回所有字典按更新时间倒序的前 `limit` 条记录。
 3. 非空 keyword 按检索范围搜索。
-3. `normalized_search_text LIKE %normalizedKeyword% ESCAPE '\'` 始终执行，保证包含匹配。
-4. FTS5 表存在且 keyword 能构造安全 MATCH query 时，追加 FTS 候选。
-5. 最终结果去重，优先展示 LIKE 命中，再展示 FTS 命中，默认 limit 100。
-6. 对返回候选逐条解析 `raw_json`，按对应字典的字段配置重新计算命中字段，返回 `matches`。
-7. 返回结果必须包含 `dictionaryId` 和 `dictionaryName`，便于全局结果区展示来源。
+4. `normalized_search_text LIKE %normalizedKeyword% ESCAPE '\'` 始终执行，保证包含匹配。
+5. FTS5 表存在且 keyword 能构造安全 MATCH query 时，追加 FTS 候选。
+6. 最终结果去重，优先展示 LIKE 命中，再展示 FTS 命中，默认 limit 100。
+7. 对返回候选逐条解析 `raw_json`，按对应字典的字段配置重新计算命中字段，返回 `matches`。
+8. 返回结果必须包含 `dictionaryId` 和 `dictionaryName`，便于全局结果区展示来源。
 
 ### 为什么不用 Tantivy
 
@@ -327,18 +327,18 @@ Tantivy 是 Rust 生态成熟的嵌入式全文检索引擎，但第一版不引
 
 ## 影响面
 
-| 文件 | 类型 | 说明 |
-|---|---|---|
-| `apps/desktop/src/composables/toolCatalog.ts` | 修改 | 新增工具入口 |
-| `apps/desktop/src/tool-registry.ts` | 修改 | 注册面板组件 |
-| `apps/desktop/src/bridge/tauri.ts` | 修改 | 新增 channel |
-| `apps/desktop/src/components/DataDictionaryPanel.vue` | 新增 | 工具 UI |
-| `apps/desktop/src/types/data-dictionary.ts` | 新增 | 类型定义 |
-| `apps/desktop/src/utils/dataDictionary.ts` | 新增 | 前端纯函数 |
-| `apps/desktop/src/utils/dataDictionary.test.ts` | 新增 | 前端单测 |
-| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 新增 | 后端逻辑 |
-| `apps/desktop/src-tauri/src/tools/mod.rs` | 修改 | 注册 domain |
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | 修改 | schema 和 FTS |
+| 文件                                                  | 类型 | 说明          |
+| ----------------------------------------------------- | ---- | ------------- |
+| `apps/desktop/src/composables/toolCatalog.ts`         | 修改 | 新增工具入口  |
+| `apps/desktop/src/tool-registry.ts`                   | 修改 | 注册面板组件  |
+| `apps/desktop/src/bridge/tauri.ts`                    | 修改 | 新增 channel  |
+| `apps/desktop/src/components/DataDictionaryPanel.vue` | 新增 | 工具 UI       |
+| `apps/desktop/src/types/data-dictionary.ts`           | 新增 | 类型定义      |
+| `apps/desktop/src/utils/dataDictionary.ts`            | 新增 | 前端纯函数    |
+| `apps/desktop/src/utils/dataDictionary.test.ts`       | 新增 | 前端单测      |
+| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 新增 | 后端逻辑      |
+| `apps/desktop/src-tauri/src/tools/mod.rs`             | 修改 | 注册 domain   |
+| `apps/desktop/src-tauri/src/tools/helpers.rs`         | 修改 | schema 和 FTS |
 
 ## 风险与回滚
 

@@ -104,8 +104,8 @@ const baseLog: RequestForwardLogRow = {
   downloadBytes: 26,
   requestHeaders: [["Content-Type", "application/json; charset=utf-8"]],
   responseHeaders: [["content-type", "application/problem+json"]],
-  requestBodyPreview: "{\"name\":\"demo\"}",
-  responseBodyPreview: "{\"ok\":true}",
+  requestBodyPreview: '{"name":"demo"}',
+  responseBodyPreview: '{"ok":true}',
   requestBodyTruncated: false,
   responseBodyTruncated: false,
   error: null,
@@ -411,9 +411,7 @@ describe("request forward utilities", () => {
   });
 
   it("validates protocol-specific required fields", () => {
-    expect(validateRequestForwardRuleForm({ ...baseForm, targetUrl: "" })).toContain(
-      "targetUrl",
-    );
+    expect(validateRequestForwardRuleForm({ ...baseForm, targetUrl: "" })).toContain("targetUrl");
     expect(
       validateRequestForwardRuleForm({
         ...baseForm,
@@ -573,15 +571,14 @@ describe("request forward utilities", () => {
     };
     expect(getRequestForwardLocalEndpoint(tcpRule)).toBe("[2001:db8::1]:8080");
     expect(getRequestForwardLocalUrl(tcpRule)).toBeNull();
-    expect(
-      getRequestForwardLocalEndpoint({ ...tcpRule, protocol: "udp", listenPort: 5353 }),
-    ).toBe("[2001:db8::1]:5353");
+    expect(getRequestForwardLocalEndpoint({ ...tcpRule, protocol: "udp", listenPort: 5353 })).toBe(
+      "[2001:db8::1]:5353",
+    );
   });
 
   it("builds copyable PowerShell and curl commands for the local HTTP URL", () => {
     expect(getRequestForwardCommandExamples(baseForm)).toEqual({
-      powershell:
-        "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080'",
+      powershell: "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080'",
       curl: "curl --url 'http://127.0.0.1:8080'",
     });
     expect(getRequestForwardCommandExamples({ ...baseForm, bindHost: "::" })).toEqual({
@@ -591,8 +588,7 @@ describe("request forward utilities", () => {
 
     const quotedHost = { ...baseForm, bindHost: "127.0.0.1'quoted" };
     expect(getRequestForwardCommandExamples(quotedHost)).toEqual({
-      powershell:
-        "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1''quoted:8080'",
+      powershell: "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1''quoted:8080'",
       curl: `curl --url 'http://127.0.0.1'"'"'quoted:8080'`,
     });
     expect(
@@ -625,7 +621,7 @@ describe("request forward utilities", () => {
         ["Content-Type", "application/json"],
       ],
       responseHeaders: null,
-      requestBodyPreview: "{\"name\":\"O'Reilly\"}",
+      requestBodyPreview: '{"name":"O\'Reilly"}',
       responseBodyPreview: null,
       requestBodyTruncated: false,
       responseBodyTruncated: false,
@@ -634,10 +630,8 @@ describe("request forward utilities", () => {
     };
 
     expect(buildRequestForwardLogCommandExamples(baseForm, log)).toEqual({
-      curl:
-        `curl --request 'POST' --url 'http://127.0.0.1:8080/items?q=one' --header 'Authorization: Bearer top-secret' --header 'Cookie: session=private' --header 'Content-Type: application/json' --data-raw '{"name":"O'"'"'Reilly"}'`,
-      powershell:
-        `Invoke-WebRequest -UseBasicParsing -Method 'POST' -Uri 'http://127.0.0.1:8080/items?q=one' -Headers @{ 'Authorization' = 'Bearer top-secret'; 'Cookie' = 'session=private'; 'Content-Type' = 'application/json' } -Body '{"name":"O''Reilly"}'`,
+      curl: `curl --request 'POST' --url 'http://127.0.0.1:8080/items?q=one' --header 'Authorization: Bearer top-secret' --header 'Cookie: session=private' --header 'Content-Type: application/json' --data-raw '{"name":"O'"'"'Reilly"}'`,
+      powershell: `Invoke-WebRequest -UseBasicParsing -Method 'POST' -Uri 'http://127.0.0.1:8080/items?q=one' -Headers @{ 'Authorization' = 'Bearer top-secret'; 'Cookie' = 'session=private'; 'Content-Type' = 'application/json' } -Body '{"name":"O''Reilly"}'`,
       warnings: [],
     });
   });
@@ -670,14 +664,22 @@ describe("request forward utilities", () => {
 
     expect(parseRequestForwardRuleBundleText(text)).toEqual(bundle);
     expect(text).not.toContain("autoStart");
-    expect(() => parseRequestForwardRuleBundleText('{"format":"other","version":1,"rules":[]}'))
-      .toThrow("不是 LazyCat 请求转发规则包");
-    expect(() => parseRequestForwardRuleBundleText('{"format":"lazycat.request-forward.rules","version":2,"rules":[]}'))
-      .toThrow("不支持的请求转发规则包版本");
-    expect(() => parseRequestForwardRuleBundleText(JSON.stringify({
-      ...bundle,
-      rules: Array.from({ length: 501 }, () => bundle.rules[0]),
-    }))).toThrow("单次最多导入 500 条");
+    expect(() =>
+      parseRequestForwardRuleBundleText('{"format":"other","version":1,"rules":[]}'),
+    ).toThrow("不是 LazyCat 请求转发规则包");
+    expect(() =>
+      parseRequestForwardRuleBundleText(
+        '{"format":"lazycat.request-forward.rules","version":2,"rules":[]}',
+      ),
+    ).toThrow("不支持的请求转发规则包版本");
+    expect(() =>
+      parseRequestForwardRuleBundleText(
+        JSON.stringify({
+          ...bundle,
+          rules: Array.from({ length: 501 }, () => bundle.rules[0]),
+        }),
+      ),
+    ).toThrow("单次最多导入 500 条");
     expect(buildRequestForwardRuleBundleFileName(new Date(2026, 6, 31, 8, 9, 5))).toBe(
       "request-forward-rules-20260731-080905.json",
     );
@@ -710,7 +712,15 @@ describe("request forward utilities", () => {
   it("filters rules and resolves a stable batch scope", () => {
     const rules: RequestForwardRule[] = [
       { ...baseForm, id: 1, name: "API", autoStart: false, createdAt: "", updatedAt: "" },
-      { ...baseForm, id: 2, name: "数据库", protocol: "tcp", autoStart: false, createdAt: "", updatedAt: "" },
+      {
+        ...baseForm,
+        id: 2,
+        name: "数据库",
+        protocol: "tcp",
+        autoStart: false,
+        createdAt: "",
+        updatedAt: "",
+      },
       { ...baseForm, id: 3, name: "失败 API", autoStart: false, createdAt: "", updatedAt: "" },
     ];
     const statuses = [
@@ -719,15 +729,17 @@ describe("request forward utilities", () => {
       { ruleId: 3, state: "failed", lastError: "bad", lastObservabilityError: null },
     ] as const;
 
-    expect(filterRequestForwardRules(rules, statuses, "api", "all").map((rule) => rule.id)).toEqual([
-      1, 3,
-    ]);
-    expect(filterRequestForwardRules(rules, statuses, "", "failed").map((rule) => rule.id)).toEqual([
-      3,
-    ]);
-    expect(
-      getRequestForwardBatchScope(rules, [rules[0], rules[2]], [3, 3, 99], true),
-    ).toEqual({ kind: "selected", ids: [3], label: "选中 1 条" });
+    expect(filterRequestForwardRules(rules, statuses, "api", "all").map((rule) => rule.id)).toEqual(
+      [1, 3],
+    );
+    expect(filterRequestForwardRules(rules, statuses, "", "failed").map((rule) => rule.id)).toEqual(
+      [3],
+    );
+    expect(getRequestForwardBatchScope(rules, [rules[0], rules[2]], [3, 3, 99], true)).toEqual({
+      kind: "selected",
+      ids: [3],
+      label: "选中 1 条",
+    });
     expect(getRequestForwardBatchScope(rules, [rules[0], rules[2]], [], true)).toEqual({
       kind: "filtered",
       ids: [1, 3],
@@ -743,9 +755,7 @@ describe("request forward utilities", () => {
   it("maps log outcome to success or danger tone", () => {
     expect(getRequestForwardLogTone("success")).toBe("success");
     expect(getRequestForwardLogTone("error")).toBe("danger");
-    expectTypeOf(getRequestForwardLogTone)
-      .parameter(0)
-      .toEqualTypeOf<RequestForwardLogOutcome>();
+    expectTypeOf(getRequestForwardLogTone).parameter(0).toEqualTypeOf<RequestForwardLogOutcome>();
   });
 
   it("matches log query, page and restore result contracts", () => {
@@ -806,15 +816,11 @@ describe("request forward utilities", () => {
   });
 
   it("defaults the log time range to one hour ago through local end of day", () => {
-    expect(
-      getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 10, 15, 30)),
-    ).toEqual([
+    expect(getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 10, 15, 30))).toEqual([
       "2026-07-20T09:15:30",
       "2026-07-20T23:59:59",
     ]);
-    expect(
-      getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 0, 30, 0)),
-    ).toEqual([
+    expect(getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 0, 30, 0))).toEqual([
       "2026-07-19T23:30:00",
       "2026-07-20T23:59:59",
     ]);
@@ -826,9 +832,9 @@ describe("request forward utilities", () => {
         ["Content-Type", "application/json; charset=utf-8"],
       ]),
     ).toBe(JSON.stringify({ name: "demo", items: [1, 2] }, null, 2));
-    expect(
-      formatRequestForwardLogBody('{"name":"demo"}', [["Content-Type", "text/plain"]]),
-    ).toBe('{"name":"demo"}');
+    expect(formatRequestForwardLogBody('{"name":"demo"}', [["Content-Type", "text/plain"]])).toBe(
+      '{"name":"demo"}',
+    );
     expect(
       formatRequestForwardLogBody('{"name":"demo"}', [["Content-Type", "notapplication/jsonx"]]),
     ).toBe('{"name":"demo"}');
@@ -839,12 +845,12 @@ describe("request forward utilities", () => {
   });
 
   it("parses database log timestamps as UTC instead of local time", () => {
-    expect(
-      parseRequestForwardLogTimestamp("2026-07-19 08:09:10.123")?.getTime(),
-    ).toBe(Date.UTC(2026, 6, 19, 8, 9, 10, 123));
-    expect(
-      parseRequestForwardLogTimestamp("2026-07-19T08:09:10+08:00")?.getTime(),
-    ).toBe(Date.UTC(2026, 6, 19, 0, 9, 10));
+    expect(parseRequestForwardLogTimestamp("2026-07-19 08:09:10.123")?.getTime()).toBe(
+      Date.UTC(2026, 6, 19, 8, 9, 10, 123),
+    );
+    expect(parseRequestForwardLogTimestamp("2026-07-19T08:09:10+08:00")?.getTime()).toBe(
+      Date.UTC(2026, 6, 19, 0, 9, 10),
+    );
     expect(parseRequestForwardLogTimestamp("invalid")).toBeNull();
   });
 
@@ -893,18 +899,14 @@ describe("request forward utilities", () => {
     expect(csv.truncated).toBe(false);
     expect(csv.content.split(/\r\n/)).toHaveLength(2);
     expect(csv.content).toContain('"POST"');
-    expect(csv.content).toContain('application/json; charset=utf-8');
+    expect(csv.content).toContain("application/json; charset=utf-8");
   });
 
   it("sanitizes Windows filenames and includes a local timestamp", () => {
     expect(sanitizeRequestForwardLogFileName(' API:/v1* "测试"  ')).toBe("API__v1_ _测试_");
     expect(sanitizeRequestForwardLogFileName("...   ")).toBe("request-forward");
     expect(
-      buildRequestForwardLogExportFileName(
-        "API:/v1",
-        "json",
-        new Date(2026, 6, 19, 8, 9, 10),
-      ),
+      buildRequestForwardLogExportFileName("API:/v1", "json", new Date(2026, 6, 19, 8, 9, 10)),
     ).toBe("API__v1-logs-20260719-080910.json");
   });
 });

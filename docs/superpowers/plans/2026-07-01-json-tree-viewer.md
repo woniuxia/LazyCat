@@ -34,9 +34,11 @@
 ### Task 1: Pure Function Red Tests
 
 **Files:**
+
 - Create: `apps/desktop/src/utils/jsonTreeView.test.ts`
 
 **Interfaces:**
+
 - Consumes: none.
 - Produces expected API for Task 2:
   - `buildJsonTree(value: unknown): JsonTreeNode`
@@ -49,6 +51,7 @@
 - [ ] **Step 1: Write the failing test**
 
 Create `apps/desktop/src/utils/jsonTreeView.test.ts` with tests for:
+
 - object, array, and scalar root node construction
 - object key labels using JSON string syntax and array labels using `[0]`
 - stable non-colliding path keys for `"0"`, `0`, dots, backslashes, and brackets
@@ -70,16 +73,19 @@ Expected: FAIL because `./jsonTreeView` does not exist.
 ### Task 2: Pure Function Implementation
 
 **Files:**
+
 - Create: `apps/desktop/src/utils/jsonTreeView.ts`
 - Test: `apps/desktop/src/utils/jsonTreeView.test.ts`
 
 **Interfaces:**
+
 - Consumes: tests from Task 1.
 - Produces: stable JSON tree utilities for `JsonTreeViewer.vue`.
 
 - [ ] **Step 1: Implement minimal pure functions**
 
 Implement:
+
 - `JsonTreeValueType` and `JsonTreeNode`
 - path encoding with typed path segments
 - safe recursive `buildJsonTree` with max depth `100`
@@ -99,9 +105,11 @@ Expected: PASS.
 ### Task 3: JsonTreeViewer Component
 
 **Files:**
+
 - Create: `apps/desktop/src/components/common/JsonTreeViewer.vue`
 
 **Interfaces:**
+
 - Consumes: `jsonTreeView.ts` exports from Task 2.
 - Produces component props:
   - `value: unknown`
@@ -125,16 +133,19 @@ Expected: no TypeScript errors from the new component.
 ### Task 4: Data Dictionary Integration
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/DataDictionaryPanel.vue`
 - Modify: `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
 
 **Interfaces:**
+
 - Consumes: `JsonTreeViewer.vue`.
 - Produces: data dictionary detail JSON rendered through the reusable viewer.
 
 - [ ] **Step 1: Replace legacy JSON block**
 
 In `DataDictionaryPanel.vue`:
+
 - import `JsonTreeViewer`
 - remove `CopyDocument` if no longer used
 - replace the old `dd-json-shell` copy button and `<pre class="dd-json-view">` with:
@@ -156,6 +167,7 @@ In `DataDictionaryPanel.vue`:
 - [ ] **Step 2: Update source structure test**
 
 In `DataDictionaryPanel.context-menu.test.ts`, replace the legacy raw JSON copy test with assertions for:
+
 - `import JsonTreeViewer from "./common/JsonTreeViewer.vue"`
 - `<JsonTreeViewer`
 - `:value="recordDetail.record.rawJson"`
@@ -174,15 +186,18 @@ Expected: PASS.
 ### Task 5: Final Verification And Process Note
 
 **Files:**
+
 - Modify: `process.md`
 
 **Interfaces:**
+
 - Consumes: completed implementation.
 - Produces: project process note and final verification evidence.
 
 - [ ] **Step 1: Record process note**
 
 Add a new top entry to `process.md` describing:
+
 - reusable JSON tree viewers should keep traversal and expansion rules in pure utilities
 - business panels should pass structured value and copy text only
 - source structure tests need updating when hidden hover actions become explicit toolbar actions

@@ -6,17 +6,33 @@
           <el-radio-button :value="true">并排</el-radio-button>
           <el-radio-button :value="false">内联</el-radio-button>
         </el-radio-group>
-        <el-select v-model="languageMode" size="small" class="language-select" aria-label="文本语言">
-          <el-option v-for="option in languageOptions" :key="option.value" :label="option.label" :value="option.value" />
+        <el-select
+          v-model="languageMode"
+          size="small"
+          class="language-select"
+          aria-label="文本语言"
+        >
+          <el-option
+            v-for="option in languageOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
         <el-checkbox v-model="ignoreTrimWhitespace" size="small">忽略首尾空白</el-checkbox>
       </div>
 
       <div class="diff-toolbar-group diff-toolbar-actions">
         <el-button size="small" @click="swapContent">交换</el-button>
-        <el-button size="small" :disabled="!modifiedContent" @click="copyResult">复制右侧</el-button>
-        <el-button size="small" :loading="saving" :disabled="!modifiedContent" @click="saveResult">导出右侧</el-button>
-        <el-button size="small" :disabled="!originalContent && !modifiedContent" @click="clearAll">清空</el-button>
+        <el-button size="small" :disabled="!modifiedContent" @click="copyResult"
+          >复制右侧</el-button
+        >
+        <el-button size="small" :loading="saving" :disabled="!modifiedContent" @click="saveResult"
+          >导出右侧</el-button
+        >
+        <el-button size="small" :disabled="!originalContent && !modifiedContent" @click="clearAll"
+          >清空</el-button
+        >
       </div>
     </header>
 
@@ -24,13 +40,33 @@
       <div class="diff-file" :title="originalPath || '尚未关联文件'">
         <span class="diff-file-side">原始</span>
         <span class="diff-file-name">{{ originalFileName }}</span>
-        <el-button size="small" link :loading="openingSide === 'original'" @click="openFile('original')">打开文件</el-button>
+        <el-button
+          size="small"
+          link
+          :loading="openingSide === 'original'"
+          @click="openFile('original')"
+          >打开文件</el-button
+        >
       </div>
-      <button class="diff-swap-button" type="button" title="交换两侧内容" aria-label="交换两侧内容" @click="swapContent">⇄</button>
+      <button
+        class="diff-swap-button"
+        type="button"
+        title="交换两侧内容"
+        aria-label="交换两侧内容"
+        @click="swapContent"
+      >
+        ⇄
+      </button>
       <div class="diff-file" :title="modifiedPath || '尚未关联文件'">
         <span class="diff-file-side is-modified">修改后</span>
         <span class="diff-file-name">{{ modifiedFileName }}</span>
-        <el-button size="small" link :loading="openingSide === 'modified'" @click="openFile('modified')">打开文件</el-button>
+        <el-button
+          size="small"
+          link
+          :loading="openingSide === 'modified'"
+          @click="openFile('modified')"
+          >打开文件</el-button
+        >
       </div>
     </div>
 
@@ -42,9 +78,13 @@
       <span class="summary-removed">−{{ summary.removedLines }}</span>
       <span>~{{ summary.changedLines }}</span>
       <div class="diff-navigation">
-        <el-button size="small" :disabled="summary.hunks === 0" @click="navigateHunk(-1)">上一处</el-button>
+        <el-button size="small" :disabled="summary.hunks === 0" @click="navigateHunk(-1)"
+          >上一处</el-button
+        >
         <span>{{ summary.hunks ? activeHunk + 1 : 0 }} / {{ summary.hunks }}</span>
-        <el-button size="small" :disabled="summary.hunks === 0" @click="navigateHunk(1)">下一处</el-button>
+        <el-button size="small" :disabled="summary.hunks === 0" @click="navigateHunk(1)"
+          >下一处</el-button
+        >
       </div>
     </div>
 
@@ -70,7 +110,12 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import monaco from "../utils/monaco-setup";
-import { detectMonacoLanguage, fileNameFromPath, summarizeDiff, type DiffSummary } from "../utils/textWorkbench";
+import {
+  detectMonacoLanguage,
+  fileNameFromPath,
+  summarizeDiff,
+  type DiffSummary,
+} from "../utils/textWorkbench";
 
 type Side = "original" | "modified";
 type ReadTextResponse = { content: string; path: string };
@@ -114,8 +159,12 @@ let originalChangeDisposable: monaco.IDisposable | null = null;
 let modifiedChangeDisposable: monaco.IDisposable | null = null;
 let diffUpdateDisposable: monaco.IDisposable | null = null;
 
-const originalFileName = computed(() => originalPath.value ? fileNameFromPath(originalPath.value) : "未命名");
-const modifiedFileName = computed(() => modifiedPath.value ? fileNameFromPath(modifiedPath.value) : "未命名");
+const originalFileName = computed(() =>
+  originalPath.value ? fileNameFromPath(originalPath.value) : "未命名",
+);
+const modifiedFileName = computed(() =>
+  modifiedPath.value ? fileNameFromPath(modifiedPath.value) : "未命名",
+);
 const effectiveLanguage = computed(() => {
   if (languageMode.value !== "auto") return languageMode.value;
   return detectMonacoLanguage(modifiedPath.value || originalPath.value);
@@ -152,7 +201,10 @@ onMounted(() => {
 });
 
 watch([renderSideBySide, ignoreTrimWhitespace], ([sideBySide, ignoreWhitespace]) => {
-  diffEditor?.updateOptions({ renderSideBySide: sideBySide, ignoreTrimWhitespace: ignoreWhitespace });
+  diffEditor?.updateOptions({
+    renderSideBySide: sideBySide,
+    ignoreTrimWhitespace: ignoreWhitespace,
+  });
 });
 
 watch(effectiveLanguage, (language) => {
@@ -171,11 +223,15 @@ async function openFile(side: Side) {
   const currentContent = side === "original" ? originalContent.value : modifiedContent.value;
   if (currentContent) {
     try {
-      await ElMessageBox.confirm(`打开文件会替换${side === "original" ? "左" : "右"}侧当前内容。`, "替换当前内容？", {
-        confirmButtonText: "继续",
-        cancelButtonText: "取消",
-        type: "warning",
-      });
+      await ElMessageBox.confirm(
+        `打开文件会替换${side === "original" ? "左" : "右"}侧当前内容。`,
+        "替换当前内容？",
+        {
+          confirmButtonText: "继续",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      );
     } catch {
       return;
     }
@@ -185,7 +241,9 @@ async function openFile(side: Side) {
   try {
     const selected = await open({ multiple: false });
     if (typeof selected !== "string") return;
-    const result = await invokeToolByChannel("tool:file:read-text", { path: selected }) as ReadTextResponse;
+    const result = (await invokeToolByChannel("tool:file:read-text", {
+      path: selected,
+    })) as ReadTextResponse;
     if (side === "original") {
       originalPath.value = result.path;
       originalModel?.setValue(result.content);
@@ -230,16 +288,21 @@ async function clearAll() {
 function navigateHunk(direction: -1 | 1) {
   const changes = diffEditor?.getLineChanges();
   if (!changes?.length || !diffEditor) return;
-  activeHunk.value = activeHunk.value < 0
-    ? (direction === 1 ? 0 : changes.length - 1)
-    : (activeHunk.value + direction + changes.length) % changes.length;
+  activeHunk.value =
+    activeHunk.value < 0
+      ? direction === 1
+        ? 0
+        : changes.length - 1
+      : (activeHunk.value + direction + changes.length) % changes.length;
   const change = changes[activeHunk.value];
-  const modifiedLine = change.modifiedEndLineNumber === 0
-    ? Math.max(1, change.modifiedStartLineNumber)
-    : change.modifiedStartLineNumber;
-  const originalLine = change.originalEndLineNumber === 0
-    ? Math.max(1, change.originalStartLineNumber)
-    : change.originalStartLineNumber;
+  const modifiedLine =
+    change.modifiedEndLineNumber === 0
+      ? Math.max(1, change.modifiedStartLineNumber)
+      : change.modifiedStartLineNumber;
+  const originalLine =
+    change.originalEndLineNumber === 0
+      ? Math.max(1, change.originalStartLineNumber)
+      : change.originalStartLineNumber;
   diffEditor.getModifiedEditor().revealLineInCenter(modifiedLine);
   diffEditor.getModifiedEditor().setPosition({ lineNumber: modifiedLine, column: 1 });
   diffEditor.getOriginalEditor().revealLineInCenter(originalLine);
@@ -379,7 +442,10 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary);
   cursor: pointer;
   font-size: 16px;
-  transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background-color 0.2s;
 }
 
 .diff-swap-button:hover,

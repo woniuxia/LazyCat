@@ -1,9 +1,6 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
-import {
-  writeSecretToClipboard,
-  scheduleClipboardClear,
-} from "../../utils/vaultClipboard";
+import { writeSecretToClipboard, scheduleClipboardClear } from "../../utils/vaultClipboard";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,

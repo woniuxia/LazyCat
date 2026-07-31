@@ -7,15 +7,29 @@
         ref="recorderRef"
         v-model="shortcutInput"
         width="auto"
-        style="flex: 1; min-width: 240px;"
-        @update:model-value="singleResult = null; singleSuspects = []; singleDetectResult = null"
+        style="flex: 1; min-width: 240px"
+        @update:model-value="
+          singleResult = null;
+          singleSuspects = [];
+          singleDetectResult = null;
+        "
       />
-      <el-button type="primary" :disabled="!shortcutInput" :loading="checkLoading" @click="checkSingle">检测</el-button>
+      <el-button
+        type="primary"
+        :disabled="!shortcutInput"
+        :loading="checkLoading"
+        @click="checkSingle"
+        >检测</el-button
+      >
       <el-button @click="clearSingle">清除</el-button>
     </div>
     <div v-if="singleResult !== null" class="panel-grid-full">
       <el-alert
-        :title="singleResult.available ? '可用 - 该快捷键当前未被占用' : '已占用 - 该快捷键已被其他程序注册'"
+        :title="
+          singleResult.available
+            ? '可用 - 该快捷键当前未被占用'
+            : '已占用 - 该快捷键已被其他程序注册'
+        "
         :type="singleResult.available ? 'success' : 'error'"
         show-icon
         :closable="false"
@@ -25,16 +39,15 @@
           <div v-if="!singleResult.available && singleSuspects.length > 0" class="suspects-detail">
             <div class="suspects-detail-title">疑似占用应用 (数据库推测):</div>
             <div v-for="s in singleSuspects" :key="s.appId" class="suspect-item">
-              <el-tag
-                :type="s.confidence === 'high' ? 'danger' : 'warning'"
-                size="small"
-              >
+              <el-tag :type="s.confidence === 'high' ? 'danger' : 'warning'" size="small">
                 {{ s.displayName }}
                 <template v-if="s.confidence === 'high' && s.matchedHotkeys.length > 0">
-                  - {{ s.matchedHotkeys.map(h => h.action).join(', ') }}
+                  - {{ s.matchedHotkeys.map((h) => h.action).join(", ") }}
                 </template>
               </el-tag>
-              <span class="confidence-label">{{ s.confidence === 'high' ? '高置信' : '低置信' }}</span>
+              <span class="confidence-label">{{
+                s.confidence === "high" ? "高置信" : "低置信"
+              }}</span>
             </div>
           </div>
           <div v-if="!singleResult.available" class="detect-owner-section">
@@ -65,7 +78,11 @@
                   {{ confidenceLabel(singleDetectResult.confidence) }}
                 </el-tag>
               </template>
-              <template v-else-if="singleDetectResult.detected && singleDetectResult.signals.clipboardChanged">
+              <template
+                v-else-if="
+                  singleDetectResult.detected && singleDetectResult.signals.clipboardChanged
+                "
+              >
                 <span class="detect-info">检测到剪贴板变化，可能是截图工具</span>
                 <el-tag type="info" size="small" class="confidence-tag">低置信</el-tag>
               </template>
@@ -81,9 +98,11 @@
     <!-- 批量扫描 -->
     <el-divider class="panel-grid-full" content-position="left">批量扫描</el-divider>
     <div class="panel-grid-full input-row">
-      <el-button type="primary" :loading="scanLoading" @click="scanDefaults">扫描常见快捷键</el-button>
+      <el-button type="primary" :loading="scanLoading" @click="scanDefaults"
+        >扫描常见快捷键</el-button
+      >
       <el-button :loading="scanLoading" @click="showCustom = !showCustom">
-        {{ showCustom ? '收起自定义' : '自定义扫描' }}
+        {{ showCustom ? "收起自定义" : "自定义扫描" }}
       </el-button>
     </div>
     <div v-if="showCustom" class="panel-grid-full">
@@ -93,7 +112,13 @@
         :rows="4"
         placeholder="每行输入一个快捷键组合，例如：&#10;Ctrl+Shift+A&#10;Alt+F1&#10;Win+Shift+S"
       />
-      <el-button style="margin-top: 8px" type="primary" :loading="scanLoading" :disabled="!customShortcuts.trim()" @click="scanCustom">
+      <el-button
+        style="margin-top: 8px"
+        type="primary"
+        :loading="scanLoading"
+        :disabled="!customShortcuts.trim()"
+        @click="scanCustom"
+      >
         扫描自定义列表
       </el-button>
     </div>
@@ -151,12 +176,19 @@
       </div>
 
       <!-- 列表模式 -->
-      <el-table v-if="displayMode === 'list'" class="panel-grid-full" :data="filteredScanResults" border max-height="420" size="small">
+      <el-table
+        v-if="displayMode === 'list'"
+        class="panel-grid-full"
+        :data="filteredScanResults"
+        border
+        max-height="420"
+        size="small"
+      >
         <el-table-column prop="shortcut" label="快捷键" min-width="160" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.available ? 'success' : 'danger'" size="small">
-              {{ row.available ? '可用' : '已占用' }}
+              {{ row.available ? "可用" : "已占用" }}
             </el-tag>
           </template>
         </el-table-column>
@@ -165,9 +197,20 @@
             <template v-if="!row.available">
               <!-- 实际检测结果 -->
               <template v-if="scanDetectResults[row.shortcut]">
-                <template v-if="scanDetectResults[row.shortcut].detected && scanDetectResults[row.shortcut].owner">
-                  <el-tag type="danger" size="small">{{ scanDetectResults[row.shortcut].owner!.processName }}</el-tag>
-                  <el-tag :type="confidenceTagType(scanDetectResults[row.shortcut].confidence)" size="small" class="confidence-tag">
+                <template
+                  v-if="
+                    scanDetectResults[row.shortcut].detected &&
+                    scanDetectResults[row.shortcut].owner
+                  "
+                >
+                  <el-tag type="danger" size="small">{{
+                    scanDetectResults[row.shortcut].owner!.processName
+                  }}</el-tag>
+                  <el-tag
+                    :type="confidenceTagType(scanDetectResults[row.shortcut].confidence)"
+                    size="small"
+                    class="confidence-tag"
+                  >
                     {{ confidenceLabel(scanDetectResults[row.shortcut].confidence) }}
                   </el-tag>
                 </template>
@@ -187,8 +230,12 @@
                     class="suspect-tag"
                   >
                     {{ s.displayName }}
-                    <template v-if="s.confidence === 'high' && s.matchedHotkeys && s.matchedHotkeys.length > 0">
-                      ({{ s.matchedHotkeys.map((h: { action: string }) => h.action).join(', ') }})
+                    <template
+                      v-if="
+                        s.confidence === 'high' && s.matchedHotkeys && s.matchedHotkeys.length > 0
+                      "
+                    >
+                      ({{ s.matchedHotkeys.map((h: { action: string }) => h.action).join(", ") }})
                     </template>
                   </el-tag>
                   <span v-if="idx < row.suspects.length - 1" class="suspect-sep" />
@@ -222,12 +269,12 @@
               <span class="group-title">{{ group.label }}</span>
               <el-tag size="small" type="info" class="group-count">{{ group.items.length }}</el-tag>
               <el-tag
-                v-if="group.items.filter(i => !i.available).length > 0"
+                v-if="group.items.filter((i) => !i.available).length > 0"
                 size="small"
                 type="danger"
                 class="group-count"
               >
-                {{ group.items.filter(i => !i.available).length }} 已占用
+                {{ group.items.filter((i) => !i.available).length }} 已占用
               </el-tag>
             </template>
             <el-table :data="group.items" border size="small">
@@ -235,7 +282,7 @@
               <el-table-column label="状态" width="100" align="center">
                 <template #default="{ row }">
                   <el-tag :type="row.available ? 'success' : 'danger'" size="small">
-                    {{ row.available ? '可用' : '已占用' }}
+                    {{ row.available ? "可用" : "已占用" }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -243,13 +290,26 @@
                 <template #default="{ row }">
                   <template v-if="!row.available">
                     <template v-if="scanDetectResults[row.shortcut]">
-                      <template v-if="scanDetectResults[row.shortcut].detected && scanDetectResults[row.shortcut].owner">
-                        <el-tag type="danger" size="small">{{ scanDetectResults[row.shortcut].owner!.processName }}</el-tag>
-                        <el-tag :type="confidenceTagType(scanDetectResults[row.shortcut].confidence)" size="small" class="confidence-tag">
+                      <template
+                        v-if="
+                          scanDetectResults[row.shortcut].detected &&
+                          scanDetectResults[row.shortcut].owner
+                        "
+                      >
+                        <el-tag type="danger" size="small">{{
+                          scanDetectResults[row.shortcut].owner!.processName
+                        }}</el-tag>
+                        <el-tag
+                          :type="confidenceTagType(scanDetectResults[row.shortcut].confidence)"
+                          size="small"
+                          class="confidence-tag"
+                        >
                           {{ confidenceLabel(scanDetectResults[row.shortcut].confidence) }}
                         </el-tag>
                       </template>
-                      <template v-else-if="scanDetectResults[row.shortcut].signals.clipboardChanged">
+                      <template
+                        v-else-if="scanDetectResults[row.shortcut].signals.clipboardChanged"
+                      >
                         <span class="detect-info-inline">剪贴板变化(截图工具?)</span>
                       </template>
                       <template v-else>
@@ -264,8 +324,16 @@
                           class="suspect-tag"
                         >
                           {{ s.displayName }}
-                          <template v-if="s.confidence === 'high' && s.matchedHotkeys && s.matchedHotkeys.length > 0">
-                            ({{ s.matchedHotkeys.map((h: { action: string }) => h.action).join(', ') }})
+                          <template
+                            v-if="
+                              s.confidence === 'high' &&
+                              s.matchedHotkeys &&
+                              s.matchedHotkeys.length > 0
+                            "
+                          >
+                            ({{
+                              s.matchedHotkeys.map((h: { action: string }) => h.action).join(", ")
+                            }})
                           </template>
                         </el-tag>
                         <span v-if="idx < row.suspects.length - 1" class="suspect-sep" />
@@ -347,19 +415,27 @@ function clearSingle() {
 
 function confidenceTagType(c: string): "" | "success" | "warning" | "info" | "danger" {
   switch (c) {
-    case "high": return "danger";
-    case "medium": return "warning";
-    case "low": return "info";
-    default: return "info";
+    case "high":
+      return "danger";
+    case "medium":
+      return "warning";
+    case "low":
+      return "info";
+    default:
+      return "info";
   }
 }
 
 function confidenceLabel(c: string): string {
   switch (c) {
-    case "high": return "高置信";
-    case "medium": return "中置信";
-    case "low": return "低置信";
-    default: return "未检测到";
+    case "high":
+      return "高置信";
+    case "medium":
+      return "中置信";
+    case "low":
+      return "低置信";
+    default:
+      return "未检测到";
   }
 }
 
@@ -368,7 +444,7 @@ async function confirmDetectOwner(shortcut: string) {
     await ElMessageBox.confirm(
       `检测将模拟按下 [${shortcut}]，可能触发该快捷键的原有功能（如截图、打开应用等）。是否继续？`,
       "检测占用应用",
-      { confirmButtonText: "继续检测", cancelButtonText: "取消", type: "warning" }
+      { confirmButtonText: "继续检测", cancelButtonText: "取消", type: "warning" },
     );
     await doDetectOwner(shortcut);
   } catch {
@@ -436,8 +512,8 @@ async function scanDefaults() {
     });
     // Auto-expand groups with occupied keys
     expandedGroups.value = modifierGroups.value
-      .filter(g => g.items.some(i => !i.available))
-      .map(g => g.key);
+      .filter((g) => g.items.some((i) => !i.available))
+      .map((g) => g.key);
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
@@ -467,8 +543,8 @@ async function scanCustom() {
       return a.available ? 1 : -1;
     });
     expandedGroups.value = modifierGroups.value
-      .filter(g => g.items.some(i => !i.available))
-      .map(g => g.key);
+      .filter((g) => g.items.some((i) => !i.available))
+      .map((g) => g.key);
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
@@ -517,7 +593,9 @@ const modifierGroups = computed<ModifierGroup[]>(() => {
 function formatExportText(): string {
   const lines: string[] = [];
   lines.push(`快捷键扫描结果 (${new Date().toLocaleString()})`);
-  lines.push(`总计: ${scanSummary.value.total} | 已占用: ${scanSummary.value.occupied} | 可用: ${scanSummary.value.available}`);
+  lines.push(
+    `总计: ${scanSummary.value.total} | 已占用: ${scanSummary.value.occupied} | 可用: ${scanSummary.value.available}`,
+  );
   lines.push("");
 
   if (scanSuspects.value.length > 0) {
@@ -529,16 +607,16 @@ function formatExportText(): string {
   }
 
   lines.push("已占用的快捷键:");
-  const occupied = scanResults.value.filter(r => !r.available);
+  const occupied = scanResults.value.filter((r) => !r.available);
   if (occupied.length === 0) {
     lines.push("  (无)");
   } else {
     for (const r of occupied) {
       let line = `  ${r.shortcut}`;
       if (r.suspects && r.suspects.length > 0) {
-        const suspectStrs = r.suspects.map(s => {
+        const suspectStrs = r.suspects.map((s) => {
           if (s.confidence === "high" && s.matchedHotkeys && s.matchedHotkeys.length > 0) {
-            return `${s.displayName} (${s.matchedHotkeys.map(h => h.action).join(", ")})`;
+            return `${s.displayName} (${s.matchedHotkeys.map((h) => h.action).join(", ")})`;
           }
           return `${s.displayName} (?)`;
         });

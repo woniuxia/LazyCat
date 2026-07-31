@@ -100,20 +100,17 @@ describe("suggestionProvider.defaultAction", () => {
     ).rejects.toThrow("bridge failed");
   });
 
-  it.each(["参考", "置顶", "zdck", "reference"])(
-    "通过真实搜索路径用 %s 命中参考卡",
-    (query) => {
-      const items = buildClipboardSuggestionItems('{"port":8080}');
-      const itemsByProvider = new Map([["suggestion" as const, items]]);
+  it.each(["参考", "置顶", "zdck", "reference"])("通过真实搜索路径用 %s 命中参考卡", (query) => {
+    const items = buildClipboardSuggestionItems('{"port":8080}');
+    const itemsByProvider = new Map([["suggestion" as const, items]]);
 
-      const results = searchItems(query, itemsByProvider, {
-        scope: null,
-        limit: 9,
-      });
+    const results = searchItems(query, itemsByProvider, {
+      scope: null,
+      limit: 9,
+    });
 
-      expect(results[0]?.item.itemId).toBe("suggestion:reference-card");
-    },
-  );
+    expect(results[0]?.item.itemId).toBe("suggestion:reference-card");
+  });
 
   it("空查询建议按构建顺序和显式上下文顺序保持工具优先", () => {
     const items = buildClipboardSuggestionItems('{"port":8080}');

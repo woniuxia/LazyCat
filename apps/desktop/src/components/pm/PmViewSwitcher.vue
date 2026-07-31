@@ -1,5 +1,10 @@
 <template>
-  <div ref="containerRef" class="pm-view-switcher" :class="{ 'is-compact': isCompact }" role="tablist">
+  <div
+    ref="containerRef"
+    class="pm-view-switcher"
+    :class="{ 'is-compact': isCompact }"
+    role="tablist"
+  >
     <el-tooltip
       v-for="view in PM_VIEWS"
       :key="view.id"
@@ -88,7 +93,10 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 8px;
   cursor: pointer;
-  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
   user-select: none;
 }
 

@@ -9,7 +9,7 @@ import {
 describe("jsonSchema utils", () => {
   it("formats valid JSON and rejects invalid JSON", () => {
     expect(formatJsonDocument('{"name":"lazycat"}')).toBe('{\n  "name": "lazycat"\n}');
-    expect(() => formatJsonDocument("{")) .toThrow();
+    expect(() => formatJsonDocument("{")).toThrow();
   });
 
   it("detects root oneOf and anyOf branches", () => {

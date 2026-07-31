@@ -114,7 +114,8 @@ describe("release package view helpers", () => {
     ]);
     expect(
       RELEASE_PACKAGE_COMMAND_EXAMPLES.every(
-        (example) => /[\u4e00-\u9fff]/u.test(example.title) && /[\u4e00-\u9fff]/u.test(example.description),
+        (example) =>
+          /[\u4e00-\u9fff]/u.test(example.title) && /[\u4e00-\u9fff]/u.test(example.description),
       ),
     ).toBe(true);
   });
@@ -124,11 +125,11 @@ describe("release package view helpers", () => {
       RELEASE_PACKAGE_COMMAND_EXAMPLES.map((example) => [example.id, example.command]),
     );
 
-    expect(commands["java-maven-env"]).toContain('$env:JAVA_HOME =');
-    expect(commands["java-maven-env"]).toContain('$env:MAVEN_HOME =');
-    expect(commands["java-maven-env"]).toContain('$env:JAVA_HOME\\bin');
-    expect(commands["java-maven-env"]).toContain('$env:MAVEN_HOME\\bin');
-    expect(commands["java-maven-env"]).toContain('$env:Path');
+    expect(commands["java-maven-env"]).toContain("$env:JAVA_HOME =");
+    expect(commands["java-maven-env"]).toContain("$env:MAVEN_HOME =");
+    expect(commands["java-maven-env"]).toContain("$env:JAVA_HOME\\bin");
+    expect(commands["java-maven-env"]).toContain("$env:MAVEN_HOME\\bin");
+    expect(commands["java-maven-env"]).toContain("$env:Path");
     expect(commands["maven-build"]).toBe(`mvn clean package -Pprod
 if (-not $?) {
   $code = if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
@@ -145,44 +146,72 @@ if (-not $?) {
       title: "使用指定 settings.xml 构建",
       description: "通过 Maven settings.xml 指定仓库、镜像和认证配置，并在构建失败时退出脚本。",
     });
-    expect(example?.command).toContain('mvn --settings "C:\\Tools\\maven\\conf\\settings.xml" clean package -Pprod');
+    expect(example?.command).toContain(
+      'mvn --settings "C:\\Tools\\maven\\conf\\settings.xml" clean package -Pprod',
+    );
     expect(example?.command).toContain("$LASTEXITCODE");
-    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.some((item) => String(item.id) === "maven-build-settings")).toBe(false);
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.some((item) => String(item.id) === "maven-build-settings"),
+    ).toBe(false);
   });
 
-  describe.runIf(process.platform === "win32")("Maven PowerShell command failure propagation", () => {
-    const mavenCommand = RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "maven-build")!.command;
+  describe.runIf(process.platform === "win32")(
+    "Maven PowerShell command failure propagation",
+    () => {
+      const mavenCommand = RELEASE_PACKAGE_COMMAND_EXAMPLES.find(
+        (example) => example.id === "maven-build",
+      )!.command;
 
-    it("returns a non-zero status when the Maven command cannot be resolved", () => {
-      const script = mavenCommand.replace("mvn clean package -Pprod", "__lazycat_missing_maven_command__");
-      const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-        encoding: "utf8",
+      it("returns a non-zero status when the Maven command cannot be resolved", () => {
+        const script = mavenCommand.replace(
+          "mvn clean package -Pprod",
+          "__lazycat_missing_maven_command__",
+        );
+        const result = spawnSync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", script],
+          {
+            encoding: "utf8",
+          },
+        );
+
+        expect(result.status).not.toBe(0);
       });
 
-      expect(result.status).not.toBe(0);
-    });
+      it("preserves a native command's non-zero exit code", () => {
+        const script = mavenCommand.replace("mvn clean package -Pprod", "cmd.exe /c exit 7");
+        const result = spawnSync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", script],
+          {
+            encoding: "utf8",
+          },
+        );
 
-    it("preserves a native command's non-zero exit code", () => {
-      const script = mavenCommand.replace("mvn clean package -Pprod", "cmd.exe /c exit 7");
-      const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-        encoding: "utf8",
+        expect(result.status).toBe(7);
       });
-
-      expect(result.status).toBe(7);
-    });
-  });
+    },
+  );
 
   it("provides complete file copy and move commands", () => {
-    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-file")).toMatchObject({
-      command: 'Copy-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-file"),
+    ).toMatchObject({
+      command:
+        'Copy-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
     });
-    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-file")).toMatchObject({
-      command: 'Move-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-file"),
+    ).toMatchObject({
+      command:
+        'Move-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
     });
   });
 
   it("copies directory contents into an existing destination directory", () => {
-    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-directory")).toMatchObject({
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-directory"),
+    ).toMatchObject({
       description: "递归复制目录内容到目标目录，并覆盖同名文件。",
       command: `New-Item -ItemType Directory -Path '.\\release\\config' -Force | Out-Null
 Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force`,
@@ -190,7 +219,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   });
 
   it("moves a directory only when the complete destination does not exist", () => {
-    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-directory")).toMatchObject({
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-directory"),
+    ).toMatchObject({
       description: "将指定目录移动到完整目标路径，目标目录需不存在。",
       command: "Move-Item -LiteralPath '.\\release' -Destination '.\\deploy\\release' -Force",
     });
@@ -265,7 +296,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       frontendProjectPath: "D:\\work\\portal-web",
       backendProjectPath: "D:\\work\\portal-server",
     });
-    expect(testEnvironment.frontendBuildCommand).not.toBe(productionEnvironment.frontendBuildCommand);
+    expect(testEnvironment.frontendBuildCommand).not.toBe(
+      productionEnvironment.frontendBuildCommand,
+    );
     expect(testEnvironment.frontendRemoteDir).not.toBe(productionEnvironment.frontendRemoteDir);
     expect(testEnvironment.backendRemotePath).not.toBe(productionEnvironment.backendRemotePath);
     expect(testDraft).toEqual({
@@ -322,20 +355,49 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     });
 
     const projectDraft = projectToReleasePackageProjectDraft(project);
-    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, testDraft)).toBe(false);
-    expect(isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, productionDraft)).toBe(false);
-    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, productionDraft)).toBe(true);
-    expect(isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, testDraft)).toBe(true);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, testDraft)).toBe(
+      false,
+    );
+    expect(
+      isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, productionDraft),
+    ).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(project, testEnvironment, projectDraft, productionDraft),
+    ).toBe(true);
+    expect(
+      isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, testDraft),
+    ).toBe(true);
   });
 
   it("detects public and environment changes through four arguments", () => {
     const projectDraft = projectToReleasePackageProjectDraft(project);
     const environmentDraft = environmentToReleasePackageDraft(testEnvironment);
 
-    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, environmentDraft)).toBe(false);
-    expect(isReleasePackageDraftDirty(project, testEnvironment, { ...projectDraft, name: "changed" }, environmentDraft)).toBe(true);
-    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, { ...environmentDraft, frontendBuildCommand: "changed" })).toBe(true);
-    expect(isReleasePackageDraftDirty(null, null, createEmptyReleasePackageProjectDraft(), createEmptyReleasePackageEnvironmentDraft())).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(project, testEnvironment, projectDraft, environmentDraft),
+    ).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(
+        project,
+        testEnvironment,
+        { ...projectDraft, name: "changed" },
+        environmentDraft,
+      ),
+    ).toBe(true);
+    expect(
+      isReleasePackageDraftDirty(project, testEnvironment, projectDraft, {
+        ...environmentDraft,
+        frontendBuildCommand: "changed",
+      }),
+    ).toBe(true);
+    expect(
+      isReleasePackageDraftDirty(
+        null,
+        null,
+        createEmptyReleasePackageProjectDraft(),
+        createEmptyReleasePackageEnvironmentDraft(),
+      ),
+    ).toBe(false);
   });
 
   it("does not mark saved surrounding whitespace as dirty after draft normalization", () => {
@@ -354,12 +416,14 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     const projectDraft = projectToReleasePackageProjectDraft(savedProject);
     const environmentDraft = environmentToReleasePackageDraft(savedEnvironment);
 
-    expect(isReleasePackageDraftDirty(
-      savedProject,
-      savedEnvironment,
-      normalizeReleasePackageProjectDraft(projectDraft),
-      normalizeReleasePackageEnvironmentDraft(environmentDraft),
-    )).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(
+        savedProject,
+        savedEnvironment,
+        normalizeReleasePackageProjectDraft(projectDraft),
+        normalizeReleasePackageEnvironmentDraft(environmentDraft),
+      ),
+    ).toBe(false);
   });
 
   it("does not mark equal drafts with different property insertion order as dirty", () => {
@@ -374,8 +438,12 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       Object.entries(environmentDraft).reverse(),
     ) as typeof environmentDraft;
 
-    expect(isReleasePackageDraftDirty(project, testEnvironment, reorderedProjectDraft, environmentDraft)).toBe(false);
-    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, reorderedEnvironmentDraft)).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(project, testEnvironment, reorderedProjectDraft, environmentDraft),
+    ).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(project, testEnvironment, projectDraft, reorderedEnvironmentDraft),
+    ).toBe(false);
   });
 
   it("trims only surrounding whitespace in public and environment strings", () => {
@@ -444,10 +512,14 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageEnvironmentDraft(draft)).toBeNull();
 
     draft.healthCheckEnabled = true;
-    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("健康检查地址必须使用 http 或 https");
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe(
+      "健康检查地址必须使用 http 或 https",
+    );
     draft.healthCheckUrl = "https://portal.example.com/health";
     draft.healthCheckMaxRetries = 61;
-    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("健康检查最多重试次数必须在 0 到 60 之间");
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe(
+      "健康检查最多重试次数必须在 0 到 60 之间",
+    );
     draft.healthCheckMaxRetries = 0;
     expect(validateReleasePackageEnvironmentDraft(draft)).toBeNull();
   });
@@ -500,9 +572,23 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     const withBinding = { ...testEnvironment, vaultEntryId: 9 };
     const draft = environmentToReleasePackageDraft(withBinding);
     expect(draft.vaultEntryId).toBe(9);
-    expect(isReleasePackageDraftDirty(project, withBinding, projectToReleasePackageProjectDraft(project), draft)).toBe(false);
+    expect(
+      isReleasePackageDraftDirty(
+        project,
+        withBinding,
+        projectToReleasePackageProjectDraft(project),
+        draft,
+      ),
+    ).toBe(false);
     draft.vaultEntryId = 10;
-    expect(isReleasePackageDraftDirty(project, withBinding, projectToReleasePackageProjectDraft(project), draft)).toBe(true);
+    expect(
+      isReleasePackageDraftDirty(
+        project,
+        withBinding,
+        projectToReleasePackageProjectDraft(project),
+        draft,
+      ),
+    ).toBe(true);
   });
   it("rejects non-canonical Linux deployment paths before preflight", () => {
     const draft = createEmptyReleasePackageEnvironmentDraft();
@@ -560,50 +646,61 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     packageType: ReleasePackageType;
     expected: Record<string, unknown>;
   }>)("builds only $packageType start parameters", ({ packageType, expected }) => {
-    expect(createReleasePackageStartPayload(packageType, {
-      environmentId: 11,
-      targets: ["frontend", "backend"],
-      folderName: "portal-20260722",
-      overwriteExisting: true,
-      preflightToken: "preflight-1",
-      overwriteRemoteTargets: ["frontend"],
-      productionConfirmed: true,
-    })).toEqual(expected);
+    expect(
+      createReleasePackageStartPayload(packageType, {
+        environmentId: 11,
+        targets: ["frontend", "backend"],
+        folderName: "portal-20260722",
+        overwriteExisting: true,
+        preflightToken: "preflight-1",
+        overwriteRemoteTargets: ["frontend"],
+        productionConfirmed: true,
+      }),
+    ).toEqual(expected);
   });
 
-  it.each([undefined, "", "legacy_upload"])("rejects invalid start package type %s", (packageType) => {
-    expect(() => createReleasePackageStartPayload(packageType, {
-      environmentId: 11,
-      targets: ["frontend"],
-      folderName: "portal-20260722",
-      overwriteExisting: false,
-      preflightToken: "preflight-1",
-      overwriteRemoteTargets: [],
-      productionConfirmed: false,
-    })).toThrow("打包类型无效，请重新打开确认窗口");
-  });
+  it.each([undefined, "", "legacy_upload"])(
+    "rejects invalid start package type %s",
+    (packageType) => {
+      expect(() =>
+        createReleasePackageStartPayload(packageType, {
+          environmentId: 11,
+          targets: ["frontend"],
+          folderName: "portal-20260722",
+          overwriteExisting: false,
+          preflightToken: "preflight-1",
+          overwriteRemoteTargets: [],
+          productionConfirmed: false,
+        }),
+      ).toThrow("打包类型无效，请重新打开确认窗口");
+    },
+  );
 
   it("adds a dispatch id only to action-triggered starts", () => {
-    expect(createReleasePackageStartPayload("local_archive", {
-      environmentId: 11,
-      targets: ["frontend", "backend"],
-      folderName: "20260725-客户门户",
-      overwriteExisting: false,
-      preflightToken: "",
-      overwriteRemoteTargets: [],
-      productionConfirmed: false,
-      actionDispatchId: "dispatch-1",
-    })).toMatchObject({ actionDispatchId: "dispatch-1" });
+    expect(
+      createReleasePackageStartPayload("local_archive", {
+        environmentId: 11,
+        targets: ["frontend", "backend"],
+        folderName: "20260725-客户门户",
+        overwriteExisting: false,
+        preflightToken: "",
+        overwriteRemoteTargets: [],
+        productionConfirmed: false,
+        actionDispatchId: "dispatch-1",
+      }),
+    ).toMatchObject({ actionDispatchId: "dispatch-1" });
 
-    expect(createReleasePackageStartPayload("local_archive", {
-      environmentId: 11,
-      targets: ["frontend"],
-      folderName: "manual",
-      overwriteExisting: false,
-      preflightToken: "",
-      overwriteRemoteTargets: [],
-      productionConfirmed: false,
-    })).not.toHaveProperty("actionDispatchId");
+    expect(
+      createReleasePackageStartPayload("local_archive", {
+        environmentId: 11,
+        targets: ["frontend"],
+        folderName: "manual",
+        overwriteExisting: false,
+        preflightToken: "",
+        overwriteRemoteTargets: [],
+        productionConfirmed: false,
+      }),
+    ).not.toHaveProperty("actionDispatchId");
   });
 
   it("adds production confirmation only for strict true", () => {
@@ -617,17 +714,24 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       productionConfirmed: false,
     };
 
-    expect(createReleasePackageStartPayload("local_archive", input)).not.toHaveProperty("productionConfirmed");
-    expect(createReleasePackageStartPayload("local_archive", {
-      ...input,
-      productionConfirmed: "true" as unknown as boolean,
-    })).not.toHaveProperty("productionConfirmed");
-    expect(createReleasePackageStartPayload("local_archive", {
-      ...input,
-      productionConfirmed: 1 as unknown as boolean,
-    })).not.toHaveProperty("productionConfirmed");
-    expect(createReleasePackageStartPayload("local_archive", { ...input, productionConfirmed: true }))
-      .toHaveProperty("productionConfirmed", true);
+    expect(createReleasePackageStartPayload("local_archive", input)).not.toHaveProperty(
+      "productionConfirmed",
+    );
+    expect(
+      createReleasePackageStartPayload("local_archive", {
+        ...input,
+        productionConfirmed: "true" as unknown as boolean,
+      }),
+    ).not.toHaveProperty("productionConfirmed");
+    expect(
+      createReleasePackageStartPayload("local_archive", {
+        ...input,
+        productionConfirmed: 1 as unknown as boolean,
+      }),
+    ).not.toHaveProperty("productionConfirmed");
+    expect(
+      createReleasePackageStartPayload("local_archive", { ...input, productionConfirmed: true }),
+    ).toHaveProperty("productionConfirmed", true);
   });
 
   it("accepts events only for the active run", () => {
@@ -637,8 +741,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   });
 
   it("bounds logs without reordering accepted lines", () => {
-    expect(appendReleasePackageLog([log("run-1", "a"), log("run-1", "b")], log("run-1", "c"), 2))
-      .toEqual([log("run-1", "b"), log("run-1", "c")]);
+    expect(
+      appendReleasePackageLog([log("run-1", "a"), log("run-1", "b")], log("run-1", "c"), 2),
+    ).toEqual([log("run-1", "b"), log("run-1", "c")]);
   });
 
   it.each([
@@ -651,9 +756,12 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     ["package_succeeded_upload_failed", "构建完成，上传失败"],
     ["failed", "失败"],
     ["cancelled", "已终止"],
-  ] satisfies readonly [ReleasePackageRunStatus, string][])("maps %s status to %s", (status, label) => {
-    expect(releasePackageRunStatusLabel(status)).toBe(label);
-  });
+  ] satisfies readonly [ReleasePackageRunStatus, string][])(
+    "maps %s status to %s",
+    (status, label) => {
+      expect(releasePackageRunStatusLabel(status)).toBe(label);
+    },
+  );
 
   it("writes the exact command once", async () => {
     const written: string[] = [];

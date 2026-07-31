@@ -18,6 +18,7 @@
 ### Task 1: 标题复制交互
 
 **Files:**
+
 - Create: `apps/desktop/src/components/pm/PmDetailPanel.copy.test.ts`
 - Modify: `apps/desktop/src/components/pm/PmDetailPanel.vue`
 
@@ -121,7 +122,9 @@ async function copyItemTitle(): Promise<void> {
   line-height: 1.4;
   color: var(--pm-text-main);
   cursor: pointer;
-  transition: color 0.15s ease, opacity 0.15s ease;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .detail-item-title:hover {

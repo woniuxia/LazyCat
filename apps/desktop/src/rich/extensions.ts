@@ -1,10 +1,10 @@
-import { Node } from '@tiptap/vue-3';
-import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
-import { Placeholder } from '@tiptap/extensions';
+import { Node } from "@tiptap/vue-3";
+import StarterKit from "@tiptap/starter-kit";
+import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
+import { Placeholder } from "@tiptap/extensions";
 
-import { ensureDataDir, getSyncDataDir, resolveAttachmentPath } from './data-dir';
+import { ensureDataDir, getSyncDataDir, resolveAttachmentPath } from "./data-dir";
 
 /**
  * 封装 Tauri asset 协议转换。
@@ -12,8 +12,9 @@ import { ensureDataDir, getSyncDataDir, resolveAttachmentPath } from './data-dir
  * 通过 __TAURI_INTERNALS__ 间接调用规避类型检查问题。
  */
 function toAssetUrl(absPath: string): string {
-  return (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (p: string) => string } })
-    .__TAURI_INTERNALS__.convertFileSrc(absPath);
+  return (
+    window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (p: string) => string } }
+  ).__TAURI_INTERNALS__.convertFileSrc(absPath);
 }
 
 /**
@@ -30,7 +31,7 @@ function toAssetUrl(absPath: string): string {
  *   kind='path' 表示仅保存了原始绝对路径（src 为本地绝对路径）
  */
 
-export const LINK_PROTOCOLS = ['http', 'https', 'mailto'] as const;
+export const LINK_PROTOCOLS = ["http", "https", "mailto"] as const;
 
 const CustomImage = Image.extend({
   addAttributes() {
@@ -39,22 +40,22 @@ const CustomImage = Image.extend({
       attId: {
         default: null,
         parseHTML: (el: HTMLElement) => {
-          const v = el.getAttribute('data-att-id');
-          if (v == null || v === '') return null;
+          const v = el.getAttribute("data-att-id");
+          if (v == null || v === "") return null;
           const n = Number(v);
           return Number.isFinite(n) ? n : null;
         },
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.attId;
-          return v == null ? {} : { 'data-att-id': String(v) };
+          return v == null ? {} : { "data-att-id": String(v) };
         },
       },
       uploadingId: {
         default: null,
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-uploading-id'),
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-uploading-id"),
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.uploadingId;
-          return v == null || v === '' ? {} : { 'data-uploading-id': String(v) };
+          return v == null || v === "" ? {} : { "data-uploading-id": String(v) };
         },
       },
     };
@@ -75,15 +76,15 @@ const CustomImage = Image.extend({
    */
   addNodeView() {
     return ({ node }) => {
-      const dom = document.createElement('img');
-      let currentSrc = '';
+      const dom = document.createElement("img");
+      let currentSrc = "";
 
       const applySrc = (src: string) => {
         if (!src) {
-          dom.removeAttribute('src');
+          dom.removeAttribute("src");
           return;
         }
-        if (src.startsWith('blob:') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
+        if (src.startsWith("blob:") || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
           dom.src = src;
           return;
         }
@@ -104,15 +105,15 @@ const CustomImage = Image.extend({
         const title = attrs.title;
         const attId = attrs.attId;
         const uploadingId = attrs.uploadingId;
-        if (typeof alt === 'string' && alt) dom.setAttribute('alt', alt);
-        else dom.removeAttribute('alt');
-        if (typeof title === 'string' && title) dom.setAttribute('title', title);
-        else dom.removeAttribute('title');
-        if (attId != null) dom.setAttribute('data-att-id', String(attId));
-        else dom.removeAttribute('data-att-id');
-        if (uploadingId) dom.setAttribute('data-uploading-id', String(uploadingId));
-        else dom.removeAttribute('data-uploading-id');
-        const src = String(attrs.src ?? '');
+        if (typeof alt === "string" && alt) dom.setAttribute("alt", alt);
+        else dom.removeAttribute("alt");
+        if (typeof title === "string" && title) dom.setAttribute("title", title);
+        else dom.removeAttribute("title");
+        if (attId != null) dom.setAttribute("data-att-id", String(attId));
+        else dom.removeAttribute("data-att-id");
+        if (uploadingId) dom.setAttribute("data-uploading-id", String(uploadingId));
+        else dom.removeAttribute("data-uploading-id");
+        const src = String(attrs.src ?? "");
         currentSrc = src;
         applySrc(src);
       };
@@ -122,7 +123,7 @@ const CustomImage = Image.extend({
       return {
         dom,
         update: (updatedNode) => {
-          if (updatedNode.type.name !== 'image') return false;
+          if (updatedNode.type.name !== "image") return false;
           applyAttrs(updatedNode);
           return true;
         },
@@ -148,8 +149,8 @@ const CustomImage = Image.extend({
  * - uploadingId：上传中占位标识，回填后置空
  */
 export const FileRef = Node.create({
-  name: 'fileRef',
-  group: 'inline',
+  name: "fileRef",
+  group: "inline",
   inline: true,
   atom: true,
   selectable: true,
@@ -160,84 +161,84 @@ export const FileRef = Node.create({
       attId: {
         default: null,
         parseHTML: (el: HTMLElement) => {
-          const v = el.getAttribute('data-att-id');
-          if (v == null || v === '') return null;
+          const v = el.getAttribute("data-att-id");
+          if (v == null || v === "") return null;
           const n = Number(v);
           return Number.isFinite(n) ? n : null;
         },
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.attId;
-          return v == null ? {} : { 'data-att-id': String(v) };
+          return v == null ? {} : { "data-att-id": String(v) };
         },
       },
       src: {
-        default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-src') ?? '',
+        default: "",
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-src") ?? "",
         renderHTML: (attrs: Record<string, unknown>) => ({
-          'data-src': String(attrs.src ?? ''),
+          "data-src": String(attrs.src ?? ""),
         }),
       },
       name: {
-        default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-name') ?? '',
+        default: "",
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-name") ?? "",
         renderHTML: (attrs: Record<string, unknown>) => ({
-          'data-name': String(attrs.name ?? ''),
+          "data-name": String(attrs.name ?? ""),
         }),
       },
       size: {
         default: null,
         parseHTML: (el: HTMLElement) => {
-          const v = el.getAttribute('data-size');
-          if (v == null || v === '') return null;
+          const v = el.getAttribute("data-size");
+          if (v == null || v === "") return null;
           const n = Number(v);
           return Number.isFinite(n) ? n : null;
         },
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.size;
-          return v == null ? {} : { 'data-size': String(v) };
+          return v == null ? {} : { "data-size": String(v) };
         },
       },
       mime: {
-        default: '',
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-mime') ?? '',
+        default: "",
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-mime") ?? "",
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.mime;
-          return v == null || v === '' ? {} : { 'data-mime': String(v) };
+          return v == null || v === "" ? {} : { "data-mime": String(v) };
         },
       },
       kind: {
-        default: 'attachment',
+        default: "attachment",
         parseHTML: (el: HTMLElement) => {
-          const v = el.getAttribute('data-kind') ?? 'attachment';
-          return v === 'path' ? 'path' : 'attachment';
+          const v = el.getAttribute("data-kind") ?? "attachment";
+          return v === "path" ? "path" : "attachment";
         },
         renderHTML: (attrs: Record<string, unknown>) => ({
-          'data-kind': attrs.kind === 'path' ? 'path' : 'attachment',
+          "data-kind": attrs.kind === "path" ? "path" : "attachment",
         }),
       },
       uploadingId: {
         default: null,
-        parseHTML: (el: HTMLElement) => el.getAttribute('data-uploading-id'),
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-uploading-id"),
         renderHTML: (attrs: Record<string, unknown>) => {
           const v = attrs.uploadingId;
-          return v == null || v === '' ? {} : { 'data-uploading-id': String(v) };
+          return v == null || v === "" ? {} : { "data-uploading-id": String(v) };
         },
       },
     };
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-file-ref]' }];
+    return [{ tag: "span[data-file-ref]" }];
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const label = String(node.attrs.name ?? '').trim() || '未命名文件';
+    const label = String(node.attrs.name ?? "").trim() || "未命名文件";
     return [
-      'span',
+      "span",
       {
         ...HTMLAttributes,
-        'data-file-ref': '',
-        class: 'rte-file-ref',
+        "data-file-ref": "",
+        class: "rte-file-ref",
       },
       `\uD83D\uDCCE ${label}`,
     ];
@@ -257,10 +258,10 @@ export function buildExtensions(opts: { placeholder?: string } = {}) {
     Link.configure({
       openOnClick: false,
       autolink: true,
-      defaultProtocol: 'https',
+      defaultProtocol: "https",
       protocols: [...LINK_PROTOCOLS] as string[],
-      HTMLAttributes: { rel: 'noopener noreferrer' },
+      HTMLAttributes: { rel: "noopener noreferrer" },
     }),
-    Placeholder.configure({ placeholder: opts.placeholder ?? '' }),
+    Placeholder.configure({ placeholder: opts.placeholder ?? "" }),
   ];
 }

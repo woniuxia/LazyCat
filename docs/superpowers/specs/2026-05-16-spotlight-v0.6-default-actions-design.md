@@ -119,27 +119,27 @@
 
 ## 改动文件清单
 
-| 文件 | 改动类型 | 说明 |
-|------|----------|------|
-| `apps/desktop/src-tauri/src/main.rs` | 修改 | `spotlight_pick` payload 扩展可选 `text` / `source`；同步 `HotkeyNavigatePayload` 结构 |
-| `apps/desktop/src/spotlight/providers/suggestion.ts` | 新增 | 剪贴板建议 provider |
-| `apps/desktop/src/spotlight/providers/todo.ts` | 修改 | 新增 `createDraft(text)` helper |
-| `apps/desktop/src/spotlight/providers/hosts.ts` | 修改 | apply 成功后 emit `hosts-applied` |
-| `apps/desktop/src/components/SpotlightPanel.vue` | 修改 | 引入 suggestion provider；results 计算识别 `+ ` 速建；建议项前置渲染 |
-| `apps/desktop/src/utils/spotlight-query.ts` | 修改 | 新增 `parseQuickCommand` |
-| `apps/desktop/src/utils/spotlight-query.test.ts` | 修改 | 增加 `+ ` 前缀解析单测 |
-| `apps/desktop/src/App.vue` | 修改 | `hotkey-navigate` 处理新 payload；新增 `hosts-applied` 监听及降级逻辑 |
-| `apps/desktop/src/composables/useClipboardSuggestion.ts` | 不改 | 复用现有 `setPendingToolInput` 通道 |
+| 文件                                                     | 改动类型 | 说明                                                                                   |
+| -------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `apps/desktop/src-tauri/src/main.rs`                     | 修改     | `spotlight_pick` payload 扩展可选 `text` / `source`；同步 `HotkeyNavigatePayload` 结构 |
+| `apps/desktop/src/spotlight/providers/suggestion.ts`     | 新增     | 剪贴板建议 provider                                                                    |
+| `apps/desktop/src/spotlight/providers/todo.ts`           | 修改     | 新增 `createDraft(text)` helper                                                        |
+| `apps/desktop/src/spotlight/providers/hosts.ts`          | 修改     | apply 成功后 emit `hosts-applied`                                                      |
+| `apps/desktop/src/components/SpotlightPanel.vue`         | 修改     | 引入 suggestion provider；results 计算识别 `+ ` 速建；建议项前置渲染                   |
+| `apps/desktop/src/utils/spotlight-query.ts`              | 修改     | 新增 `parseQuickCommand`                                                               |
+| `apps/desktop/src/utils/spotlight-query.test.ts`         | 修改     | 增加 `+ ` 前缀解析单测                                                                 |
+| `apps/desktop/src/App.vue`                               | 修改     | `hotkey-navigate` 处理新 payload；新增 `hosts-applied` 监听及降级逻辑                  |
+| `apps/desktop/src/composables/useClipboardSuggestion.ts` | 不改     | 复用现有 `setPendingToolInput` 通道                                                    |
 
 ## 关键风险与对策
 
-| 风险 | 对策 |
-|------|------|
-| 剪贴板含敏感信息（密码 / token），用户不希望被预读 | 沿用现有 `clipboard_detection=false` 用户开关；建议项遵守该开关 |
+| 风险                                                         | 对策                                                                                            |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| 剪贴板含敏感信息（密码 / token），用户不希望被预读           | 沿用现有 `clipboard_detection=false` 用户开关；建议项遵守该开关                                 |
 | Spotlight 与主窗口跨 webview 传 `text`，payload 过大可能截断 | `text` 透传不做长度限制（Tauri event 可承载较大字符串）；前端上限以剪贴板可读量为界，不额外裁剪 |
-| `+ ` 前缀与正常搜索冲突 | 必须有空格，且空格后允许任意字符；用户主动输入 `+ ` 概率极低 |
-| Hosts Notification 在 Windows 首次弹权限影响体验 | 首次只在主窗口不可见时尝试；用户拒绝后写入设置不再尝试 |
-| 建议项 `text` 长度过长导致 UI 溢出 | 标题预览取前 32 字符 + 省略号；保持单行 |
+| `+ ` 前缀与正常搜索冲突                                      | 必须有空格，且空格后允许任意字符；用户主动输入 `+ ` 概率极低                                    |
+| Hosts Notification 在 Windows 首次弹权限影响体验             | 首次只在主窗口不可见时尝试；用户拒绝后写入设置不再尝试                                          |
+| 建议项 `text` 长度过长导致 UI 溢出                           | 标题预览取前 32 字符 + 省略号；保持单行                                                         |
 
 ## 验证
 

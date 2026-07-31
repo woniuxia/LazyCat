@@ -37,18 +37,15 @@ function buildPreview(text: string): string {
     if (characters.length >= 33) break;
   }
 
-  return characters.length > 32
-    ? `${characters.slice(0, 32).join("")}…`
-    : characters.join("");
+  return characters.length > 32 ? `${characters.slice(0, 32).join("")}…` : characters.join("");
 }
 
 export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
   if (!validateReferenceCardText(text).ok) return [];
 
   const preview = buildPreview(text);
-  const detected = text.length <= CLIPBOARD_DETECTION_MAX_CHARACTERS
-    ? detectClipboardContent(text)
-    : null;
+  const detected =
+    text.length <= CLIPBOARD_DETECTION_MAX_CHARACTERS ? detectClipboardContent(text) : null;
   const toolAction = detected?.actions.find(
     (action) => action.kind === "tool" && isRealToolId(action.toolId),
   );
@@ -80,9 +77,7 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
     providerId: "suggestion",
     itemId: "suggestion:reference-card",
     title: `创建置顶参考卡（剪贴板：${preview}）`,
-    subtitle: detected
-      ? `${detected.label} · Enter 创建或聚焦参考卡`
-      : "Enter 创建或聚焦参考卡",
+    subtitle: detected ? `${detected.label} · Enter 创建或聚焦参考卡` : "Enter 创建或聚焦参考卡",
     badge: { short: "参考", tone: "primary" },
     searchFields: REFERENCE_CARD_SEARCH_TERMS.map((term) => ({
       text: term,
@@ -104,9 +99,7 @@ export function mergeClipboardSuggestionItems(
   existingItems: SpotlightItem[],
   clipboardItems: SpotlightItem[],
 ): SpotlightItem[] {
-  const merged = new Map(
-    existingItems.map((item) => [suggestionItemKey(item), item]),
-  );
+  const merged = new Map(existingItems.map((item) => [suggestionItemKey(item), item]));
   for (const item of clipboardItems) {
     merged.set(suggestionItemKey(item), item);
   }

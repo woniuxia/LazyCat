@@ -33,7 +33,7 @@ export function usePmItemFilters(options: PmItemFiltersOptions) {
         (i) =>
           i.title.toLowerCase().includes(q) ||
           i.description.toLowerCase().includes(q) ||
-          i.tags.some((t) => t.toLowerCase().includes(q))
+          i.tags.some((t) => t.toLowerCase().includes(q)),
       );
     }
     if (filterType.value) {

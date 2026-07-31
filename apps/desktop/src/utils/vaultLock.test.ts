@@ -39,23 +39,27 @@ describe("vaultLock", () => {
   });
 
   it("prefers explicit settings and normalizes illegal values", () => {
-    expect(resolveVaultLockSettings({
-      vault_lock_profile: "strict",
-      vault_sensitive_hide_minutes: "5",
-      vault_activity_lock_enabled: "false",
-      vault_activity_lock_minutes: "60",
-      vault_system_idle_lock_enabled: "true",
-      vault_system_idle_lock_minutes: "30",
-    })).toMatchObject({
+    expect(
+      resolveVaultLockSettings({
+        vault_lock_profile: "strict",
+        vault_sensitive_hide_minutes: "5",
+        vault_activity_lock_enabled: "false",
+        vault_activity_lock_minutes: "60",
+        vault_system_idle_lock_enabled: "true",
+        vault_system_idle_lock_minutes: "30",
+      }),
+    ).toMatchObject({
       sensitiveHideMinutes: 5,
       activityLockEnabled: false,
       activityLockMinutes: 60,
       systemIdleLockMinutes: 30,
     });
-    expect(resolveVaultLockSettings({
-      vault_activity_lock_minutes: "999",
-      vault_system_idle_lock_enabled: "invalid",
-    })).toMatchObject({
+    expect(
+      resolveVaultLockSettings({
+        vault_activity_lock_minutes: "999",
+        vault_system_idle_lock_enabled: "invalid",
+      }),
+    ).toMatchObject({
       activityLockMinutes: 30,
       systemIdleLockEnabled: true,
     });
@@ -69,11 +73,13 @@ describe("vaultLock", () => {
       activityLockAfterSecs: 1_800,
     });
     expect(summarizeVaultHardLockRules(settings)).toBe("任一条件达到后即锁定");
-    expect(summarizeVaultHardLockRules({
-      ...settings,
-      activityLockEnabled: false,
-      systemIdleLockEnabled: false,
-    })).toBe("仅手动或关闭到托盘时锁定");
+    expect(
+      summarizeVaultHardLockRules({
+        ...settings,
+        activityLockEnabled: false,
+        systemIdleLockEnabled: false,
+      }),
+    ).toBe("仅手动或关闭到托盘时锁定");
   });
 
   it("keeps masking while activity hard lock is disabled", () => {

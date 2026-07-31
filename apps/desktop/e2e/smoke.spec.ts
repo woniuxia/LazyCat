@@ -13,11 +13,11 @@ test("base64 tool shows bridge warning in web mode", async ({ page }) => {
   if (await firstRunPrompt.isVisible({ timeout: 3000 }).catch(() => false)) {
     await firstRunPrompt.click();
   }
+  await page.locator(".home-tool-card", { hasText: "Base64" }).first().click();
+  await page.locator("textarea").first().fill("lazycat");
   await page
-    .locator(".home-tool-card", { hasText: "Base64" })
+    .getByRole("button", { name: /Base64 编码/ })
     .first()
     .click();
-  await page.locator("textarea").first().fill("lazycat");
-  await page.getByRole("button", { name: /Base64 编码/ }).first().click();
   await expect(page.getByText(/IPC bridge.*Tauri/i).first()).toBeVisible({ timeout: 10000 });
 });

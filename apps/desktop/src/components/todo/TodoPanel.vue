@@ -30,12 +30,7 @@
               style="width: 140px"
             >
               <el-option label="未归项目" value="none" />
-              <el-option
-                v-for="p in projectOptions"
-                :key="p.id"
-                :label="p.name"
-                :value="p.id"
-              />
+              <el-option v-for="p in projectOptions" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
             <el-input
               v-model.trim="itemKeyword"
@@ -320,7 +315,11 @@
                     </span>
                   </div>
                   <div class="todo-card-meta">
-                    <span v-if="relativeDoneTimeLabel(row)" class="meta-chip meta-time" title="完成时间">
+                    <span
+                      v-if="relativeDoneTimeLabel(row)"
+                      class="meta-chip meta-time"
+                      title="完成时间"
+                    >
                       <el-icon :size="12"><Calendar /></el-icon>
                       {{ relativeDoneTimeLabel(row) }}
                     </span>
@@ -381,9 +380,24 @@
             @pm-create="handlePmCreate"
             @pm-search="handlePmSearch"
             @navigate-to-pm="navigateToPmItem"
-            @event-date-change="(v) => { if (!v) clearEventSchedule(); else itemDraft.eventDate = v; }"
-            @event-hour-change="(v) => { const { minute } = splitDraftEventTime(itemDraft.eventTime); itemDraft.eventTime = composeDraftEventTime(v, minute); }"
-            @event-minute-change="(v) => { const { hour } = splitDraftEventTime(itemDraft.eventTime); itemDraft.eventTime = composeDraftEventTime(hour, v); }"
+            @event-date-change="
+              (v) => {
+                if (!v) clearEventSchedule();
+                else itemDraft.eventDate = v;
+              }
+            "
+            @event-hour-change="
+              (v) => {
+                const { minute } = splitDraftEventTime(itemDraft.eventTime);
+                itemDraft.eventTime = composeDraftEventTime(v, minute);
+              }
+            "
+            @event-minute-change="
+              (v) => {
+                const { hour } = splitDraftEventTime(itemDraft.eventTime);
+                itemDraft.eventTime = composeDraftEventTime(hour, v);
+              }
+            "
             @fill-quick-date="fillQuickDate"
             @fill-default-date-time="fillDefaultDateTime"
             @clear-event-schedule="clearEventSchedule"
@@ -430,7 +444,12 @@
       @refresh="onBasicsChanged"
     />
 
-    <el-dialog v-model="pmCreateDialogVisible" title="新建工作项" width="420px" @closed="onPmCreateClosed">
+    <el-dialog
+      v-model="pmCreateDialogVisible"
+      title="新建工作项"
+      width="420px"
+      @closed="onPmCreateClosed"
+    >
       <el-form>
         <el-form-item v-if="!itemDraft.projectId" label="所属项目">
           <el-select v-model="pmCreateProjectId" placeholder="请选择项目" style="width: 100%">
@@ -438,7 +457,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="标题">
-          <el-input v-model.trim="pmCreateTitle" placeholder="请输入工作项标题" @keyup.enter="onPmCreateConfirm" />
+          <el-input
+            v-model.trim="pmCreateTitle"
+            placeholder="请输入工作项标题"
+            @keyup.enter="onPmCreateConfirm"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -518,9 +541,7 @@ import TodoBasicsDialog from "./TodoBasicsDialog.vue";
 import TodoSidebar from "./TodoSidebar.vue";
 import TodoQuickAddBar from "./TodoQuickAddBar.vue";
 import TodoEmptyState from "./TodoEmptyState.vue";
-import {
-  getCreateDraftDefaultDateTime,
-} from "../../utils/todoSchedule";
+import { getCreateDraftDefaultDateTime } from "../../utils/todoSchedule";
 
 type SelectTypeValue = number | string | undefined;
 type SelectAssigneeValue = number | string;
@@ -770,7 +791,7 @@ const quickAddContext = computed<QuickAddContext>(() => ({
   typeId:
     filterType.value === null
       ? null
-      : types.value.find((t) => t.name === filterType.value)?.id ?? null,
+      : (types.value.find((t) => t.name === filterType.value)?.id ?? null),
   projectId: typeof filterProjectId.value === "number" ? filterProjectId.value : null,
   priorityDefault: filterPriority.value ?? "P2",
 }));
@@ -1062,10 +1083,7 @@ const {
   getItemRecurrence,
 });
 
-async function enterEditMode(
-  item?: TodoItem | null,
-  options: { focusTitle?: boolean } = {},
-) {
+async function enterEditMode(item?: TodoItem | null, options: { focusTitle?: boolean } = {}) {
   await enterEditModeBase(item, options);
   if (!itemDraft.actionType) return;
   try {
@@ -1146,13 +1164,7 @@ watch(pendingTodoCreate, (v) => {
 });
 
 onMounted(async () => {
-  await Promise.all([
-    loadTypes(),
-    loadAssignees(),
-    loadItems(),
-    loadProjects(),
-    loadDefinitions(),
-  ]);
+  await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects(), loadDefinitions()]);
   initialLoading.value = false;
   const focus = consumeTodoFocus();
   if (focus) {
@@ -1663,9 +1675,7 @@ onBeforeUnmount(() => {
   box-shadow: var(--lc-shadow-sm);
 }
 
-
 /* Project Unified Card — Scheme E */
-
 
 /* Detail empty hint */
 
@@ -1689,14 +1699,11 @@ onBeforeUnmount(() => {
 
 /* Detail Grid & Fields */
 
-
 .detail-field--full {
   grid-column: 1 / -1;
 }
 
-
 /* Detail Description Card */
-
 
 /* Markdown rendered styles */
 .md-rendered :deep(h1) {
@@ -1759,16 +1766,13 @@ onBeforeUnmount(() => {
 
 /* Markdown toolbar */
 
-
 /* Priority & Status Badges in Detail */
-
 
 /* Priority with Dot */
 
 /* Type with Color */
 
 /* Assignee List */
-
 
 /* Text Muted */
 .text-muted {
@@ -1786,7 +1790,6 @@ onBeforeUnmount(() => {
 }
 
 /* Detail Footer */
-
 
 .detail-edit,
 .detail-view {
@@ -1913,7 +1916,6 @@ onBeforeUnmount(() => {
 
 /* --- Quick date presets --- */
 
-
 /* --- Custom scrollbar --- */
 .todo-list-scroll::-webkit-scrollbar,
 .detail-scroll::-webkit-scrollbar {
@@ -1935,7 +1937,6 @@ onBeforeUnmount(() => {
 
 /* Link styles */
 
-
 /* Calendar view */
 .todo-calendar-view {
   flex: 1;
@@ -1948,7 +1949,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
 }
-
 </style>
 
 <style>

@@ -8,17 +8,11 @@
     :with-header="true"
     @close="siyuan.drawerVisible.value = false"
   >
-    <template #header>
-      思源配置
-    </template>
+    <template #header> 思源配置 </template>
     <div class="siyuan-drawer-body">
       <el-form label-position="top" size="default">
         <el-form-item label="服务地址">
-          <el-input
-            v-model="siyuan.form.baseUrl"
-            placeholder="http://127.0.0.1:6806"
-            clearable
-          />
+          <el-input v-model="siyuan.form.baseUrl" placeholder="http://127.0.0.1:6806" clearable />
         </el-form-item>
         <el-form-item label="API Token">
           <el-input
@@ -28,7 +22,11 @@
             clearable
           >
             <template #suffix>
-              <el-button type="text" size="small" @click="siyuan.showToken.value = !siyuan.showToken.value">
+              <el-button
+                type="text"
+                size="small"
+                @click="siyuan.showToken.value = !siyuan.showToken.value"
+              >
                 {{ siyuan.showToken.value ? "隐藏" : "显示" }}
               </el-button>
             </template>
@@ -42,13 +40,22 @@
         </div>
         <div class="pm-siyuan-inline-actions">
           <el-button size="small" @click="siyuan.openLocationPicker('global')">选择位置</el-button>
-          <el-button size="small" @click="siyuan.globalSiyuanLocationDraft.value = null">清空</el-button>
+          <el-button size="small" @click="siyuan.globalSiyuanLocationDraft.value = null"
+            >清空</el-button
+          >
         </div>
       </div>
       <div class="siyuan-actions">
         <el-button type="primary" @click="siyuan.saveConfig()">保存配置</el-button>
-        <el-button type="info" :loading="siyuan.testing.value" @click="siyuan.testConnection()">测试连接</el-button>
-        <el-button type="default" :loading="siyuan.loadingDirectory.value" @click="siyuan.loadDirectory()">加载目录</el-button>
+        <el-button type="info" :loading="siyuan.testing.value" @click="siyuan.testConnection()"
+          >测试连接</el-button
+        >
+        <el-button
+          type="default"
+          :loading="siyuan.loadingDirectory.value"
+          @click="siyuan.loadDirectory()"
+          >加载目录</el-button
+        >
       </div>
       <div class="siyuan-status">
         <el-tag v-if="siyuan.testingVersion.value" type="success" effect="dark">
@@ -117,7 +124,10 @@
         placeholder="搜索笔记本、文档标题或路径"
         clearable
       />
-      <div v-if="siyuan.loadingDirectory.value && !siyuan.directory.value.length" class="pm-siyuan-empty-hint">
+      <div
+        v-if="siyuan.loadingDirectory.value && !siyuan.directory.value.length"
+        class="pm-siyuan-empty-hint"
+      >
         正在同步思源目录，请稍候…
       </div>
       <div v-else-if="!siyuan.directory.value.length" class="pm-siyuan-empty-hint">
@@ -127,7 +137,9 @@
         <div class="pm-siyuan-picker-tree-head">
           <span>{{ siyuan.locationPickerStatusText.value }}</span>
           <div class="pm-siyuan-inline-actions">
-            <span v-if="siyuan.directoryFetchedAt.value">最后同步：{{ siyuan.directoryFetchedAt.value }}</span>
+            <span v-if="siyuan.directoryFetchedAt.value"
+              >最后同步：{{ siyuan.directoryFetchedAt.value }}</span
+            >
             <span v-if="siyuan.locationPickerSearchKeyword.value">清空搜索后会恢复默认折叠。</span>
             <el-button
               size="small"
@@ -220,10 +232,15 @@
           :placeholder="siyuan.pageDialogInputPlaceholder.value"
           clearable
         />
-        <el-button v-if="siyuan.pageShowReturnToLocation.value" @click="siyuan.restoreLocationResults()">
+        <el-button
+          v-if="siyuan.pageShowReturnToLocation.value"
+          @click="siyuan.restoreLocationResults()"
+        >
           返回当前位置列表
         </el-button>
-        <el-button :loading="siyuan.pageSearchingAll.value" @click="siyuan.expandPagesToAll()">扩展到全库</el-button>
+        <el-button :loading="siyuan.pageSearchingAll.value" @click="siyuan.expandPagesToAll()"
+          >扩展到全库</el-button
+        >
         <el-button
           type="success"
           :loading="siyuan.pageCreating.value"
@@ -235,12 +252,16 @@
       </div>
 
       <div class="pm-siyuan-dialog-hint">{{ siyuan.pageCurrentRangeText.value }}</div>
-      <div v-if="siyuan.pageFilterSummary.value" class="pm-siyuan-dialog-hint">{{ siyuan.pageFilterSummary.value }}</div>
+      <div v-if="siyuan.pageFilterSummary.value" class="pm-siyuan-dialog-hint">
+        {{ siyuan.pageFilterSummary.value }}
+      </div>
       <div class="pm-siyuan-dialog-hint">
         当前创建位置：{{ formatPmSiyuanLocationLabel(siyuan.itemEffectiveLocation.value) }}
       </div>
       <div class="pm-siyuan-dialog-hint">
-        当前创建标题：{{ siyuan.pageCreateTitle.value || "请先填写工作项标题或输入想创建的页面标题" }}
+        当前创建标题：{{
+          siyuan.pageCreateTitle.value || "请先填写工作项标题或输入想创建的页面标题"
+        }}
       </div>
 
       <div
@@ -264,14 +285,18 @@
         {{ siyuan.pageEmptyMessage.value }}
       </div>
       <div v-else class="pm-siyuan-page-list">
-        <div v-for="page in siyuan.pageDisplayedResults.value" :key="page.docId" class="pm-siyuan-page-row">
+        <div
+          v-for="page in siyuan.pageDisplayedResults.value"
+          :key="page.docId"
+          class="pm-siyuan-page-row"
+        >
           <div class="pm-siyuan-page-main">
             <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
             <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
           </div>
           <div class="pm-siyuan-inline-actions">
             <el-button size="small" type="primary" link @click="siyuan.selectPageResult(page)">
-              {{ siyuan.pageDialogMode.value === 'primary' ? '设为主页面' : '添加' }}
+              {{ siyuan.pageDialogMode.value === "primary" ? "设为主页面" : "添加" }}
             </el-button>
             <el-button size="small" link @click="siyuan.openSiyuanPage(page)">打开</el-button>
           </div>

@@ -16,10 +16,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 defineProps<{ src: string }>();
-const emit = defineEmits<{ (e: 'close'): void }>();
+const emit = defineEmits<{ (e: "close"): void }>();
 
 const ZOOM_STEP = 0.15;
 const MAX_SCALE = 8;
@@ -32,8 +32,8 @@ const anchor = ref({ mx: 0, my: 0, ox: 0, oy: 0 });
 
 const imgStyle = computed(() => ({
   transform: `translate(${ox.value}px, ${oy.value}px) scale(${scale.value})`,
-  cursor: scale.value > 1 ? (dragging.value ? 'grabbing' : 'grab') : 'default',
-  transition: dragging.value ? 'none' : 'transform 0.2s ease',
+  cursor: scale.value > 1 ? (dragging.value ? "grabbing" : "grab") : "default",
+  transition: dragging.value ? "none" : "transform 0.2s ease",
 }));
 
 function onWheel(e: WheelEvent) {
@@ -62,23 +62,23 @@ function onMouseUp() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') close();
+  if (e.key === "Escape") close();
 }
 
 function close() {
-  emit('close');
+  emit("close");
 }
 
 onMounted(() => {
-  document.addEventListener('keydown', onKeydown);
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+  document.addEventListener("keydown", onKeydown);
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', onKeydown);
-  document.removeEventListener('mousemove', onMouseMove);
-  document.removeEventListener('mouseup', onMouseUp);
+  document.removeEventListener("keydown", onKeydown);
+  document.removeEventListener("mousemove", onMouseMove);
+  document.removeEventListener("mouseup", onMouseUp);
 });
 </script>
 
@@ -95,8 +95,12 @@ onUnmounted(() => {
 }
 
 @keyframes rte-preview-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .rte-image-preview__backdrop {

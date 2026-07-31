@@ -33,7 +33,9 @@ import "./providers/suggestion";
 import "./providers/launcher";
 import type { ProviderDescriptor, SpotlightConfig } from "./types";
 
-function makeDescriptor(over: Partial<ProviderDescriptor> & { id: ProviderDescriptor["id"] }): ProviderDescriptor {
+function makeDescriptor(
+  over: Partial<ProviderDescriptor> & { id: ProviderDescriptor["id"] },
+): ProviderDescriptor {
   return {
     id: over.id,
     name: over.name ?? String(over.id),

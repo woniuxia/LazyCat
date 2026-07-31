@@ -62,12 +62,7 @@
           {{ languageLabel }} 输出
           <el-tag v-if="tableCount > 0" size="small" type="info">{{ tableCount }} 张表</el-tag>
         </div>
-        <el-input
-          v-model="codeOutput"
-          type="textarea"
-          resize="none"
-          readonly
-        />
+        <el-input v-model="codeOutput" type="textarea" resize="none" readonly />
       </div>
     </div>
     <SqlEntityBaseClassDialog ref="baseClassDialog" @changed="handleBaseClassesChanged" />
@@ -100,10 +95,7 @@ const sqlEntityState = {
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type {
-  SqlEntityBaseClass,
-  SqlEntityBaseClassListResponse,
-} from "../types/sql-entity";
+import type { SqlEntityBaseClass, SqlEntityBaseClassListResponse } from "../types/sql-entity";
 import { reconcileBaseClassSelection } from "../utils/sqlEntityBaseClass";
 import SqlEntityBaseClassDialog from "./SqlEntityBaseClassDialog.vue";
 
@@ -136,7 +128,7 @@ const tableCount = ref(0);
 const generating = ref(false);
 
 const languageLabel = computed(
-  () => languages.find((l) => l.value === language.value)?.label ?? ""
+  () => languages.find((l) => l.value === language.value)?.label ?? "",
 );
 
 const selectedBaseClasses = computed(() => {

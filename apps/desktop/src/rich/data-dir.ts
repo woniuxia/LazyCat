@@ -1,4 +1,4 @@
-import { invokeToolByChannel } from '../bridge/tauri';
+import { invokeToolByChannel } from "../bridge/tauri";
 
 /**
  * 描述富文本共用的 dataDir 缓存：
@@ -8,7 +8,7 @@ import { invokeToolByChannel } from '../bridge/tauri';
  * 失败（例如后端未就绪）会清掉 pending，允许下一次调用重试；cache 保持空串。
  */
 
-let cache = '';
+let cache = "";
 let pending: Promise<string> | null = null;
 
 export function getSyncDataDir(): string {
@@ -18,15 +18,15 @@ export function getSyncDataDir(): string {
 export function ensureDataDir(): Promise<string> {
   if (cache) return Promise.resolve(cache);
   if (!pending) {
-    pending = invokeToolByChannel('tool:system:get-paths', {})
+    pending = invokeToolByChannel("tool:system:get-paths", {})
       .then((res) => {
-        const v = (res as { dataDir?: string })?.dataDir ?? '';
+        const v = (res as { dataDir?: string })?.dataDir ?? "";
         cache = v;
         return v;
       })
       .catch(() => {
         pending = null;
-        return '';
+        return "";
       }) as Promise<string>;
   }
   return pending;
@@ -34,8 +34,8 @@ export function ensureDataDir(): Promise<string> {
 
 /** 拼接附件相对路径为绝对路径（保留原生分隔符，供后端 IPC 使用） */
 export function joinAttachmentPath(dir: string, rel: string): string {
-  const d = dir.replace(/[/\\]+$/, '');
-  const s = rel.replace(/^[/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, "");
+  const s = rel.replace(/^[/\\]+/, "");
   return `${d}/${s}`;
 }
 
@@ -47,10 +47,10 @@ export function joinAttachmentPath(dir: string, rel: string): string {
  * - dataDir 未就绪时返回原值（交由调用方异步重试）
  */
 export function resolveAttachmentPath(src: string, dataDir: string): string {
-  if (!src) return '';
-  if (src.startsWith('blob:') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
+  if (!src) return "";
+  if (src.startsWith("blob:") || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
     return src;
   }
   if (!dataDir) return src;
-  return joinAttachmentPath(dataDir, src).replace(/\\/g, '/');
+  return joinAttachmentPath(dataDir, src).replace(/\\/g, "/");
 }

@@ -10,8 +10,12 @@ const detailEditSource = readFileSync(new URL("./TodoDetailEdit.vue", import.met
 
 describe("TodoPanel edit focus behavior", () => {
   it("focuses the title input after entering edit mode from task items", () => {
-    expect(detailStateSource).toContain('function enterEditMode(item?: TodoItem | null, options: { focusTitle?: boolean } = {})');
-    expect(detailStateSource).toMatch(/if\s*\(options\.focusTitle\s*!==\s*false\)\s*\{\s*await focusTitleInputWhenActive\("edit", "edit_item"\);\s*\}/);
+    expect(detailStateSource).toContain(
+      "function enterEditMode(item?: TodoItem | null, options: { focusTitle?: boolean } = {})",
+    );
+    expect(detailStateSource).toMatch(
+      /if\s*\(options\.focusTitle\s*!==\s*false\)\s*\{\s*await focusTitleInputWhenActive\("edit", "edit_item"\);\s*\}/,
+    );
   });
 
   it("uses an exposed child method instead of reaching through the child ref internals", () => {
@@ -22,7 +26,9 @@ describe("TodoPanel edit focus behavior", () => {
     expect(source).toContain("todoDetailEditRef.value?.focusScheduleInput();");
     expect(source).not.toContain("todoDetailEditRef.value?.titleInputRef.value?.focus();");
     expect(source).not.toContain("todoDetailEditRef.value?.scheduleRef.value");
-    expect(detailStateSource).not.toContain("todoDetailEditRef.value?.titleInputRef.value?.focus();");
+    expect(detailStateSource).not.toContain(
+      "todoDetailEditRef.value?.titleInputRef.value?.focus();",
+    );
     expect(detailStateSource).not.toContain("todoDetailEditRef.value?.scheduleRef.value");
   });
 

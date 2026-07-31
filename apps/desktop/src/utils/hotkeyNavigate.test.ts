@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  shouldHideNamedHotkeyWindow,
-  type HotkeyNavigatePayload,
-} from "./hotkeyNavigate";
+import { shouldHideNamedHotkeyWindow, type HotkeyNavigatePayload } from "./hotkeyNavigate";
 
 function createPayload(overrides: Partial<HotkeyNavigatePayload> = {}): HotkeyNavigatePayload {
   return {
@@ -16,38 +13,50 @@ function createPayload(overrides: Partial<HotkeyNavigatePayload> = {}): HotkeyNa
 
 describe("shouldHideNamedHotkeyWindow", () => {
   it("hides the main window when the same tool was already visible and focused", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload(), {
-      activeTool: "snippets",
-    })).toBe(true);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload(), {
+        activeTool: "snippets",
+      }),
+    ).toBe(true);
   });
 
   it("does not hide the main window after a cross-screen move", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload({ didMoveToCursorMonitor: true }), {
-      activeTool: "snippets",
-    })).toBe(false);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload({ didMoveToCursorMonitor: true }), {
+        activeTool: "snippets",
+      }),
+    ).toBe(false);
   });
 
   it("does not hide the main window when the window was not visible before trigger", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload({ wasWindowVisible: false }), {
-      activeTool: "snippets",
-    })).toBe(false);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload({ wasWindowVisible: false }), {
+        activeTool: "snippets",
+      }),
+    ).toBe(false);
   });
 
   it("does not hide the main window when the window was not focused before trigger", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload({ wasWindowFocused: false }), {
-      activeTool: "snippets",
-    })).toBe(false);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload({ wasWindowFocused: false }), {
+        activeTool: "snippets",
+      }),
+    ).toBe(false);
   });
 
   it("does not hide the main window when the target tool is different", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload({ target: "vault" }), {
-      activeTool: "snippets",
-    })).toBe(false);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload({ target: "vault" }), {
+        activeTool: "snippets",
+      }),
+    ).toBe(false);
   });
 
   it("supports the todo named hotkey with the same hide behavior", () => {
-    expect(shouldHideNamedHotkeyWindow(createPayload({ target: "todo" }), {
-      activeTool: "todo",
-    })).toBe(true);
+    expect(
+      shouldHideNamedHotkeyWindow(createPayload({ target: "todo" }), {
+        activeTool: "todo",
+      }),
+    ).toBe(true);
   });
 });

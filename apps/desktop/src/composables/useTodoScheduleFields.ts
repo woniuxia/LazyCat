@@ -70,8 +70,13 @@ export interface TodoScheduleFieldsOptions {
 }
 
 export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
-  const { itemDraft, lastReminderPresetSelection, editingItemSnapshot, itemDialogMode, itemKindOf } =
-    options;
+  const {
+    itemDraft,
+    lastReminderPresetSelection,
+    editingItemSnapshot,
+    itemDialogMode,
+    itemKindOf,
+  } = options;
 
   const reminderPresetOptions: Array<{ label: string; value: TodoReminderPreset }> = [
     { label: "不提醒", value: "none" },
@@ -131,7 +136,9 @@ export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
   const showCustomRepeatFields = computed(
     () => isRepeating.value && itemDraft.repeatPreset === "custom",
   );
-  const showCronRepeatFields = computed(() => isRepeating.value && itemDraft.repeatPreset === "cron");
+  const showCronRepeatFields = computed(
+    () => isRepeating.value && itemDraft.repeatPreset === "cron",
+  );
   const eventHour = computed({
     get: () => splitDraftEventTime(itemDraft.eventTime).hour,
     set: (value: string) => {
@@ -167,7 +174,8 @@ export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
 
   function buildEndValue() {
     if (itemDraft.endMode === "until_date") return itemDraft.endValueDate || null;
-    if (itemDraft.endMode === "after_count") return Math.max(1, Number(itemDraft.endValueCount || 1));
+    if (itemDraft.endMode === "after_count")
+      return Math.max(1, Number(itemDraft.endValueCount || 1));
     return null;
   }
 
@@ -182,7 +190,9 @@ export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
     itemDraft.simple.time = rule.time || "09:00";
     itemDraft.eventTime = rule.time || itemDraft.eventTime || "09:00";
     itemDraft.simple.weekdays =
-      Array.isArray(rule.weekdays) && rule.weekdays.length > 0 ? [...rule.weekdays] : [1, 2, 3, 4, 5];
+      Array.isArray(rule.weekdays) && rule.weekdays.length > 0
+        ? [...rule.weekdays]
+        : [1, 2, 3, 4, 5];
     itemDraft.simple.dayOfMonth = Math.min(31, Math.max(1, Number(rule.dayOfMonth || 1)));
   }
 
@@ -219,7 +229,9 @@ export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
             { type: "warning" },
           );
         } catch {
-          itemDraft.repeatPreset = deriveRepeatPreset(editingItemSnapshot.value?.recurrence || null);
+          itemDraft.repeatPreset = deriveRepeatPreset(
+            editingItemSnapshot.value?.recurrence || null,
+          );
           return;
         }
       }

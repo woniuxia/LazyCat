@@ -303,7 +303,9 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
   const recurrenceRecord = asRecord(record.recurrence);
   const hasRecurrence =
     kind === "recurring" &&
-    ("ruleMode" in recurrenceRecord || "rule" in recurrenceRecord || "cronExpression" in recurrenceRecord);
+    ("ruleMode" in recurrenceRecord ||
+      "rule" in recurrenceRecord ||
+      "cronExpression" in recurrenceRecord);
   const recurrenceRuleMode = normalizeRuleMode(
     typeof recurrenceRecord.ruleMode === "string" ? recurrenceRecord.ruleMode : "simple",
   );
@@ -315,7 +317,8 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
         ruleMode: recurrenceRuleMode,
         rule: normalizeRule(recurrenceRecord.rule, recurrenceRuleMode, recurrenceCronExpression),
         cronExpression: recurrenceCronExpression,
-        timezone: typeof recurrenceRecord.timezone === "string" ? recurrenceRecord.timezone : "local",
+        timezone:
+          typeof recurrenceRecord.timezone === "string" ? recurrenceRecord.timezone : "local",
         endMode: normalizeEndMode(
           typeof recurrenceRecord.endMode === "string" ? recurrenceRecord.endMode : "never",
         ),
@@ -326,14 +329,18 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
             ? (recurrenceRecord.endValue as string | number | null)
             : null,
         occurrenceIndex:
-          typeof recurrenceRecord.occurrenceIndex === "number" ? recurrenceRecord.occurrenceIndex : 0,
+          typeof recurrenceRecord.occurrenceIndex === "number"
+            ? recurrenceRecord.occurrenceIndex
+            : 0,
         active: typeof recurrenceRecord.active === "boolean" ? recurrenceRecord.active : true,
       } satisfies TodoRecurrence)
     : null;
   const id = typeof record.id === "number" ? record.id : 0;
   const rootId = typeof record.rootId === "number" ? record.rootId : id;
   const normalizedStatus =
-    typeof record.status === "string" ? normalizeStatus(record.status) : ("pending" satisfies TodoStatus);
+    typeof record.status === "string"
+      ? normalizeStatus(record.status)
+      : ("pending" satisfies TodoStatus);
   return {
     id,
     rootId,
@@ -355,7 +362,8 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
     links: normalizeLinks(record.links),
     isOverdue: record.isOverdue === true,
     recurrence,
-    nextTaskReminderId: typeof record.nextTaskReminderId === "number" ? record.nextTaskReminderId : null,
+    nextTaskReminderId:
+      typeof record.nextTaskReminderId === "number" ? record.nextTaskReminderId : null,
     nextReminderPreset: normalizeReminderPreset(record.nextReminderPreset),
     completedAt: typeof record.completedAt === "string" ? record.completedAt : null,
     createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
@@ -373,5 +381,7 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
 
 function deriveReminderPresets(record: Record<string, unknown>): TodoReminderPreset[] {
   const presetValues = record.reminderPresets;
-  return Array.isArray(presetValues) ? effectiveReminderPresets(presetValues as TodoReminderPreset[]) : [];
+  return Array.isArray(presetValues)
+    ? effectiveReminderPresets(presetValues as TodoReminderPreset[])
+    : [];
 }

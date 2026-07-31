@@ -234,9 +234,7 @@ function onLabelDblclick() {
 }
 
 const labelMatchId = computed(() => jsonTreeSearchMatchId({ field: "key", key: props.node.key }));
-const valueMatchId = computed(() =>
-  jsonTreeSearchMatchId({ field: "value", key: props.node.key }),
-);
+const valueMatchId = computed(() => jsonTreeSearchMatchId({ field: "value", key: props.node.key }));
 // 编辑中的行不显示命中高亮,结算后重算
 const labelHighlightClass = computed(() => {
   if (isEditingThisNode.value) return {};

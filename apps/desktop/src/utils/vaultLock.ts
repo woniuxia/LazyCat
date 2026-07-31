@@ -48,8 +48,8 @@ export function getVaultLockPolicy(value?: string | null): VaultLockPolicy {
 export const VAULT_HARD_LOCK_MINUTES = [5, 10, 15, 30, 60] as const;
 export const VAULT_SENSITIVE_HIDE_MINUTES = [1, 2, 5] as const;
 
-export type VaultHardLockMinutes = typeof VAULT_HARD_LOCK_MINUTES[number];
-export type VaultSensitiveHideMinutes = typeof VAULT_SENSITIVE_HIDE_MINUTES[number];
+export type VaultHardLockMinutes = (typeof VAULT_HARD_LOCK_MINUTES)[number];
+export type VaultSensitiveHideMinutes = (typeof VAULT_SENSITIVE_HIDE_MINUTES)[number];
 
 export interface VaultLockSettings {
   sensitiveHideMinutes: VaultSensitiveHideMinutes;
@@ -88,7 +88,7 @@ function parseAllowed<T extends readonly number[]>(
   fallback: T[number],
 ): T[number] {
   const value = Number(raw);
-  return allowed.includes(value as T[number]) ? value as T[number] : fallback;
+  return allowed.includes(value as T[number]) ? (value as T[number]) : fallback;
 }
 
 export function resolveVaultLockSettings(

@@ -50,7 +50,15 @@
       </div>
     </header>
 
-    <section v-if="errorMessage || responseWarnings.length || response?.edgeFound === false || response?.chromeFound === false" class="browser-profiles-alerts">
+    <section
+      v-if="
+        errorMessage ||
+        responseWarnings.length ||
+        response?.edgeFound === false ||
+        response?.chromeFound === false
+      "
+      class="browser-profiles-alerts"
+    >
       <div v-if="errorMessage" class="browser-profiles-alert is-error">
         {{ errorMessage }}
       </div>
@@ -58,13 +66,17 @@
         {{ warning }}
       </div>
       <div v-if="response?.edgeFound === false" class="browser-profiles-probed">
-        <div class="browser-profiles-probed-title">未找到 Edge，可选择本机 msedge.exe。已检查：</div>
+        <div class="browser-profiles-probed-title">
+          未找到 Edge，可选择本机 msedge.exe。已检查：
+        </div>
         <div v-for="path in response.probedEdgePaths" :key="path" class="browser-profiles-path">
           {{ path }}
         </div>
       </div>
       <div v-if="response?.chromeFound === false" class="browser-profiles-probed">
-        <div class="browser-profiles-probed-title">未找到 Chrome，可选择本机 chrome.exe。已检查：</div>
+        <div class="browser-profiles-probed-title">
+          未找到 Chrome，可选择本机 chrome.exe。已检查：
+        </div>
         <div v-for="path in response.probedChromePaths" :key="path" class="browser-profiles-path">
           {{ path }}
         </div>
@@ -230,10 +242,7 @@ import {
   notifyBrowserProfilesChanged,
   type BrowserProfilesChangedReason,
 } from "../spotlight/browser-profiles-events";
-import type {
-  BrowserProfileItem,
-  BrowserProfilesListResponse,
-} from "../types/browser-profiles";
+import type { BrowserProfileItem, BrowserProfilesListResponse } from "../types/browser-profiles";
 import {
   buildBrowserProfileMetaSegments,
   filterBrowserProfiles,
@@ -287,9 +296,7 @@ function browserLabel(browser: BrowserProfileItem["browser"]): string {
 }
 
 function isBrowserMissing(profile: BrowserProfileItem): boolean {
-  return profile.browser === "chrome"
-    ? response.value?.chromeFound === false
-    : edgeMissing.value;
+  return profile.browser === "chrome" ? response.value?.chromeFound === false : edgeMissing.value;
 }
 
 function profileMetaText(profile: BrowserProfileItem): string {
@@ -353,7 +360,9 @@ async function launchProfile(profile: BrowserProfileItem) {
       profileDir: profile.profileDir,
     });
     notifyProfilesChanged("launch");
-    ElMessage.success(`已打开 ${browserLabel(profile.browser)}：${getBrowserProfileDisplayName(profile)}`);
+    ElMessage.success(
+      `已打开 ${browserLabel(profile.browser)}：${getBrowserProfileDisplayName(profile)}`,
+    );
     await loadProfiles();
   } catch (err) {
     ElMessage.error(`启动失败：${messageOf(err)}`);
@@ -607,7 +616,11 @@ onMounted(() => {
   background: var(--lc-surface-1);
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.1s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.15s,
+    transform 0.1s;
 }
 
 .browser-profile-card:hover {
@@ -691,14 +704,38 @@ onMounted(() => {
   opacity: 1;
 }
 
-.browser-profile-badge.is-color-0 { color: #0284c7; background: rgba(14, 165, 233, 0.14); }
-.browser-profile-badge.is-color-1 { color: #7c3aed; background: rgba(139, 92, 246, 0.14); }
-.browser-profile-badge.is-color-2 { color: #b45309; background: rgba(245, 158, 11, 0.16); }
-.browser-profile-badge.is-color-3 { color: #047857; background: rgba(16, 185, 129, 0.14); }
-.browser-profile-badge.is-color-4 { color: #dc2626; background: rgba(239, 68, 68, 0.12); }
-.browser-profile-badge.is-color-5 { color: #db2777; background: rgba(236, 72, 153, 0.12); }
-.browser-profile-badge.is-color-6 { color: #4f46e5; background: rgba(99, 102, 241, 0.14); }
-.browser-profile-badge.is-color-7 { color: #0f766e; background: rgba(20, 184, 166, 0.14); }
+.browser-profile-badge.is-color-0 {
+  color: #0284c7;
+  background: rgba(14, 165, 233, 0.14);
+}
+.browser-profile-badge.is-color-1 {
+  color: #7c3aed;
+  background: rgba(139, 92, 246, 0.14);
+}
+.browser-profile-badge.is-color-2 {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+}
+.browser-profile-badge.is-color-3 {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.14);
+}
+.browser-profile-badge.is-color-4 {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+}
+.browser-profile-badge.is-color-5 {
+  color: #db2777;
+  background: rgba(236, 72, 153, 0.12);
+}
+.browser-profile-badge.is-color-6 {
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.14);
+}
+.browser-profile-badge.is-color-7 {
+  color: #0f766e;
+  background: rgba(20, 184, 166, 0.14);
+}
 
 .browser-profile-info {
   flex: 1;
@@ -762,7 +799,9 @@ onMounted(() => {
   color: var(--lc-text-muted);
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .browser-profile-icon-btn:hover {

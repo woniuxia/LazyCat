@@ -1,8 +1,4 @@
-import type {
-  TodoPriority,
-  TodoReminderActionSummary,
-  TodoReminderPreset,
-} from "./todo";
+import type { TodoPriority, TodoReminderActionSummary, TodoReminderPreset } from "./todo";
 import type { ReleasePackageEnvironmentKind, ReleasePackageType } from "./release-package";
 
 export type ReleasePackageNotificationStatus =

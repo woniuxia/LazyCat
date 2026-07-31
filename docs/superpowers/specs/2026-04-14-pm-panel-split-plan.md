@@ -58,17 +58,17 @@ delete: [item]              // 删除工作项
 
 **模板迁移清单（精确行号）：**
 
-| 内容 | PmPanel 行号 | 说明 |
-|------|-------------|------|
-| `<Transition name="pm-detail-slide">` + `<aside class="pm-detail">` | 279-474 | 整体搬入 |
-| `selectedItem` → `item` prop | 280, 多处 | 变量替换 |
-| `selectedItemProject` → `project` prop | 294-296 | 变量替换 |
-| `selectedItemId = null` → `emit('close')` | 286 | 行为替换 |
-| `togglePin` → `emit('toggle-pin', item)` | 466 | 行为替换 |
-| `advanceStatus` → `emit('advance-status', item)` | 467 | 行为替换 |
-| `deleteItem` → `emit('delete', item)` | 470 | 行为替换 |
-| PmTodoCreateDialog (detail) | 479-482 | 搬入组件内部 |
-| PmTodoLinkDialog (detail) | 485-495 | 搬入组件内部 |
+| 内容                                                                | PmPanel 行号 | 说明         |
+| ------------------------------------------------------------------- | ------------ | ------------ |
+| `<Transition name="pm-detail-slide">` + `<aside class="pm-detail">` | 279-474      | 整体搬入     |
+| `selectedItem` → `item` prop                                        | 280, 多处    | 变量替换     |
+| `selectedItemProject` → `project` prop                              | 294-296      | 变量替换     |
+| `selectedItemId = null` → `emit('close')`                           | 286          | 行为替换     |
+| `togglePin` → `emit('toggle-pin', item)`                            | 466          | 行为替换     |
+| `advanceStatus` → `emit('advance-status', item)`                    | 467          | 行为替换     |
+| `deleteItem` → `emit('delete', item)`                               | 470          | 行为替换     |
+| PmTodoCreateDialog (detail)                                         | 479-482      | 搬入组件内部 |
+| PmTodoLinkDialog (detail)                                           | 485-495      | 搬入组件内部 |
 
 ### 1.2 内部状态与 composable
 
@@ -91,25 +91,31 @@ delete: [item]              // 删除工作项
 
 **从 scoped style（`<style scoped>`）迁移：**
 
-| 行号 | 内容 |
-|------|------|
-| 2659-2769 | 原始详情面板样式（.pm-detail, .detail-*, .pm-detail-slide-*） |
-| 3516-3715 | 重新设计详情面板样式（覆盖层） |
-| 3717-3725 中 .pm-detail 相关 | 响应式断点中详情面板相关 |
+| 行号                         | 内容                                                          |
+| ---------------------------- | ------------------------------------------------------------- |
+| 2659-2769                    | 原始详情面板样式（.pm-detail, .detail-_, .pm-detail-slide-_） |
+| 3516-3715                    | 重新设计详情面板样式（覆盖层）                                |
+| 3717-3725 中 .pm-detail 相关 | 响应式断点中详情面板相关                                      |
 
 **从全局 style（`<style>`）迁移：**
 
-| 行号 | 内容 |
-|------|------|
-| 4371-4395 | .detail-siyuan-page-* 样式 |
+| 行号      | 内容                        |
+| --------- | --------------------------- |
+| 4371-4395 | .detail-siyuan-page-\* 样式 |
 
 ### 1.5 PmPanel.vue 变更
 
 - 模板 lines 279-474 替换为：
   ```html
-  <PmDetailPanel v-if="selectedItem" :project="selectedItemProject" :item="selectedItem"
-    @close="selectedItemId = null" @toggle-pin="togglePin" @advance-status="advanceStatus"
-    @delete="deleteItem" />
+  <PmDetailPanel
+    v-if="selectedItem"
+    :project="selectedItemProject"
+    :item="selectedItem"
+    @close="selectedItemId = null"
+    @toggle-pin="togglePin"
+    @advance-status="advanceStatus"
+    @delete="deleteItem"
+  />
   ```
 - 删除模板 lines 478-495（detail 面板的 todo 弹窗，已迁入子组件）
 - 移除 `pmTodo` reactive composable 实例（line 1109）
@@ -140,12 +146,12 @@ delete: [item]              // 删除工作项
 
 **模板来源：** PmPanel.vue lines 713-995
 
-| 模板块 | 行号 | 行数 |
-|--------|------|------|
-| el-drawer 思源配置 | 713-813 | 101 |
-| el-dialog 位置选择器 | 815-920 | 106 |
-| el-dialog 页面选择器 | 922-995 | 74 |
-| **合计** | | **281** |
+| 模板块               | 行号    | 行数    |
+| -------------------- | ------- | ------- |
+| el-drawer 思源配置   | 713-813 | 101     |
+| el-dialog 位置选择器 | 815-920 | 106     |
+| el-dialog 页面选择器 | 922-995 | 74      |
+| **合计**             |         | **281** |
 
 ### 2.2 数据获取方式
 
@@ -153,27 +159,27 @@ delete: [item]              // 删除工作项
 
 子组件内部创建本地别名映射（从 inject 的 composable 实例）：
 
-| 模板中使用的别名 | inject 映射 |
-|-----------------|-------------|
-| `siyuanDrawerVisible` | `siyuan.drawerVisible` |
-| `siyuanForm` | `siyuan.form` |
-| `siyuanShowToken` | `siyuan.showToken` |
-| `siyuanTesting` | `siyuan.testing` |
-| `siyuanTestingVersion` | `siyuan.testingVersion` |
-| `siyuanLoadingDirectory` | `siyuan.loadingDirectory` |
-| `siyuanDirectory` | `siyuan.directory` |
-| `siyuanDirectoryFetchedAt` | `siyuan.directoryFetchedAt` |
-| `siyuanError` | `siyuan.error` |
-| `siyuanErrorTitle` | `siyuan.errorTitle` |
-| `siyuanTreeProps` | `siyuan.treeProps` |
+| 模板中使用的别名              | inject 映射                    |
+| ----------------------------- | ------------------------------ |
+| `siyuanDrawerVisible`         | `siyuan.drawerVisible`         |
+| `siyuanForm`                  | `siyuan.form`                  |
+| `siyuanShowToken`             | `siyuan.showToken`             |
+| `siyuanTesting`               | `siyuan.testing`               |
+| `siyuanTestingVersion`        | `siyuan.testingVersion`        |
+| `siyuanLoadingDirectory`      | `siyuan.loadingDirectory`      |
+| `siyuanDirectory`             | `siyuan.directory`             |
+| `siyuanDirectoryFetchedAt`    | `siyuan.directoryFetchedAt`    |
+| `siyuanError`                 | `siyuan.error`                 |
+| `siyuanErrorTitle`            | `siyuan.errorTitle`            |
+| `siyuanTreeProps`             | `siyuan.treeProps`             |
 | `siyuanLocationDialogVisible` | `siyuan.locationDialogVisible` |
-| `siyuanLocationPickerTitle` | `siyuan.locationPickerTitle` |
-| `siyuanLocationPickerSearch` | `siyuan.locationPickerSearch` |
-| ... (约 40+ 个状态别名) | ... |
-| `saveSiyuanConfig` | `siyuan.saveConfig` |
-| `handleTestConnection` | `siyuan.testConnection` |
-| `handleLoadDirectory` | `siyuan.loadDirectory` |
-| ... (约 20+ 个函数别名) | ... |
+| `siyuanLocationPickerTitle`   | `siyuan.locationPickerTitle`   |
+| `siyuanLocationPickerSearch`  | `siyuan.locationPickerSearch`  |
+| ... (约 40+ 个状态别名)       | ...                            |
+| `saveSiyuanConfig`            | `siyuan.saveConfig`            |
+| `handleTestConnection`        | `siyuan.testConnection`        |
+| `handleLoadDirectory`         | `siyuan.loadDirectory`         |
+| ... (约 20+ 个函数别名)       | ...                            |
 
 **注意：** 别名命名在模板中需要保持不变（如 `siyuanDrawerVisible`），但来源从 PmPanel 的顶层变量改为 `inject` 返回值的属性。
 
@@ -187,15 +193,16 @@ delete: [item]              // 删除工作项
 
 **从全局 style（`<style>`）迁移：**
 
-| 行号 | 内容 |
-|------|------|
-| 3866-3868 | `.pm-siyuan-drawer .el-drawer__body` |
-| 4201-4238 | `.pm-siyuan-config-card`, `.pm-siyuan-link-card`, 通知框 |
-| 4240-4370 | `.pm-siyuan-link-*`, `.pm-siyuan-page-*`, `.pm-siyuan-empty-*` |
-| 4396-4618 | `.siyuan-drawer-*`, `.siyuan-tree-*`, `.siyuan-node-*`, `.pm-siyuan-picker-*`, `.siyuan-error-alert` |
-| 4620-4683 中 siyuan 相关 | 响应式断点中 siyuan 相关选择器 |
+| 行号                     | 内容                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 3866-3868                | `.pm-siyuan-drawer .el-drawer__body`                                                                 |
+| 4201-4238                | `.pm-siyuan-config-card`, `.pm-siyuan-link-card`, 通知框                                             |
+| 4240-4370                | `.pm-siyuan-link-*`, `.pm-siyuan-page-*`, `.pm-siyuan-empty-*`                                       |
+| 4396-4618                | `.siyuan-drawer-*`, `.siyuan-tree-*`, `.siyuan-node-*`, `.pm-siyuan-picker-*`, `.siyuan-error-alert` |
+| 4620-4683 中 siyuan 相关 | 响应式断点中 siyuan 相关选择器                                                                       |
 
 **样式块组织：**
+
 - `<style scoped>` — 组件内部布局样式
 - `<style>` 非 scoped — 需要穿透 el-drawer/el-dialog 的样式
 
@@ -242,9 +249,9 @@ delete: [item]              // 删除工作项
 
 ```typescript
 defineExpose({
-  showCreate,      // 打开新建项目对话框
-  showEdit,        // 打开编辑项目对话框
-  handleContext,    // 处理右键菜单动作（archive/restore/delete）
+  showCreate, // 打开新建项目对话框
+  showEdit, // 打开编辑项目对话框
+  handleContext, // 处理右键菜单动作（archive/restore/delete）
 });
 ```
 
@@ -252,27 +259,27 @@ defineExpose({
 
 从 PmPanel 迁入：
 
-| 变量 | PmPanel 行号 | 类型 |
-|------|-------------|------|
-| `projectDialogVisible` | 1076 | `Ref<boolean>` |
-| `editingProject` | 1077 | `Ref<PmProject \| null>` |
-| `projectForm` | 1078-1084 | `Ref<{name, description, color, useSiyuanOverride, siyuanLocationOverride}>` |
-| `presetColors` | 1085 | 常量数组 |
+| 变量                   | PmPanel 行号 | 类型                                                                         |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------- |
+| `projectDialogVisible` | 1076         | `Ref<boolean>`                                                               |
+| `editingProject`       | 1077         | `Ref<PmProject \| null>`                                                     |
+| `projectForm`          | 1078-1084    | `Ref<{name, description, color, useSiyuanOverride, siyuanLocationOverride}>` |
+| `presetColors`         | 1085         | 常量数组                                                                     |
 
 ### 3.4 内部函数
 
 从 PmPanel 迁入（约 118 行）：
 
-| 函数 | PmPanel 行号 |
-|------|-------------|
-| `showCreateProject` → `showCreate()` | 1537-1548 |
-| `showEditProject(p)` → `showEdit(p)` | 1550-1560 |
-| `resetProjectForm` | 1562-1564 |
-| `submitProject` | 1566-1600 |
-| `archiveProject` | 1602-1609 |
-| `restoreProject` | 1611-1618 |
-| `deleteProject` | 1620-1635 |
-| `onProjectContext` → `handleContext` | 1637-1652 |
+| 函数                                 | PmPanel 行号 |
+| ------------------------------------ | ------------ |
+| `showCreateProject` → `showCreate()` | 1537-1548    |
+| `showEditProject(p)` → `showEdit(p)` | 1550-1560    |
+| `resetProjectForm`                   | 1562-1564    |
+| `submitProject`                      | 1566-1600    |
+| `archiveProject`                     | 1602-1609    |
+| `restoreProject`                     | 1611-1618    |
+| `deleteProject`                      | 1620-1635    |
+| `onProjectContext` → `handleContext` | 1637-1652    |
 
 ### 3.5 inject
 
@@ -291,7 +298,7 @@ const siyuan = inject(PM_SIYUAN_KEY)!;
 
 ```typescript
 const emit = defineEmits<{
-  'projects-changed': [{ newProjectId?: string }];
+  "projects-changed": [{ newProjectId?: string }];
 }>();
 ```
 
@@ -312,6 +319,7 @@ const emit = defineEmits<{
 - 添加 PmProjectDialog 组件导入
 
 **`onProjectsChanged` 实现：**
+
 ```typescript
 async function onProjectsChanged({ newProjectId }: { newProjectId?: string }) {
   await loadProjects();
@@ -354,43 +362,43 @@ async function onProjectsChanged({ newProjectId }: { newProjectId?: string }) {
 
 ### 4.2 全量验证清单
 
-| 验证项 | 方法 |
-|--------|------|
-| 类型检查 | `pnpm typecheck` |
-| 构建 | `pnpm --filter @lazycat/desktop build:web` |
-| 单元测试 | `pnpm test` |
-| 详情面板动画 | 手动：pm-detail-slide transition |
-| 详情面板数据 | 手动：选中工作项后所有字段正确显示 |
-| 详情面板 Todo | 手动：创建/绑定/解绑/完成 todo |
-| 详情面板思源 | 手动：点击思源页面链接 |
-| 详情面板操作 | 手动：置顶/推进/删除 |
-| 点击外部关闭 | 手动：onDetailClickAway |
-| 思源抽屉 | 手动：打开/配置/保存/测试连接 |
-| 思源选择器 | 手动：位置选择器 + 页面选择器 |
-| 项目 CRUD | 手动：新建/编辑/归档/恢复/删除 |
-| 看板拖拽 | 手动：拖拽排序 |
-| 右键菜单 | 手动：工作项/项目右键 |
-| 甘特图 | 手动：切换视图并操作 |
+| 验证项        | 方法                                       |
+| ------------- | ------------------------------------------ |
+| 类型检查      | `pnpm typecheck`                           |
+| 构建          | `pnpm --filter @lazycat/desktop build:web` |
+| 单元测试      | `pnpm test`                                |
+| 详情面板动画  | 手动：pm-detail-slide transition           |
+| 详情面板数据  | 手动：选中工作项后所有字段正确显示         |
+| 详情面板 Todo | 手动：创建/绑定/解绑/完成 todo             |
+| 详情面板思源  | 手动：点击思源页面链接                     |
+| 详情面板操作  | 手动：置顶/推进/删除                       |
+| 点击外部关闭  | 手动：onDetailClickAway                    |
+| 思源抽屉      | 手动：打开/配置/保存/测试连接              |
+| 思源选择器    | 手动：位置选择器 + 页面选择器              |
+| 项目 CRUD     | 手动：新建/编辑/归档/恢复/删除             |
+| 看板拖拽      | 手动：拖拽排序                             |
+| 右键菜单      | 手动：工作项/项目右键                      |
+| 甘特图        | 手动：切换视图并操作                       |
 
 ### 4.3 行数预估
 
-| 文件 | 变化后行数 |
-|------|-----------|
-| PmPanel.vue | ~3100（含剩余共享样式） |
-| PmDetailPanel.vue | ~600 |
-| PmSiyuanDrawer.vue | ~650 |
-| PmProjectDialog.vue | ~380 |
-| pmSiyuanKey.ts | ~5 |
-| **合计** | ~4735（与原始 4809 基本持平，但分布合理） |
+| 文件                | 变化后行数                                |
+| ------------------- | ----------------------------------------- |
+| PmPanel.vue         | ~3100（含剩余共享样式）                   |
+| PmDetailPanel.vue   | ~600                                      |
+| PmSiyuanDrawer.vue  | ~650                                      |
+| PmProjectDialog.vue | ~380                                      |
+| pmSiyuanKey.ts      | ~5                                        |
+| **合计**            | ~4735（与原始 4809 基本持平，但分布合理） |
 
 ---
 
 ## 执行风险与缓解
 
-| 风险 | 缓解措施 |
-|------|---------|
-| onDetailClickAway 匹配失败 | Phase 4 专门验证；备选方案：用 ref 代替 querySelector |
-| scoped style 类名冲突 | 子组件使用 scoped + 必要时 unscoped 块 |
-| 思源别名遗漏 | 逐个核对模板引用与 inject 映射 |
-| 响应式断点遗漏 | 全量迁移断点中相关选择器 |
-| 双层样式（原始+重设计）迁移不完整 | 原始层作为基础一并迁入子组件 |
+| 风险                              | 缓解措施                                              |
+| --------------------------------- | ----------------------------------------------------- |
+| onDetailClickAway 匹配失败        | Phase 4 专门验证；备选方案：用 ref 代替 querySelector |
+| scoped style 类名冲突             | 子组件使用 scoped + 必要时 unscoped 块                |
+| 思源别名遗漏                      | 逐个核对模板引用与 inject 映射                        |
+| 响应式断点遗漏                    | 全量迁移断点中相关选择器                              |
+| 双层样式（原始+重设计）迁移不完整 | 原始层作为基础一并迁入子组件                          |

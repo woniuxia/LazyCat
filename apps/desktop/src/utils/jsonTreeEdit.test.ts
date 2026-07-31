@@ -15,10 +15,7 @@ function expectOk(result: ReturnType<typeof applyJsonTreeEdit>): unknown {
   return result.ok ? result.value : undefined;
 }
 
-function expectFail(
-  root: unknown,
-  op: JsonTreeEditOp,
-): string {
+function expectFail(root: unknown, op: JsonTreeEditOp): string {
   const snapshot = formatJsonForCopy(root);
   const result = applyJsonTreeEdit(root, op);
   expect(result.ok).toBe(false);
@@ -93,9 +90,7 @@ describe("applyJsonTreeEdit rename-key", () => {
     const root = { list: [1], first: 1 };
     expect(expectFail(root, { type: "rename-key", path: [], newKey: "x" })).toBeTruthy();
     expect(expectFail(root, { type: "rename-key", path: ["list", 0], newKey: "x" })).toBeTruthy();
-    expect(
-      expectFail(root, { type: "rename-key", path: ["first"], newKey: "first" }),
-    ).toBeTruthy();
+    expect(expectFail(root, { type: "rename-key", path: ["first"], newKey: "first" })).toBeTruthy();
   });
 });
 
@@ -127,18 +122,16 @@ describe("applyJsonTreeEdit insert", () => {
   });
 
   it("fails on duplicate keys including an existing empty-string key", () => {
-    expect(
-      expectFail({ a: 1 }, { type: "insert", parentPath: [], key: "a", value: 2 }),
-    ).toContain("已存在");
-    expect(
-      expectFail({ "": 1 }, { type: "insert", parentPath: [], key: "", value: 2 }),
-    ).toContain("已存在");
+    expect(expectFail({ a: 1 }, { type: "insert", parentPath: [], key: "a", value: 2 })).toContain(
+      "已存在",
+    );
+    expect(expectFail({ "": 1 }, { type: "insert", parentPath: [], key: "", value: 2 })).toContain(
+      "已存在",
+    );
   });
 
   it("fails on missing key or index, out-of-range index, and non-container targets", () => {
-    expect(expectFail({ a: 1 }, { type: "insert", parentPath: [], value: 2 })).toContain(
-      "字段名",
-    );
+    expect(expectFail({ a: 1 }, { type: "insert", parentPath: [], value: 2 })).toContain("字段名");
     expect(expectFail({ list: [1] }, { type: "insert", parentPath: ["list"], value: 2 })).toContain(
       "下标",
     );
@@ -296,9 +289,9 @@ describe("migrateExpandedKeys", () => {
 
   it("keeps keys unchanged for set-value and object insert", () => {
     const keys = new Set([enc(["a"]), enc(["a", "b"])]);
-    expect(
-      migrateExpandedKeys(keys, { type: "set-value", path: ["a", "b"], value: 1 }),
-    ).toEqual(keys);
+    expect(migrateExpandedKeys(keys, { type: "set-value", path: ["a", "b"], value: 1 })).toEqual(
+      keys,
+    );
     expect(
       migrateExpandedKeys(keys, { type: "insert", parentPath: ["a"], key: "z", value: 1 }),
     ).toEqual(keys);

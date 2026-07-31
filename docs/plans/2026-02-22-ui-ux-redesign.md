@@ -23,39 +23,39 @@
 ```css
 :root {
   /* 核心色板 -- 从纯黑到深蓝灰的 5 级梯度 */
-  --lc-bg:        #0a0e14;
+  --lc-bg: #0a0e14;
   --lc-surface-0: #0f1319;
   --lc-surface-1: #151b26;
   --lc-surface-2: #1a2232;
   --lc-surface-3: #222c3d;
 
   /* 边框 -- 微妙的蓝调 */
-  --lc-border:        rgba(56, 189, 248, 0.06);
-  --lc-border-subtle:  rgba(56, 189, 248, 0.03);
-  --lc-border-hover:   rgba(56, 189, 248, 0.15);
-  --lc-border-active:  rgba(56, 189, 248, 0.35);
+  --lc-border: rgba(56, 189, 248, 0.06);
+  --lc-border-subtle: rgba(56, 189, 248, 0.03);
+  --lc-border-hover: rgba(56, 189, 248, 0.15);
+  --lc-border-active: rgba(56, 189, 248, 0.35);
 
   /* 文字 -- 冷白色阶 */
-  --lc-text:           #e2e8f0;
+  --lc-text: #e2e8f0;
   --lc-text-secondary: #8494a7;
-  --lc-text-muted:     #4a5567;
+  --lc-text-muted: #4a5567;
 
   /* 强调色 -- 青蓝 */
-  --lc-accent:       #38bdf8;
+  --lc-accent: #38bdf8;
   --lc-accent-light: #67d4fc;
-  --lc-accent-dim:   rgba(56, 189, 248, 0.12);
-  --lc-accent-glow:  rgba(56, 189, 248, 0.08);
+  --lc-accent-dim: rgba(56, 189, 248, 0.12);
+  --lc-accent-glow: rgba(56, 189, 248, 0.08);
 
   /* 语义色 (保持不变) */
   --lc-success: #34d399;
-  --lc-danger:  #f87171;
-  --lc-info:    #60a5fa;
+  --lc-danger: #f87171;
+  --lc-info: #60a5fa;
   --lc-warning: #fbbf24;
 
   /* 阴影 -- 加入青蓝辉光 */
-  --lc-shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.4);
-  --lc-shadow-md:   0 4px 16px rgba(0, 0, 0, 0.4);
-  --lc-shadow-lg:   0 8px 32px rgba(0, 0, 0, 0.5);
+  --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --lc-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
   --lc-shadow-glow: 0 0 30px rgba(56, 189, 248, 0.08);
 }
 ```
@@ -64,30 +64,31 @@
 
 ```css
 html[data-theme="light"] {
-  --lc-bg:        #f0f4f8;
+  --lc-bg: #f0f4f8;
   --lc-surface-0: #ffffff;
   --lc-surface-1: #f6f8fb;
   --lc-surface-2: #ecf0f6;
   --lc-surface-3: #e0e5ee;
 
-  --lc-border:       rgba(56, 130, 220, 0.10);
-  --lc-border-hover: rgba(56, 130, 220, 0.20);
-  --lc-border-active: rgba(56, 189, 248, 0.40);
+  --lc-border: rgba(56, 130, 220, 0.1);
+  --lc-border-hover: rgba(56, 130, 220, 0.2);
+  --lc-border-active: rgba(56, 189, 248, 0.4);
 
-  --lc-text:           #0f172a;
+  --lc-text: #0f172a;
   --lc-text-secondary: #475569;
-  --lc-text-muted:     #94a3b8;
+  --lc-text-muted: #94a3b8;
 
-  --lc-accent:       #0ea5e9;
+  --lc-accent: #0ea5e9;
   --lc-accent-light: #38bdf8;
-  --lc-accent-dim:   rgba(14, 165, 233, 0.08);
-  --lc-accent-glow:  rgba(14, 165, 233, 0.05);
+  --lc-accent-dim: rgba(14, 165, 233, 0.08);
+  --lc-accent-glow: rgba(14, 165, 233, 0.05);
 }
 ```
 
 ### 2.3 Element Plus 变量同步
 
 所有 `--el-color-primary*` 系列与新的 `--lc-accent` 对齐：
+
 - `--el-color-primary: #38bdf8` (暗) / `#0ea5e9` (浅)
 - 从 `light-3` 到 `light-9` 按 HSL 明度梯度插值
 - `--el-color-primary-dark-2: #0284c7` 用于 active 状态
@@ -100,8 +101,7 @@ html[data-theme="light"] {
 body {
   background:
     radial-gradient(ellipse at 8% 0%, rgba(56, 189, 248, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 92% 100%, rgba(96, 165, 250, 0.03) 0%, transparent 50%),
-    var(--lc-bg);
+    radial-gradient(ellipse at 92% 100%, rgba(96, 165, 250, 0.03) 0%, transparent 50%), var(--lc-bg);
 }
 ```
 
@@ -124,6 +124,7 @@ body {
 ```
 
 浅色主题：
+
 ```css
 html[data-theme="light"] .nav {
   background: rgba(255, 255, 255, 0.78);
@@ -189,6 +190,7 @@ html[data-theme="light"] .nav {
 ```
 
 HomePanel 也用 Transition 包裹：
+
 ```html
 <Transition name="panel-switch" mode="out-in">
   <HomePanel v-if="activeTool === HOME_ID" ... :key="'home'" />
@@ -201,7 +203,9 @@ HomePanel 也用 Transition 包裹：
 ```css
 /* panels.css 或新建 transitions.css */
 .panel-switch-enter-active {
-  transition: opacity 180ms var(--lc-ease), transform 180ms var(--lc-ease);
+  transition:
+    opacity 180ms var(--lc-ease),
+    transform 180ms var(--lc-ease);
 }
 .panel-switch-leave-active {
   transition: opacity 120ms var(--lc-ease);
@@ -250,6 +254,7 @@ HomePanel 也用 Transition 包裹：
 ```
 
 拖拽逻辑（composable `useResizable` 或直接内联）：
+
 - `mousedown` → 记录起始 X 和起始宽度
 - `mousemove` (document) → 计算 delta，clamp 到 [200, 400]
 - `mouseup` → 停止，持久化
@@ -260,7 +265,7 @@ HomePanel 也用 Transition 包裹：
 ```css
 .resize-handle {
   position: absolute;
-  top: 12px;       /* 与 shell padding 对齐 */
+  top: 12px; /* 与 shell padding 对齐 */
   bottom: 12px;
   width: 4px;
   cursor: col-resize;
@@ -312,11 +317,7 @@ HomePanel 也用 Transition 包裹：
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    var(--lc-accent) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, var(--lc-accent) 50%, transparent 100%);
   opacity: 0;
   transition: opacity 300ms var(--lc-ease);
 }
@@ -360,10 +361,10 @@ HomePanel 也用 Transition 包裹：
 
 ```ts
 function onCardMouseMove(e: MouseEvent) {
-  const card = (e.currentTarget as HTMLElement);
+  const card = e.currentTarget as HTMLElement;
   const rect = card.getBoundingClientRect();
-  card.style.setProperty('--mx', `${e.clientX - rect.left}px`);
-  card.style.setProperty('--my', `${e.clientY - rect.top}px`);
+  card.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+  card.style.setProperty("--my", `${e.clientY - rect.top}px`);
 }
 ```
 
@@ -430,13 +431,13 @@ function onCardMouseMove(e: MouseEvent) {
 
 ### 7.2 字重规范
 
-| 用途 | 字重 | 场景 |
-|------|------|------|
-| 标题 (h1) | 700 | 工具标题 |
-| 小标题 (h2) | 600 | 区块标题、品牌名 |
-| 正文 | 400 | 描述文字、输入内容 |
-| 辅助 | 400 | 次要说明、时间标记 |
-| 标签 | 500 | 按钮、菜单项、标签页 |
+| 用途        | 字重 | 场景                 |
+| ----------- | ---- | -------------------- |
+| 标题 (h1)   | 700  | 工具标题             |
+| 小标题 (h2) | 600  | 区块标题、品牌名     |
+| 正文        | 400  | 描述文字、输入内容   |
+| 辅助        | 400  | 次要说明、时间标记   |
+| 标签        | 500  | 按钮、菜单项、标签页 |
 
 ---
 
@@ -453,6 +454,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 8.3 硬编码颜色值
 
 多个 CSS 文件中存在硬编码的旧强调色 `rgba(10, 79, 65, ...)`:
+
 - `sidebar.css` (.nav 背景)
 - `panels.css` (.calc-row-history:focus, .calc-row-active)
 - `home.css` (卡片 hover shadow, ::after 渐变)
@@ -467,6 +469,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 1: 色彩体系与基础视觉
 
 **涉及文件**:
+
 - `styles/tokens.css` -- 重写所有 Design Token 和 Element Plus 变量
 - `styles/theme-light.css` -- 重写浅色主题
 - `styles/reset.css` -- 更新 body 背景渐变和滚动条
@@ -477,6 +480,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 2: 毛玻璃与纵深效果
 
 **涉及文件**:
+
 - `styles/sidebar.css` -- 侧边栏毛玻璃背景、hover 效果
 - `styles/tabbar.css` -- 标签栏毛玻璃
 - `styles/layout.css` -- 内容区阴影和纵深
@@ -487,6 +491,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 3: 面板切换过渡动画
 
 **涉及文件**:
+
 - `App.vue` -- 模板包裹 `<Transition>`
 - `styles/panels.css` (或新建 `styles/transitions.css`) -- 过渡动画 CSS
 - `styles/index.css` -- 如新建文件需添加 @import
@@ -496,6 +501,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 4: 侧边栏可拖拽调宽
 
 **涉及文件**:
+
 - `App.vue` -- 添加拖拽手柄 DOM + 拖拽逻辑
 - `styles/layout.css` -- 拖拽手柄样式
 - `styles/responsive.css` -- 确保响应式断点兼容
@@ -506,6 +512,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 5: 首页卡片重设计
 
 **涉及文件**:
+
 - `styles/home.css` -- 卡片新样式、入场动画、区块标题
 - `components/HomePanel.vue` -- 光标跟随 JS 逻辑、`--card-index` 传入
 
@@ -514,6 +521,7 @@ function onCardMouseMove(e: MouseEvent) {
 ### 批次 6: 清理与收尾
 
 **涉及文件**:
+
 - 删除 `styles.css`（如确认无引用）
 - 全局搜索替换所有硬编码旧色值
 - 修正注释
@@ -525,10 +533,10 @@ function onCardMouseMove(e: MouseEvent) {
 
 ## 10. 风险与缓解
 
-| 风险 | 缓解措施 |
-|------|----------|
-| Element Plus 组件样式回归 | 每批次完成后切换暗色/浅色主题逐一检查 |
-| 毛玻璃 `backdrop-filter` 性能 | Tauri WebView2 基于 Chromium，`backdrop-filter` 硬件加速良好；blur 值控制在 24px 内 |
-| 面板切换动画影响操作速度感 | enter 180ms / leave 120ms，总计 < 300ms，使用 `mode="out-in"` |
-| 拖拽调宽时内容区 Monaco 编辑器 resize 不跟随 | 拖拽结束后触发 window resize 事件，Monaco 自动响应 |
-| 光标跟随渐变性能 | 仅在 hover 状态下更新 CSS 变量，非 hover 时不监听 mousemove |
+| 风险                                         | 缓解措施                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Element Plus 组件样式回归                    | 每批次完成后切换暗色/浅色主题逐一检查                                               |
+| 毛玻璃 `backdrop-filter` 性能                | Tauri WebView2 基于 Chromium，`backdrop-filter` 硬件加速良好；blur 值控制在 24px 内 |
+| 面板切换动画影响操作速度感                   | enter 180ms / leave 120ms，总计 < 300ms，使用 `mode="out-in"`                       |
+| 拖拽调宽时内容区 Monaco 编辑器 resize 不跟随 | 拖拽结束后触发 window resize 事件，Monaco 自动响应                                  |
+| 光标跟随渐变性能                             | 仅在 hover 状态下更新 CSS 变量，非 hover 时不监听 mousemove                         |

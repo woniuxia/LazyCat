@@ -15,7 +15,9 @@
           <el-option label="127.0.0.1" value="127.0.0.1" />
           <el-option label="0.0.0.0" value="0.0.0.0" />
         </el-select>
-        <div v-if="form.host === '0.0.0.0'" class="field-hint">监听 0.0.0.0 后局域网内其他设备可访问该服务</div>
+        <div v-if="form.host === '0.0.0.0'" class="field-hint">
+          监听 0.0.0.0 后局域网内其他设备可访问该服务
+        </div>
       </el-form-item>
       <el-form-item label="端口">
         <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" />
@@ -32,7 +34,9 @@
     </el-form>
     <template #footer>
       <div class="dialog-footer">
-        <el-button v-if="isEdit" :icon="Delete" type="danger" text @click="emit('delete')">删除项目</el-button>
+        <el-button v-if="isEdit" :icon="Delete" type="danger" text @click="emit('delete')"
+          >删除项目</el-button
+        >
         <div class="footer-actions">
           <el-button @click="requestClose">取消</el-button>
           <el-button type="primary" @click="handleSave">保存</el-button>

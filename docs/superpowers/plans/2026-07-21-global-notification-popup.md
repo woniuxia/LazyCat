@@ -30,6 +30,7 @@
 ### Task 1: 前端通知模型与 FIFO 队列
 
 **Files:**
+
 - Create: `apps/desktop/src/types/global-notification.ts`
 - Create: `apps/desktop/src/utils/globalNotification.ts`
 - Test: `apps/desktop/src/utils/globalNotification.test.ts`
@@ -88,11 +89,14 @@ describe("global notification model", () => {
 
   it("exposes actions by type and result", () => {
     expect(globalNotificationActions(todo)).toEqual(["complete", "dismiss", "snooze"]);
-    expect(globalNotificationActions(success)).toEqual(["open-tool", "open-directory", "acknowledge"]);
-    expect(globalNotificationActions({ ...success, status: "failed", archivePath: undefined })).toEqual([
+    expect(globalNotificationActions(success)).toEqual([
       "open-tool",
+      "open-directory",
       "acknowledge",
     ]);
+    expect(
+      globalNotificationActions({ ...success, status: "failed", archivePath: undefined }),
+    ).toEqual(["open-tool", "acknowledge"]);
     expect(globalNotificationActions({ ...success, status: "failed" })).toEqual([
       "open-tool",
       "acknowledge",
@@ -125,10 +129,17 @@ import type { TodoPriority, TodoReminderPreset } from "./todo";
 
 export type ReleasePackageNotificationStatus = "succeeded" | "partially_succeeded" | "failed";
 export type GlobalNotificationAction =
-  | "complete" | "dismiss" | "snooze"
-  | "open-tool" | "open-directory" | "acknowledge";
+  | "complete"
+  | "dismiss"
+  | "snooze"
+  | "open-tool"
+  | "open-directory"
+  | "acknowledge";
 
-interface GlobalNotificationBase { id: string; createdAt: string }
+interface GlobalNotificationBase {
+  id: string;
+  createdAt: string;
+}
 
 export interface TodoReminderNotification extends GlobalNotificationBase {
   kind: "todo-reminder";
@@ -158,26 +169,40 @@ export type GlobalNotification = TodoReminderNotification | ReleasePackageNotifi
 - [ ] **Step 4: 实现最小纯函数**
 
 ```ts
-export function normalizeGlobalNotificationPayload(payload: GlobalNotification | GlobalNotification[] | null | undefined) {
+export function normalizeGlobalNotificationPayload(
+  payload: GlobalNotification | GlobalNotification[] | null | undefined,
+) {
   if (!payload) return [];
   const values = Array.isArray(payload) ? payload : [payload];
-  if (!values.every((value) => {
-    if (!value || typeof value.id !== "string" || typeof value.createdAt !== "string") return false;
-    if (value.kind === "todo-reminder") {
-      return Number.isFinite(value.eventId) && Number.isFinite(value.taskId) && typeof value.title === "string";
-    }
-    return value.kind === "release-package"
-      && typeof value.runId === "string"
-      && Number.isFinite(value.projectId)
-      && typeof value.projectName === "string"
-      && ["succeeded", "partially_succeeded", "failed"].includes(value.status);
-  })) {
+  if (
+    !values.every((value) => {
+      if (!value || typeof value.id !== "string" || typeof value.createdAt !== "string")
+        return false;
+      if (value.kind === "todo-reminder") {
+        return (
+          Number.isFinite(value.eventId) &&
+          Number.isFinite(value.taskId) &&
+          typeof value.title === "string"
+        );
+      }
+      return (
+        value.kind === "release-package" &&
+        typeof value.runId === "string" &&
+        Number.isFinite(value.projectId) &&
+        typeof value.projectName === "string" &&
+        ["succeeded", "partially_succeeded", "failed"].includes(value.status)
+      );
+    })
+  ) {
     throw new Error("无效的全局通知");
   }
   return values;
 }
 
-export function mergeGlobalNotificationQueue(current: readonly GlobalNotification[], incoming: readonly GlobalNotification[]) {
+export function mergeGlobalNotificationQueue(
+  current: readonly GlobalNotification[],
+  incoming: readonly GlobalNotification[],
+) {
   const next = [...current];
   const ids = new Set(next.map((item) => item.id));
   for (const item of incoming) {
@@ -188,7 +213,9 @@ export function mergeGlobalNotificationQueue(current: readonly GlobalNotificatio
   return next;
 }
 
-export function globalNotificationActions(notification: GlobalNotification): GlobalNotificationAction[] {
+export function globalNotificationActions(
+  notification: GlobalNotification,
+): GlobalNotificationAction[] {
   if (notification.kind === "todo-reminder") return ["complete", "dismiss", "snooze"];
   const actions: GlobalNotificationAction[] = ["open-tool"];
   if (notification.status !== "failed" && notification.archivePath) actions.push("open-directory");
@@ -198,7 +225,8 @@ export function globalNotificationActions(notification: GlobalNotification): Glo
 
 export function releasePackageNotificationCopy(status: ReleasePackageNotificationStatus) {
   if (status === "succeeded") return { title: "上线包打包成功", detail: "所选产物已完成归档" };
-  if (status === "partially_succeeded") return { title: "上线包部分成功", detail: "可用产物已归档，请查看失败日志" };
+  if (status === "partially_succeeded")
+    return { title: "上线包部分成功", detail: "可用产物已归档，请查看失败日志" };
   return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
 }
 
@@ -224,6 +252,7 @@ git commit -m "feat(notification): 添加全局通知模型"
 ### Task 2: Rust 通知模型与打包终态映射
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/global_notification.rs`
 - Modify: `apps/desktop/src-tauri/src/main.rs`
 
@@ -328,6 +357,7 @@ git commit -m "feat(notification): 定义打包终态通知"
 ### Task 3: 迁移通用通知窗口与主窗口导航
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/global_notification.rs`
 - Modify: `apps/desktop/src-tauri/src/main.rs`
 - Modify: `apps/desktop/src-tauri/src/events.rs`
@@ -368,7 +398,9 @@ describe("GlobalNotificationPopup", () => {
 
   it("removes one item only after a successful action", () => {
     expect(source).toContain("async function removeCurrentNotification");
-    expect(source).toMatch(/try[\s\S]*await action\(\)[\s\S]*await removeCurrentNotification\(\)[\s\S]*catch/s);
+    expect(source).toMatch(
+      /try[\s\S]*await action\(\)[\s\S]*await removeCurrentNotification\(\)[\s\S]*catch/s,
+    );
   });
 });
 ```
@@ -405,8 +437,12 @@ export default function mountGlobalNotificationApp() {
 ```ts
 const queue = ref<GlobalNotification[]>([]);
 const currentNotification = computed(() => queue.value[0] ?? null);
-const currentTodo = computed(() => currentNotification.value?.kind === "todo-reminder" ? currentNotification.value : null);
-const currentPackage = computed(() => currentNotification.value?.kind === "release-package" ? currentNotification.value : null);
+const currentTodo = computed(() =>
+  currentNotification.value?.kind === "todo-reminder" ? currentNotification.value : null,
+);
+const currentPackage = computed(() =>
+  currentNotification.value?.kind === "release-package" ? currentNotification.value : null,
+);
 
 function mergeQueue(incoming: GlobalNotification[]) {
   queue.value = mergeGlobalNotificationQueue(queue.value, incoming);
@@ -437,7 +473,9 @@ async function openReleasePackageTool() {
 async function openReleasePackageDirectory() {
   const path = currentPackage.value?.archivePath;
   if (!path) return;
-  await runAction(() => invokeToolByChannel("tool:system:open-local-path", { path }).then(() => undefined));
+  await runAction(() =>
+    invokeToolByChannel("tool:system:open-local-path", { path }).then(() => undefined),
+  );
 }
 
 async function acknowledgeCurrent() {
@@ -536,6 +574,7 @@ git commit -m "refactor(notification): 统一全局通知窗口"
 ### Task 4: 接入上线包 overall 终态
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - Test: `apps/desktop/src/composables/useReleasePackageRuntime.test.ts`
@@ -652,6 +691,7 @@ git commit -m "feat(release-package): 通知打包终态结果"
 ### Task 5: 经验记录与最终验证
 
 **Files:**
+
 - Modify: `process.md`
 - Verify: all files above
 
@@ -665,22 +705,26 @@ git commit -m "feat(release-package): 通知打包终态结果"
 **场景**: 在既有任务提醒独立窗口基础上增加上线包终态通知，并允许直接打开功能页和归档目录。
 
 **解决**:
+
 1. 将窗口生命周期和 FIFO 去重队列提升为全局通知能力，任务提醒与打包结果使用判别联合类型提供各自动作。
 2. 打包运行时在真实 overall 终态落定后旁路发送通知；成功、部分成功、失败通知，主动取消不通知。
 3. 打开工具页复用主窗口导航事件，打开目录复用 system 域绝对路径校验；操作失败保留通知供重试。
 
 **关键点**:
+
 - 长任务通知是结果旁路，窗口创建或事件发送失败不能改变真实任务终态或回滚产物。
 - 通知唯一键来自稳定业务 ID；任务提醒使用 eventId，打包使用 runId，避免初始化与运行期事件重复入队。
 - 类型专属动作留在展示层，窗口管理层只负责通知传输、聚焦、定位和生命周期。
 
 **涉及文件**:
+
 - `apps/desktop/src-tauri/src/global_notification.rs`
 - `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
 - `apps/desktop/src/components/GlobalNotificationPopup.vue`
 - `apps/desktop/src/utils/globalNotification.ts`
 
 **验证**:
+
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture`
 - `pnpm --filter @lazycat/desktop exec vitest run src/utils/globalNotification.test.ts src/components/GlobalNotificationPopup.test.ts src/composables/useReleasePackageRuntime.test.ts src/components/ReleasePackagePanel.test.ts`
 - `pnpm typecheck`

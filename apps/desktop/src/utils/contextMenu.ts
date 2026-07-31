@@ -13,9 +13,7 @@ export interface ContextMenuPosition {
   y: number;
 }
 
-export function clampContextMenuPosition(
-  input: ContextMenuPositionInput,
-): ContextMenuPosition {
+export function clampContextMenuPosition(input: ContextMenuPositionInput): ContextMenuPosition {
   const padding = Math.max(0, input.padding ?? 12);
   const maxX = Math.max(padding, input.viewportWidth - input.menuWidth - padding);
   const maxY = Math.max(padding, input.viewportHeight - input.menuHeight - padding);

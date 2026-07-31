@@ -34,7 +34,7 @@ const emit = defineEmits<{
   delete: [];
 }>();
 
-const title = computed(() => props.mode === "create" ? "新建转发规则" : "编辑转发规则");
+const title = computed(() => (props.mode === "create" ? "新建转发规则" : "编辑转发规则"));
 
 function handleBeforeClose() {
   emit("request-close");
@@ -60,11 +60,7 @@ function handleSaveCommand(command: "save" | "start-once" | "start-auto") {
         <strong>规则正在运行，配置已锁定</strong>
         <span>停止成功后才会解除只读，避免运行配置与持久化配置不一致。</span>
       </div>
-      <el-button
-        :disabled="disabled"
-        :loading="operating"
-        @click="emit('stop-and-edit')"
-      >
+      <el-button :disabled="disabled" :loading="operating" @click="emit('stop-and-edit')">
         停止并编辑
       </el-button>
     </div>
@@ -100,11 +96,7 @@ function handleSaveCommand(command: "save" | "start-once" | "start-auto") {
         </el-button>
         <span class="dialog-footer__spacer" />
         <el-button :disabled="disabled" @click="emit('request-close')">取消</el-button>
-        <el-dropdown
-          :disabled="readonly || disabled"
-          trigger="click"
-          @command="handleSaveCommand"
-        >
+        <el-dropdown :disabled="readonly || disabled" trigger="click" @command="handleSaveCommand">
           <el-button :disabled="readonly || disabled">保存选项</el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -156,19 +148,55 @@ function handleSaveCommand(command: "save" | "start-once" | "start-auto") {
   border-radius: 6px;
   background: #fffaf0;
 }
-.readonly-banner > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.readonly-banner strong { color: #65450d; font-size: 16px; }
-.readonly-banner span { color: #85672f; font-size: 14px; line-height: 1.5; }
-.dialog-scroll { max-height: min(68vh, 720px); overflow-y: auto; padding-right: 2px; }
-.dialog-footer { display: flex; align-items: center; gap: 8px; }
-.dialog-footer__spacer { flex: 1; }
-:global(.request-forward-rule-dialog) { --el-font-size-base: 16px; }
-:global(.request-forward-rule-dialog .el-dialog__title) { font-size: 20px; }
-:global(.request-forward-rule-dialog .el-button) { font-size: 16px; }
+.readonly-banner > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+.readonly-banner strong {
+  color: #65450d;
+  font-size: 16px;
+}
+.readonly-banner span {
+  color: #85672f;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.dialog-scroll {
+  max-height: min(68vh, 720px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dialog-footer__spacer {
+  flex: 1;
+}
+:global(.request-forward-rule-dialog) {
+  --el-font-size-base: 16px;
+}
+:global(.request-forward-rule-dialog .el-dialog__title) {
+  font-size: 20px;
+}
+:global(.request-forward-rule-dialog .el-button) {
+  font-size: 16px;
+}
 
 @media (max-width: 560px) {
-  .readonly-banner { align-items: flex-start; flex-direction: column; }
-  .dialog-footer { flex-wrap: wrap; }
-  .dialog-footer__spacer { width: 100%; flex-basis: 100%; }
+  .readonly-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dialog-footer {
+    flex-wrap: wrap;
+  }
+  .dialog-footer__spacer {
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 </style>

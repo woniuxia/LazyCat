@@ -9,18 +9,14 @@ vi.mock("../../bridge/tauri", () => ({
 }));
 
 vi.mock("../browser-profiles-events", () => ({
-  notifyBrowserProfilesChanged: (...args: unknown[]) =>
-    notifyBrowserProfilesChanged(...args),
+  notifyBrowserProfilesChanged: (...args: unknown[]) => notifyBrowserProfilesChanged(...args),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }));
 
-import {
-  browserProfilesProvider,
-  buildBrowserProfileSpotlightItem,
-} from "./browser-profiles";
+import { browserProfilesProvider, buildBrowserProfileSpotlightItem } from "./browser-profiles";
 import type { BrowserProfileItem } from "../../types/browser-profiles";
 
 function profile(overrides: Partial<BrowserProfileItem>): BrowserProfileItem {
@@ -91,10 +87,7 @@ describe("browserProfilesProvider", () => {
 
     const items = await browserProfilesProvider.prefetch();
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:browser-profiles:list",
-      {},
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:browser-profiles:list", {});
     expect(items.map((item) => item.itemId)).toEqual(["edge:Default"]);
   });
 
@@ -108,13 +101,10 @@ describe("browserProfilesProvider", () => {
 
     const result = await browserProfilesProvider.defaultAction(item, {} as never);
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:browser-profiles:launch",
-      {
-        browser: "edge",
-        profileDir: "Profile 2",
-      },
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:browser-profiles:launch", {
+      browser: "edge",
+      profileDir: "Profile 2",
+    });
     expect(result).toEqual({
       closeSpotlight: true,
       toast: { message: "已打开 Edge：管理员", type: "success" },
@@ -138,15 +128,9 @@ describe("browserProfilesProvider", () => {
   });
 
   it("opens browser profiles tool from action menu", async () => {
-    const item = buildBrowserProfileSpotlightItem(
-      profile({ profileDir: "Default" }),
-    );
+    const item = buildBrowserProfileSpotlightItem(profile({ profileDir: "Default" }));
 
-    const result = await browserProfilesProvider.executeAction?.(
-      item,
-      "open_tool",
-      {} as never,
-    );
+    const result = await browserProfilesProvider.executeAction?.(item, "open_tool", {} as never);
 
     expect(invoke).toHaveBeenCalledWith("spotlight_pick", {
       target: "browser-profiles",

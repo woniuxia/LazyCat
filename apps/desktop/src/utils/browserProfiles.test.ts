@@ -31,15 +31,11 @@ function profile(overrides: Partial<BrowserProfileItem>): BrowserProfileItem {
 describe("browserProfiles utils", () => {
   it("uses alias, then Edge display name, then profile dir as display name", () => {
     expect(
-      getBrowserProfileDisplayName(
-        profile({ alias: "管理员", edgeDisplayName: "个人" }),
-      ),
+      getBrowserProfileDisplayName(profile({ alias: "管理员", edgeDisplayName: "个人" })),
     ).toBe("管理员");
-    expect(
-      getBrowserProfileDisplayName(
-        profile({ alias: "", edgeDisplayName: "个人" }),
-      ),
-    ).toBe("个人");
+    expect(getBrowserProfileDisplayName(profile({ alias: "", edgeDisplayName: "个人" }))).toBe(
+      "个人",
+    );
     expect(
       getBrowserProfileDisplayName(
         profile({
@@ -94,9 +90,7 @@ describe("browserProfiles utils", () => {
     const grouped = splitBrowserProfilesByHidden(input);
 
     expect(grouped.visible.map((item) => item.profileDir)).toEqual(["Default"]);
-    expect(grouped.hidden.map((item) => item.profileDir)).toEqual([
-      "Profile 2",
-    ]);
+    expect(grouped.hidden.map((item) => item.profileDir)).toEqual(["Profile 2"]);
     expect(input[0].hidden).toBe(false);
   });
 
@@ -109,11 +103,7 @@ describe("browserProfiles utils", () => {
       }),
     );
 
-    expect(fields.map((field) => field.text)).toEqual([
-      "管理员",
-      "测试账号",
-      "Profile 2",
-    ]);
+    expect(fields.map((field) => field.text)).toEqual(["管理员", "测试账号", "Profile 2"]);
     expect(fields[0].weight).toBeGreaterThan(fields[1].weight);
   });
 
@@ -136,29 +126,23 @@ describe("browserProfiles utils", () => {
       }),
     ];
 
-    expect(filterBrowserProfiles(input, "gly").map((item) => item.profileDir)).toEqual([
-      "Default",
-    ]);
+    expect(filterBrowserProfiles(input, "gly").map((item) => item.profileDir)).toEqual(["Default"]);
     expect(filterBrowserProfiles(input, "测试").map((item) => item.profileDir)).toEqual([
       "Profile 2",
     ]);
-    expect(
-      filterBrowserProfiles(input, "profile 9").map((item) => item.profileDir),
-    ).toEqual(["Profile 9"]);
+    expect(filterBrowserProfiles(input, "profile 9").map((item) => item.profileDir)).toEqual([
+      "Profile 9",
+    ]);
   });
 
   it("increases Spotlight item weight with launch count but caps growth", () => {
-    expect(getBrowserProfileSpotlightWeight(profile({ launchCount: 0 }))).toBeGreaterThan(
-      1,
-    );
-    expect(
-      getBrowserProfileSpotlightWeight(profile({ launchCount: 30 })),
-    ).toBeGreaterThan(
+    expect(getBrowserProfileSpotlightWeight(profile({ launchCount: 0 }))).toBeGreaterThan(1);
+    expect(getBrowserProfileSpotlightWeight(profile({ launchCount: 30 }))).toBeGreaterThan(
       getBrowserProfileSpotlightWeight(profile({ launchCount: 1 })),
     );
-    expect(
-      getBrowserProfileSpotlightWeight(profile({ launchCount: 999 })),
-    ).toBe(getBrowserProfileSpotlightWeight(profile({ launchCount: 50 })));
+    expect(getBrowserProfileSpotlightWeight(profile({ launchCount: 999 }))).toBe(
+      getBrowserProfileSpotlightWeight(profile({ launchCount: 50 })),
+    );
   });
 
   it("formats empty last launched time as never used", () => {
@@ -169,34 +153,22 @@ describe("browserProfiles utils", () => {
     const now = new Date(2026, 6, 3, 15, 0);
 
     expect(formatBrowserProfileLastLaunchedAtCompact(null, now)).toBe("未启动过");
-    expect(formatBrowserProfileLastLaunchedAtCompact("not-a-date", now)).toBe(
-      "未启动过",
+    expect(formatBrowserProfileLastLaunchedAtCompact("not-a-date", now)).toBe("未启动过");
+    expect(formatBrowserProfileLastLaunchedAtCompact("2026-07-03T09:05:00", now)).toBe(
+      "今天 09:05",
     );
-    expect(
-      formatBrowserProfileLastLaunchedAtCompact("2026-07-03T09:05:00", now),
-    ).toBe("今天 09:05");
-    expect(
-      formatBrowserProfileLastLaunchedAtCompact("2026-07-02T23:59:00", now),
-    ).toBe("昨天 23:59");
-    expect(
-      formatBrowserProfileLastLaunchedAtCompact("2026-03-18T10:00:00", now),
-    ).toBe("3月18日");
-    expect(
-      formatBrowserProfileLastLaunchedAtCompact("2025-12-01T10:00:00", now),
-    ).toBe("2025/12/1");
+    expect(formatBrowserProfileLastLaunchedAtCompact("2026-07-02T23:59:00", now)).toBe(
+      "昨天 23:59",
+    );
+    expect(formatBrowserProfileLastLaunchedAtCompact("2026-03-18T10:00:00", now)).toBe("3月18日");
+    expect(formatBrowserProfileLastLaunchedAtCompact("2025-12-01T10:00:00", now)).toBe("2025/12/1");
   });
 
   it("builds badge initial from display name with fallback", () => {
+    expect(getBrowserProfileBadgeInitial(profile({ alias: "管理员" }))).toBe("管");
+    expect(getBrowserProfileBadgeInitial(profile({ profileDir: "profile 3" }))).toBe("P");
     expect(
-      getBrowserProfileBadgeInitial(profile({ alias: "管理员" })),
-    ).toBe("管");
-    expect(
-      getBrowserProfileBadgeInitial(profile({ profileDir: "profile 3" })),
-    ).toBe("P");
-    expect(
-      getBrowserProfileBadgeInitial(
-        profile({ alias: "", edgeDisplayName: "", profileDir: "  " }),
-      ),
+      getBrowserProfileBadgeInitial(profile({ alias: "", edgeDisplayName: "", profileDir: "  " })),
     ).toBe("?");
   });
 
@@ -204,9 +176,7 @@ describe("browserProfiles utils", () => {
     const first = profile({ profileDir: "Profile 1" });
     const aliased = profile({ profileDir: "Profile 1", alias: "改名后" });
 
-    expect(getBrowserProfileBadgeColorIndex(first)).toBe(
-      getBrowserProfileBadgeColorIndex(aliased),
-    );
+    expect(getBrowserProfileBadgeColorIndex(first)).toBe(getBrowserProfileBadgeColorIndex(aliased));
     for (const dir of ["Default", "Profile 1", "Profile 2", "Profile 10"]) {
       const index = getBrowserProfileBadgeColorIndex(profile({ profileDir: dir }));
       expect(index).toBeGreaterThanOrEqual(0);
@@ -231,10 +201,7 @@ describe("browserProfiles utils", () => {
     ).toEqual(["Profile 3", "Edge：张三", "12 次", "昨天 09:30"]);
 
     expect(
-      buildBrowserProfileMetaSegments(
-        profile({ profileDir: "Default", launchCount: 0 }),
-        now,
-      ),
+      buildBrowserProfileMetaSegments(profile({ profileDir: "Default", launchCount: 0 }), now),
     ).toEqual(["未启动过"]);
 
     expect(

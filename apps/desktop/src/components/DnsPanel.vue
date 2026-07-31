@@ -8,14 +8,14 @@
             <el-input
               v-model="domain"
               placeholder="输入域名或 IP（IP 自动查询 PTR 反向记录）"
-              style="flex: 1; min-width: 220px;"
+              style="flex: 1; min-width: 220px"
               clearable
               @keyup.enter="runQuery"
             />
             <el-input
               v-model="dnsServer"
               placeholder="DNS 服务器（留空使用系统DNS）"
-              style="width: 240px;"
+              style="width: 240px"
               clearable
               @input="onServerInput"
             />
@@ -28,11 +28,10 @@
               size="small"
               :type="selectedPreset === preset.label ? 'primary' : 'default'"
               @click="selectPreset(preset)"
-            >{{ preset.label }}</el-button>
+              >{{ preset.label }}</el-button
+            >
           </div>
-          <div v-if="systemDnsHint" class="system-dns-hint">
-            系统 IPv4 DNS: {{ systemDnsHint }}
-          </div>
+          <div v-if="systemDnsHint" class="system-dns-hint">系统 IPv4 DNS: {{ systemDnsHint }}</div>
         </div>
 
         <div v-if="loading" class="dns-loading-placeholder">
@@ -43,11 +42,9 @@
           <div class="result-meta">
             <el-tag size="small" type="info">DNS: {{ result.server }}</el-tag>
             <el-tag size="small" type="info">耗时: {{ result.elapsed_ms }} ms</el-tag>
-            <el-button
-              v-if="getRecords('A').length > 1"
-              size="small"
-              @click="copyAllIpv4"
-            >复制全部 IPv4</el-button>
+            <el-button v-if="getRecords('A').length > 1" size="small" @click="copyAllIpv4"
+              >复制全部 IPv4</el-button
+            >
           </div>
 
           <template v-for="rt in RECORD_TYPES" :key="rt.type">
@@ -65,16 +62,16 @@
                 <el-table-column prop="ttl" label="TTL (s)" width="100" />
                 <el-table-column v-if="rt.type === 'A'" label="" width="66" align="center">
                   <template #default="{ row }">
-                    <el-button size="small" text @click="copyAddress(String(row.address))">复制</el-button>
+                    <el-button size="small" text @click="copyAddress(String(row.address))"
+                      >复制</el-button
+                    >
                   </template>
                 </el-table-column>
               </el-table>
             </div>
           </template>
 
-          <div v-if="noRecords" class="empty-hint">
-            未查询到任何 DNS 记录
-          </div>
+          <div v-if="noRecords" class="empty-hint">未查询到任何 DNS 记录</div>
         </template>
 
         <div v-else-if="!loading" class="empty-hint">
@@ -85,7 +82,12 @@
           <el-divider content-position="left">历史查询</el-divider>
           <el-table :data="queryHistory" size="small" border stripe>
             <el-table-column prop="domain" label="域名" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="dnsServer" label="DNS 服务器" min-width="180" show-overflow-tooltip />
+            <el-table-column
+              prop="dnsServer"
+              label="DNS 服务器"
+              min-width="180"
+              show-overflow-tooltip
+            />
             <el-table-column label="上一次查询时间" width="180">
               <template #default="{ row }">
                 {{ formatHistoryTime(row.queriedAt) }}
@@ -110,11 +112,13 @@
             <el-input
               v-model="compareDomain"
               placeholder="输入要测试的域名，如 example.com"
-              style="flex: 1; min-width: 220px;"
+              style="flex: 1; min-width: 220px"
               clearable
               @keyup.enter="runCompare"
             />
-            <el-button type="primary" :loading="compareLoading" @click="runCompare">开始对比</el-button>
+            <el-button type="primary" :loading="compareLoading" @click="runCompare"
+              >开始对比</el-button
+            >
           </div>
 
           <div class="compare-servers-label">选择要对比的 DNS 服务器：</div>
@@ -134,7 +138,7 @@
             <el-input
               v-model="customServerInput"
               placeholder="自定义 DNS IP（如 180.76.76.76）"
-              style="flex: 1;"
+              style="flex: 1"
               clearable
               @keyup.enter="addCustomServer"
             />
@@ -157,14 +161,20 @@
             <el-table-column label="响应时间" width="120" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.error" type="danger" size="small">失败</el-tag>
-                <el-tag v-else-if="row.elapsed_ms < 100" type="success" size="small">{{ row.elapsed_ms }} ms</el-tag>
-                <el-tag v-else-if="row.elapsed_ms < 300" type="warning" size="small">{{ row.elapsed_ms }} ms</el-tag>
+                <el-tag v-else-if="row.elapsed_ms < 100" type="success" size="small"
+                  >{{ row.elapsed_ms }} ms</el-tag
+                >
+                <el-tag v-else-if="row.elapsed_ms < 300" type="warning" size="small"
+                  >{{ row.elapsed_ms }} ms</el-tag
+                >
                 <el-tag v-else type="danger" size="small">{{ row.elapsed_ms }} ms</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="A 记录" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
-                <span v-if="row.addresses && row.addresses.length > 0">{{ row.addresses.join(", ") }}</span>
+                <span v-if="row.addresses && row.addresses.length > 0">{{
+                  row.addresses.join(", ")
+                }}</span>
                 <span v-else-if="row.error" class="error-text">{{ row.error }}</span>
                 <span v-else class="empty-text">—</span>
               </template>
@@ -394,11 +404,14 @@ function onServerInput() {
 }
 
 function copyAddress(address: string) {
-  navigator.clipboard.writeText(address).then(() => {
-    ElMessage.success("已复制");
-  }).catch(() => {
-    ElMessage.error("复制失败");
-  });
+  navigator.clipboard
+    .writeText(address)
+    .then(() => {
+      ElMessage.success("已复制");
+    })
+    .catch(() => {
+      ElMessage.error("复制失败");
+    });
 }
 
 function copyAllIpv4() {
@@ -530,7 +543,7 @@ onMounted(() => {
 }
 
 .dns-tabs :deep(.el-tabs__item::before) {
-  content: '';
+  content: "";
   position: absolute;
   bottom: 0;
   left: 50%;
@@ -578,7 +591,7 @@ onMounted(() => {
 
 .dns-controls::before,
 .compare-controls::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -589,8 +602,12 @@ onMounted(() => {
 }
 
 @keyframes shimmer {
-  0% { left: -100%; }
-  100% { left: 100%; }
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 .input-row {
@@ -643,7 +660,7 @@ onMounted(() => {
 }
 
 .input-row :deep(.el-button::before) {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -652,7 +669,9 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  transition: width 0.6s, height 0.6s;
+  transition:
+    width 0.6s,
+    height 0.6s;
 }
 
 .input-row :deep(.el-button:hover) {
@@ -840,8 +859,12 @@ onMounted(() => {
 }
 
 @keyframes loading {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .empty-hint {

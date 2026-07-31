@@ -80,21 +80,37 @@
             <div class="op-title">过滤与替换</div>
             <div class="op-row">
               <el-checkbox v-model="ops.includeFilter">仅保留匹配行</el-checkbox>
-              <el-select v-model="ops.includeMode" style="width: 120px" :disabled="!ops.includeFilter">
+              <el-select
+                v-model="ops.includeMode"
+                style="width: 120px"
+                :disabled="!ops.includeFilter"
+              >
                 <el-option label="包含" value="contains" />
                 <el-option label="全等" value="equals" />
                 <el-option label="正则" value="regex" />
               </el-select>
-              <el-input v-model="ops.includePattern" :disabled="!ops.includeFilter" placeholder="匹配规则" />
+              <el-input
+                v-model="ops.includePattern"
+                :disabled="!ops.includeFilter"
+                placeholder="匹配规则"
+              />
             </div>
             <div class="op-row">
               <el-checkbox v-model="ops.excludeFilter">排除匹配行</el-checkbox>
-              <el-select v-model="ops.excludeMode" style="width: 120px" :disabled="!ops.excludeFilter">
+              <el-select
+                v-model="ops.excludeMode"
+                style="width: 120px"
+                :disabled="!ops.excludeFilter"
+              >
                 <el-option label="包含" value="contains" />
                 <el-option label="全等" value="equals" />
                 <el-option label="正则" value="regex" />
               </el-select>
-              <el-input v-model="ops.excludePattern" :disabled="!ops.excludeFilter" placeholder="匹配规则" />
+              <el-input
+                v-model="ops.excludePattern"
+                :disabled="!ops.excludeFilter"
+                placeholder="匹配规则"
+              />
             </div>
             <div class="op-row">
               <el-checkbox v-model="ops.replace">替换</el-checkbox>
@@ -102,7 +118,11 @@
                 <el-option label="文本" value="contains" />
                 <el-option label="正则" value="regex" />
               </el-select>
-              <el-input v-model="ops.replacePattern" :disabled="!ops.replace" placeholder="待替换内容" />
+              <el-input
+                v-model="ops.replacePattern"
+                :disabled="!ops.replace"
+                placeholder="待替换内容"
+              />
               <el-input v-model="ops.replaceWith" :disabled="!ops.replace" placeholder="替换为" />
             </div>
           </section>
@@ -111,7 +131,11 @@
             <div class="op-title">提取与拼接</div>
             <div class="op-row">
               <el-checkbox v-model="ops.extractColumn">提取列</el-checkbox>
-              <el-input v-model="ops.delimiter" :disabled="!ops.extractColumn" placeholder="分隔符，如 =" />
+              <el-input
+                v-model="ops.delimiter"
+                :disabled="!ops.extractColumn"
+                placeholder="分隔符，如 ="
+              />
               <el-input-number
                 v-model="ops.columnIndex"
                 :disabled="!ops.extractColumn"
@@ -119,15 +143,25 @@
                 :max="50"
                 controls-position="right"
               />
-              <el-checkbox v-model="ops.keepUnmatched" :disabled="!ops.extractColumn">保留未命中行</el-checkbox>
+              <el-checkbox v-model="ops.keepUnmatched" :disabled="!ops.extractColumn"
+                >保留未命中行</el-checkbox
+              >
             </div>
             <div class="op-row">
               <el-checkbox v-model="ops.addPrefix">添加前缀</el-checkbox>
-              <el-input v-model="ops.prefixValue" :disabled="!ops.addPrefix" placeholder="前缀内容" />
+              <el-input
+                v-model="ops.prefixValue"
+                :disabled="!ops.addPrefix"
+                placeholder="前缀内容"
+              />
             </div>
             <div class="op-row">
               <el-checkbox v-model="ops.addSuffix">添加后缀</el-checkbox>
-              <el-input v-model="ops.suffixValue" :disabled="!ops.addSuffix" placeholder="后缀内容" />
+              <el-input
+                v-model="ops.suffixValue"
+                :disabled="!ops.addSuffix"
+                placeholder="后缀内容"
+              />
             </div>
           </section>
         </div>
@@ -243,7 +277,13 @@ const textProcessState = {
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { TextLineEnding, TextMatchMode, TextOperation, TextPreset, TextProcessResponse } from "../types";
+import type {
+  TextLineEnding,
+  TextMatchMode,
+  TextOperation,
+  TextPreset,
+  TextProcessResponse,
+} from "../types";
 
 const previewLimit = 200;
 const processing = ref(false);

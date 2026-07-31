@@ -254,33 +254,35 @@ fn start_clipboard_monitor(app_handle: AppHandle) {
 
 ```typescript
 // useClipboardSuggestion.ts 改为事件订阅模式
-import { listen } from '@tauri-apps/api/event'
+import { listen } from "@tauri-apps/api/event";
 
 export function useClipboardSuggestion() {
   onMounted(async () => {
     // 订阅后台推送的剪贴板变化事件
-    const unlisten = await listen('clipboard-changed', async () => {
-      const text = await navigator.clipboard.readText()
+    const unlisten = await listen("clipboard-changed", async () => {
+      const text = await navigator.clipboard.readText();
       if (text && text !== lastClipboardText.value) {
-        lastClipboardText.value = text
+        lastClipboardText.value = text;
         // 执行工具推荐逻辑
-        detectAndSuggest(text)
+        detectAndSuggest(text);
       }
-    })
+    });
 
     onUnmounted(() => {
-      unlisten()
-    })
-  })
+      unlisten();
+    });
+  });
 }
 ```
 
 优点：
+
 - 统一管理，避免前后端重复监控
 - 窗口失焦时也能持续记录
 - 前端只需订阅事件，无需轮询
 
 优化点：
+
 - 需要重构现有 `useClipboardSuggestion.ts`（共 95 行，暴露 6 个 API）
   - 仅改检测触发方式（从"窗口获焦手动调用"改为"后台事件订阅"），不改 API 签名
   - `watchPendingInput` 被 6 个面板使用（BcryptPanel、EncodePanel、FormatterPanel、JwtPanel、JsonProcessPanel、TimestampPanel）
@@ -637,23 +639,23 @@ pub fn should_suppress_capture(content: &str) -> bool {
 > **注意**：以下为示例代码。实际 VaultPanel.vue 的复制逻辑是内联的（非独立函数），包含先通过 IPC 获取密码明文、复制后启动 30 秒定时器自动清空剪贴板等逻辑。实施时需注入到 `navigator.clipboard.writeText(pw)` **之前**（VaultPanel.vue:817），且不能干扰后续的 30 秒自动清空逻辑。
 
 ```typescript
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from "@tauri-apps/api/core";
 
 async function copyPassword(password: string) {
-    // 先调用抑制接口
-    await invoke('suppress_clipboard_capture', { content: password })
+  // 先调用抑制接口
+  await invoke("suppress_clipboard_capture", { content: password });
 
-    // 再复制到剪贴板
-    await navigator.clipboard.writeText(password)
+  // 再复制到剪贴板
+  await navigator.clipboard.writeText(password);
 
-    ElMessage.success('已复制到剪贴板')
+  ElMessage.success("已复制到剪贴板");
 }
 
 async function copyAccount(account: string) {
-    // 账号也需要抑制
-    await invoke('suppress_clipboard_capture', { content: account })
-    await navigator.clipboard.writeText(account)
-    ElMessage.success('已复制到剪贴板')
+  // 账号也需要抑制
+  await invoke("suppress_clipboard_capture", { content: account });
+  await navigator.clipboard.writeText(account);
+  ElMessage.success("已复制到剪贴板");
 }
 ```
 
@@ -677,6 +679,7 @@ async function copyAccount(account: string) {
 本功能的主要改动文件预期如下：
 
 **后端（Rust）**：
+
 - `apps/desktop/src-tauri/src/main.rs`（监控线程 + suppress command）
 - `apps/desktop/src-tauri/src/tools/mod.rs`（域注册）
 - `apps/desktop/src-tauri/src/tools/helpers.rs`（migration 26，当前最新为 25）
@@ -684,6 +687,7 @@ async function copyAccount(account: string) {
 - `apps/desktop/src-tauri/Cargo.toml`（新增 blake3 和 walkdir）
 
 **前端（Vue + TypeScript）**：
+
 - `apps/desktop/src/types/inbox.ts`（类型定义，新建）
 - `apps/desktop/src/components/InboxPanel.vue`（主面板，新建）
 - `apps/desktop/src/bridge/tauri.ts`（通道映射）
@@ -694,6 +698,7 @@ async function copyAccount(account: string) {
 - `apps/desktop/src/components/SettingsPanel.vue`（设置项）
 
 **参考文件**：
+
 - `apps/desktop/src-tauri/src/tools/hotkey.rs`（GetClipboardSequenceNumber 使用参考）
 
 ## 9. 实现策略

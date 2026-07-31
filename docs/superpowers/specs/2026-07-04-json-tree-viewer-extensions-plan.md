@@ -13,11 +13,11 @@
 
 ## 总览
 
-| Phase | 目标 | 关键依赖 |
-|-------|------|---------|
-| Phase 1 查看增强 | 搜索纯函数与 composable、toJsonPath、工具栏搜索区、节点复制菜单（只读） | 无 |
-| Phase 2 编辑内核 | patch 引擎、展开迁移、undo/回流 composable、editable 交互 | Phase 1（复用菜单组件） |
-| Phase 3 消费方接入 | JSON 处理面板双模式、JWT、CSV 输出 | Phase 1、2 |
+| Phase              | 目标                                                                    | 关键依赖                |
+| ------------------ | ----------------------------------------------------------------------- | ----------------------- |
+| Phase 1 查看增强   | 搜索纯函数与 composable、toJsonPath、工具栏搜索区、节点复制菜单（只读） | 无                      |
+| Phase 2 编辑内核   | patch 引擎、展开迁移、undo/回流 composable、editable 交互               | Phase 1（复用菜单组件） |
+| Phase 3 消费方接入 | JSON 处理面板双模式、JWT、CSV 输出                                      | Phase 1、2              |
 
 每个任务收尾即提交（约定式中文提交信息）；每个 Phase 结束跑验证门。
 

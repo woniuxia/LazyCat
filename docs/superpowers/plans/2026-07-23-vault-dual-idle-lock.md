@@ -24,6 +24,7 @@
 ### Task 1: Frontend Lock Policy Model
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/vaultLock.test.ts`
 - Modify: `apps/desktop/src/utils/vaultLock.ts`
 
@@ -49,23 +50,27 @@ it("migrates balanced and enables system idle lock by default", () => {
 });
 
 it("prefers explicit settings and normalizes illegal values", () => {
-  expect(resolveVaultLockSettings({
-    vault_lock_profile: "strict",
-    vault_sensitive_hide_minutes: "5",
-    vault_activity_lock_enabled: "false",
-    vault_activity_lock_minutes: "60",
-    vault_system_idle_lock_enabled: "true",
-    vault_system_idle_lock_minutes: "30",
-  })).toMatchObject({
+  expect(
+    resolveVaultLockSettings({
+      vault_lock_profile: "strict",
+      vault_sensitive_hide_minutes: "5",
+      vault_activity_lock_enabled: "false",
+      vault_activity_lock_minutes: "60",
+      vault_system_idle_lock_enabled: "true",
+      vault_system_idle_lock_minutes: "30",
+    }),
+  ).toMatchObject({
     sensitiveHideMinutes: 5,
     activityLockEnabled: false,
     activityLockMinutes: 60,
     systemIdleLockMinutes: 30,
   });
-  expect(resolveVaultLockSettings({
-    vault_activity_lock_minutes: "999",
-    vault_system_idle_lock_enabled: "invalid",
-  })).toMatchObject({
+  expect(
+    resolveVaultLockSettings({
+      vault_activity_lock_minutes: "999",
+      vault_system_idle_lock_enabled: "invalid",
+    }),
+  ).toMatchObject({
     activityLockMinutes: 30,
     systemIdleLockEnabled: true,
   });
@@ -79,11 +84,13 @@ it("builds runtime policy and OR summaries", () => {
     activityLockAfterSecs: 1800,
   });
   expect(summarizeVaultHardLockRules(settings)).toBe("任一条件达到后即锁定");
-  expect(summarizeVaultHardLockRules({
-    ...settings,
-    activityLockEnabled: false,
-    systemIdleLockEnabled: false,
-  })).toBe("仅手动或关闭到托盘时锁定");
+  expect(
+    summarizeVaultHardLockRules({
+      ...settings,
+      activityLockEnabled: false,
+      systemIdleLockEnabled: false,
+    }),
+  ).toBe("仅手动或关闭到托盘时锁定");
 });
 ```
 
@@ -104,8 +111,8 @@ Keep existing profile exports until Task 5 removes their callers. Add:
 ```ts
 export const VAULT_HARD_LOCK_MINUTES = [5, 10, 15, 30, 60] as const;
 export const VAULT_SENSITIVE_HIDE_MINUTES = [1, 2, 5] as const;
-export type VaultHardLockMinutes = typeof VAULT_HARD_LOCK_MINUTES[number];
-export type VaultSensitiveHideMinutes = typeof VAULT_SENSITIVE_HIDE_MINUTES[number];
+export type VaultHardLockMinutes = (typeof VAULT_HARD_LOCK_MINUTES)[number];
+export type VaultSensitiveHideMinutes = (typeof VAULT_SENSITIVE_HIDE_MINUTES)[number];
 
 export interface VaultLockSettings {
   sensitiveHideMinutes: VaultSensitiveHideMinutes;
@@ -141,7 +148,7 @@ function parseAllowed<T extends readonly number[]>(
   fallback: T[number],
 ): T[number] {
   const value = Number(raw);
-  return allowed.includes(value as T[number]) ? value as T[number] : fallback;
+  return allowed.includes(value as T[number]) ? (value as T[number]) : fallback;
 }
 
 export function resolveVaultLockSettings(
@@ -149,14 +156,23 @@ export function resolveVaultLockSettings(
 ): VaultLockSettings {
   const legacy = LEGACY[normalizeVaultLockProfile(raw.vault_lock_profile)];
   return {
-    sensitiveHideMinutes: parseAllowed(raw.vault_sensitive_hide_minutes,
-      VAULT_SENSITIVE_HIDE_MINUTES, legacy.sensitiveHideMinutes),
+    sensitiveHideMinutes: parseAllowed(
+      raw.vault_sensitive_hide_minutes,
+      VAULT_SENSITIVE_HIDE_MINUTES,
+      legacy.sensitiveHideMinutes,
+    ),
     activityLockEnabled: parseBoolean(raw.vault_activity_lock_enabled, true),
-    activityLockMinutes: parseAllowed(raw.vault_activity_lock_minutes,
-      VAULT_HARD_LOCK_MINUTES, legacy.activityLockMinutes),
+    activityLockMinutes: parseAllowed(
+      raw.vault_activity_lock_minutes,
+      VAULT_HARD_LOCK_MINUTES,
+      legacy.activityLockMinutes,
+    ),
     systemIdleLockEnabled: parseBoolean(raw.vault_system_idle_lock_enabled, true),
-    systemIdleLockMinutes: parseAllowed(raw.vault_system_idle_lock_minutes,
-      VAULT_HARD_LOCK_MINUTES, 15),
+    systemIdleLockMinutes: parseAllowed(
+      raw.vault_system_idle_lock_minutes,
+      VAULT_HARD_LOCK_MINUTES,
+      15,
+    ),
   };
 }
 
@@ -170,8 +186,10 @@ export function toVaultLockRuntimePolicy(settings: VaultLockSettings) {
 
 export function summarizeVaultHardLockRules(settings: VaultLockSettings): string {
   if (settings.activityLockEnabled && settings.systemIdleLockEnabled) return "任一条件达到后即锁定";
-  if (settings.activityLockEnabled) return `Vault 无活动 ${settings.activityLockMinutes} 分钟后锁定`;
-  if (settings.systemIdleLockEnabled) return `电脑无操作 ${settings.systemIdleLockMinutes} 分钟后锁定`;
+  if (settings.activityLockEnabled)
+    return `Vault 无活动 ${settings.activityLockMinutes} 分钟后锁定`;
+  if (settings.systemIdleLockEnabled)
+    return `电脑无操作 ${settings.systemIdleLockMinutes} 分钟后锁定`;
   return "仅手动或关闭到托盘时锁定";
 }
 ```
@@ -189,6 +207,7 @@ Expected: all focused tests PASS before the commit.
 ### Task 2: Typed Settings Persistence
 
 **Files:**
+
 - Modify: `apps/desktop/src/composables/useSettings.test.ts`
 - Modify: `apps/desktop/src/composables/useSettings.ts`
 
@@ -218,8 +237,9 @@ it("does not notify when persistence fails", async () => {
   const listener = vi.fn();
   const unsubscribe = subscribeVaultLockSettings(listener);
   invokeMock.mockRejectedValueOnce(new Error("write failed"));
-  await expect(setVaultLockSettingAndWait("activityLockEnabled", false))
-    .rejects.toThrow("write failed");
+  await expect(setVaultLockSettingAndWait("activityLockEnabled", false)).rejects.toThrow(
+    "write failed",
+  );
   expect(listener).not.toHaveBeenCalled();
   unsubscribe();
 });
@@ -274,6 +294,7 @@ Expected: all settings tests PASS, including existing rollback and serialization
 ### Task 3: Rust Policy Core and Input Snapshot
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/vault_lock.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/widget/guards.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
@@ -417,6 +438,7 @@ Expected: policy and guards tests PASS before commit.
 ### Task 4: Session Enforcement and 30-Second Monitor
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/vault.rs`
 - Modify: `apps/desktop/src-tauri/src/events.rs`
 - Modify: `apps/desktop/src-tauri/src/main.rs`
@@ -541,6 +563,7 @@ Expected: Vault tests PASS and `cargo check` exits 0 before commit.
 ### Task 5: Settings UI and Vault Runtime Wiring
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/SettingsPanel.vue`
 - Modify: `apps/desktop/src/components/VaultPanel.vue`
 - Modify: `apps/desktop/src/utils/vaultLock.test.ts`
@@ -630,11 +653,14 @@ Repeat it for `systemIdleLockEnabled` / `systemIdleLockMinutes` with label “�
 Replace profile getters with `getVaultLockSettings()` and `toVaultLockRuntimePolicy()`. Always start masking and conditionally start the activity hard-lock timer:
 
 ```ts
-hideSensitiveTimer = setTimeout(hideSensitiveContent,
-  currentLockPolicy.hideSensitiveAfterSecs * 1000);
+hideSensitiveTimer = setTimeout(
+  hideSensitiveContent,
+  currentLockPolicy.hideSensitiveAfterSecs * 1000,
+);
 if (currentLockPolicy.activityLockEnabled) {
-  hardLockTimer = setTimeout(() => { void onLock(); },
-    currentLockPolicy.activityLockAfterSecs * 1000);
+  hardLockTimer = setTimeout(() => {
+    void onLock();
+  }, currentLockPolicy.activityLockAfterSecs * 1000);
 }
 ```
 
@@ -642,8 +668,12 @@ Add `unlistenVaultLocked` and `unsubscribeVaultLockSettings`. On mount:
 
 ```ts
 void listen("vault://locked", () => setLockState("locked"))
-  .then((unlisten) => { unlistenVaultLocked = unlisten; })
-  .catch(() => { unlistenVaultLocked = null; });
+  .then((unlisten) => {
+    unlistenVaultLocked = unlisten;
+  })
+  .catch(() => {
+    unlistenVaultLocked = null;
+  });
 
 unsubscribeVaultLockSettings = subscribeVaultLockSettings((settings) => {
   currentLockPolicy = toVaultLockRuntimePolicy(settings);
@@ -669,6 +699,7 @@ Expected: tests PASS, typecheck exits 0, and Vite completes before commit.
 ### Task 6: Experience Documentation and Final Verification
 
 **Files:**
+
 - Modify: `docs/experience/vault-and-inbox.md`
 
 - [ ] **Step 1: Record the durable security boundary**

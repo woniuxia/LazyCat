@@ -97,7 +97,9 @@ describe("JsonTreeViewer source structure", () => {
     expect(menuSource).toContain("clampContextMenuPosition");
     expect(menuSource).not.toContain("<style scoped>");
     expect(source).toContain("closeNodeMenu");
-    expect(source).toMatch(/watch\(tree, \(\) => \{\s*if \(menuVisible\.value\) closeNodeMenu\(\);/);
+    expect(source).toMatch(
+      /watch\(tree, \(\) => \{\s*if \(menuVisible\.value\) closeNodeMenu\(\);/,
+    );
   });
 
   it("declares state touched by the immediate onValueChange watch before that watch", () => {

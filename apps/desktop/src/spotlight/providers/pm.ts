@@ -55,7 +55,8 @@ function dueStatus(item: PmListItem): { text: string; tone: StatusTone } | undef
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-  const onlyPending = item.status === "todo" || item.status === "in_progress" || item.status === "testing";
+  const onlyPending =
+    item.status === "todo" || item.status === "in_progress" || item.status === "testing";
   if (onlyPending && due.getTime() < startOfToday.getTime()) {
     return { text: "已逾期", tone: "danger" };
   }

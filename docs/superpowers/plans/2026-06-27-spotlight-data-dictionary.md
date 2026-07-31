@@ -402,10 +402,7 @@ Create `apps/desktop/src/spotlight/search.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import type { SpotlightItem } from "./types";
-import {
-  mergeSpotlightProviderItems,
-  shouldRunQueryProvider,
-} from "./search";
+import { mergeSpotlightProviderItems, shouldRunQueryProvider } from "./search";
 
 function item(providerId: SpotlightItem["providerId"], itemId: string): SpotlightItem {
   return {
@@ -511,10 +508,7 @@ export function mergeSpotlightProviderItems(
   queryTime: Map<SpotlightProviderId, SpotlightItem[]>,
 ): Map<SpotlightProviderId, SpotlightItem[]> {
   const merged = new Map<SpotlightProviderId, SpotlightItem[]>();
-  const providerIds = new Set<SpotlightProviderId>([
-    ...prefetched.keys(),
-    ...queryTime.keys(),
-  ]);
+  const providerIds = new Set<SpotlightProviderId>([...prefetched.keys(), ...queryTime.keys()]);
 
   for (const providerId of providerIds) {
     const seen = new Set<string>();
@@ -723,10 +717,9 @@ describe("data dictionary actions", () => {
       {} as never,
     );
 
-    expect(invokeToolByChannel).toHaveBeenCalledWith(
-      "tool:data-dictionary:record-detail",
-      { recordId: 12 },
-    );
+    expect(invokeToolByChannel).toHaveBeenCalledWith("tool:data-dictionary:record-detail", {
+      recordId: 12,
+    });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       JSON.stringify({ id: 1001, name: "张三" }, null, 2),
     );
@@ -1059,11 +1052,7 @@ export function createQueryTimeResultGuard() {
       latestScope = scope;
       return seq;
     },
-    isCurrent(
-      requestSeq: number,
-      query: string,
-      scope: SpotlightProviderId | null,
-    ): boolean {
+    isCurrent(requestSeq: number, query: string, scope: SpotlightProviderId | null): boolean {
       if (requestSeq !== seq) return false;
       return query === latestQuery && scope === latestScope;
     },
@@ -1288,20 +1277,17 @@ In `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`, appen
 
 ```ts
 it("consumes Spotlight focus requests without mutating the search keyword", () => {
-  expect(source).toContain('useDataDictionaryNavigation');
-  expect(source).toContain('consumeDataDictionaryFocus');
-  expect(source).toContain('focusDataDictionaryRecord');
-  expect(source).not.toContain('keyword.value = String(focus.recordId)');
+  expect(source).toContain("useDataDictionaryNavigation");
+  expect(source).toContain("consumeDataDictionaryFocus");
+  expect(source).toContain("focusDataDictionaryRecord");
+  expect(source).not.toContain("keyword.value = String(focus.recordId)");
 });
 ```
 
 If this file only reads `DataDictionaryPanel.vue`, create a second source constant for `App.vue`:
 
 ```ts
-const appSource = readFileSync(
-  resolve(__dirname, "../App.vue"),
-  "utf8",
-);
+const appSource = readFileSync(resolve(__dirname, "../App.vue"), "utf8");
 ```
 
 Then add:
@@ -1309,8 +1295,8 @@ Then add:
 ```ts
 it("routes hotkey navigation to data dictionary focus requests", () => {
   expect(appSource).toContain('target === "data-dictionary"');
-  expect(appSource).toContain('useDataDictionaryNavigation');
-  expect(appSource).toContain('requestFocus(parsedItem)');
+  expect(appSource).toContain("useDataDictionaryNavigation");
+  expect(appSource).toContain("requestFocus(parsedItem)");
 });
 ```
 
@@ -1467,19 +1453,21 @@ Add a new top entry to `process.md`:
 **场景**: Spotlight 需要搜索数据字典记录，并支持打开定位、复制显示字段和懒加载复制完整 JSON。
 **使用次数**: 0
 **问题**:
+
 1. 数据字典记录数量和单条 JSON 体积不可控，不适合在 Spotlight 空输入时预取。
 2. Spotlight 前端不应重复实现数据字典字段路径解析、标题字段和显示字段摘要规则。
 3. 异步 query-time provider 可能出现旧响应覆盖新查询结果。
-**解决**:
-1. 扩展数据字典 `search` 返回 `title` 和 `summary`，并用 `includeRawJson: false` 支持轻量候选。
-2. Spotlight provider 增加可选 `search(query, ctx)`，数据字典只在有效关键词下按需请求。
-3. Spotlight 查询结果用请求序号绑定当前 query 和 scope，旧响应直接丢弃。
-4. 完整 JSON 复制通过 `record-detail` 懒加载，候选 payload 不保存 `rawJson`。
-**关键点**:
-1. 大数据源优先 query-time 搜索，不要塞进通用预取集合。
-2. 动态 JSON 展示规则由数据字典后端单一维护，Spotlight 只做展示映射和动作编排。
-3. `providerId:itemId` 去重时要合并预取和 query-time 结果，避免重复行。
-**涉及文件**:
+   **解决**:
+4. 扩展数据字典 `search` 返回 `title` 和 `summary`，并用 `includeRawJson: false` 支持轻量候选。
+5. Spotlight provider 增加可选 `search(query, ctx)`，数据字典只在有效关键词下按需请求。
+6. Spotlight 查询结果用请求序号绑定当前 query 和 scope，旧响应直接丢弃。
+7. 完整 JSON 复制通过 `record-detail` 懒加载，候选 payload 不保存 `rawJson`。
+   **关键点**:
+8. 大数据源优先 query-time 搜索，不要塞进通用预取集合。
+9. 动态 JSON 展示规则由数据字典后端单一维护，Spotlight 只做展示映射和动作编排。
+10. `providerId:itemId` 去重时要合并预取和 query-time 结果，避免重复行。
+    **涉及文件**:
+
 - `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
 - `apps/desktop/src/types/data-dictionary.ts`
 - `apps/desktop/src/spotlight/types.ts`
@@ -1488,7 +1476,7 @@ Add a new top entry to `process.md`:
 - `apps/desktop/src/components/SpotlightPanel.vue`
 - `apps/desktop/src/components/DataDictionaryPanel.vue`
 - `apps/desktop/src/App.vue`
-**验证**:
+  **验证**:
 - `cargo test data_dictionary -- --nocapture`
 - `pnpm test src/spotlight/providers/data-dictionary.test.ts src/spotlight/search.test.ts src/spotlight/config-store.test.ts src/utils/spotlight-query.test.ts src/components/DataDictionaryPanel.context-menu.test.ts`
 - `pnpm typecheck`

@@ -9,14 +9,14 @@
 
 每个 milestone 一个 commit,按顺序合入。任一步骤失败可独立回退,不影响已合入的前序步骤。
 
-| Milestone | 主题 | 改动文件数 | 风险等级 |
-|-----------|------|:----------:|:--------:|
-| M1 | types.ts + registry.ts 向后兼容改造 | 2 | 低 |
-| M2 | 6 个现有 provider 改为导出 descriptor | 7 | 中 |
-| M3 | config-store.ts 新增 + spotlight-query.ts 参数化 | 4 | 中 |
-| M4 | launcher provider 新增(新架构试金石) | 2 | 低 |
-| M5 | SpotlightSettings.vue + SettingsPanel 接入 | 2 | 中 |
-| M6 | 跨窗口广播 + 配置变更联动 | 3 | 中 |
+| Milestone | 主题                                             | 改动文件数 | 风险等级 |
+| --------- | ------------------------------------------------ | :--------: | :------: |
+| M1        | types.ts + registry.ts 向后兼容改造              |     2      |    低    |
+| M2        | 6 个现有 provider 改为导出 descriptor            |     7      |    中    |
+| M3        | config-store.ts 新增 + spotlight-query.ts 参数化 |     4      |    中    |
+| M4        | launcher provider 新增(新架构试金石)             |     2      |    低    |
+| M5        | SpotlightSettings.vue + SettingsPanel 接入       |     2      |    中    |
+| M6        | 跨窗口广播 + 配置变更联动                        |     3      |    中    |
 
 ### 0.2 每步验证基线
 
@@ -102,14 +102,14 @@ export function registerProvider(p: SpotlightProvider | ProviderDescriptor): voi
 
 每个 provider 加入新字段,值与现状等价:
 
-| Provider | name | description | defaultAliases | defaultEnabled | hiddenInSettings |
-|----------|------|-------------|----------------|----------------|------------------|
-| tool | 工具 | 在所有内置工具中检索 | `[]` | true | false |
-| vault | 凭据 | 密码库快速复制 | `["v","vault"]` | true | false |
-| hosts | Hosts | 切换 hosts profile | `["h","hosts"]` | true | false |
-| todo | 任务 | 任务清单与速建 | `["t","todo"]` | true | false |
-| pm | 项目 | 项目工作项检索 | `["p","pm"]` | true | false |
-| suggestion | 剪贴板建议 | 剪贴板内容智能匹配 | `[]` | true | **true** |
+| Provider   | name       | description          | defaultAliases  | defaultEnabled | hiddenInSettings |
+| ---------- | ---------- | -------------------- | --------------- | -------------- | ---------------- |
+| tool       | 工具       | 在所有内置工具中检索 | `[]`            | true           | false            |
+| vault      | 凭据       | 密码库快速复制       | `["v","vault"]` | true           | false            |
+| hosts      | Hosts      | 切换 hosts profile   | `["h","hosts"]` | true           | false            |
+| todo       | 任务       | 任务清单与速建       | `["t","todo"]`  | true           | false            |
+| pm         | 项目       | 项目工作项检索       | `["p","pm"]`    | true           | false            |
+| suggestion | 剪贴板建议 | 剪贴板内容智能匹配   | `[]`            | true           | **true**         |
 
 每个文件保留所有现有函数(prefetch / defaultAction / buildActions / executeAction),只换最末导出对象的类型与字段。
 
@@ -164,7 +164,7 @@ const subscribers = new Set<(view: SpotlightView) => void>();
 let inFlightSave: Promise<void> | null = null;
 
 export async function ensureLoaded(forceReload = false): Promise<SpotlightView>;
-export function getView(): SpotlightView;  // 必须先 ensureLoaded
+export function getView(): SpotlightView; // 必须先 ensureLoaded
 export async function saveConfig(next: SpotlightConfig): Promise<void>;
 export function subscribe(cb: (view: SpotlightView) => void): () => void;
 export function validateAliases(
@@ -180,12 +180,14 @@ function buildDefaultConfig(descriptors: ProviderDescriptor[]): SpotlightConfig;
 ```
 
 合并规则:
+
 - alias:`provider.aliases ?? descriptor.defaultAliases`,统一 `toLowerCase().trim()`,去除空串
 - enabled:`provider.enabled ?? descriptor.defaultEnabled`
 - quickCommand:同上
 - 计算 `aliasMap`:遍历所有启用 provider 的 aliases,后注册的覆盖先注册的(理论上 saveConfig 已校验冲突)
 
 保留 token 校验:
+
 ```typescript
 const RESERVED_TOKENS = new Set(["+", "calc"]);
 const ALIAS_PATTERN = /^[a-zA-Z0-9_-]{1,16}$/;
@@ -206,10 +208,7 @@ export function parseQuickCommand(
   enabledIds: Set<QuickCommandId>,
 ): QuickCommand | null;
 
-export function dropScopePrefix(
-  raw: string,
-  aliasMap: Map<string, SpotlightProviderId>,
-): string;
+export function dropScopePrefix(raw: string, aliasMap: Map<string, SpotlightProviderId>): string;
 ```
 
 删除文件内 `SCOPE_PREFIX_MAP` 常量。calc / `+ ` 触发逻辑保持,但加 `enabledIds.has(...)` 守卫。
@@ -226,6 +225,7 @@ export function dropScopePrefix(
 #### `apps/desktop/src/spotlight/config-store.test.ts`(新增)
 
 覆盖用例:
+
 - 空配置回落默认(所有 enabled=true,alias 与现状一致)
 - 用户禁用 hosts 后 view.providers 的 hosts.enabled=false
 - 用户改 todo alias 为 `["q"]`,aliasMap 含 q→todo,不含 t→todo
@@ -242,7 +242,9 @@ export function dropScopePrefix(
   ```typescript
   const view = ref<SpotlightView | null>(null);
   const parsed = computed(() =>
-    view.value ? parseSpotlightQuery(query.value, view.value.aliasMap) : { scope: null, query: query.value },
+    view.value
+      ? parseSpotlightQuery(query.value, view.value.aliasMap)
+      : { scope: null, query: query.value },
   );
   const quickCommand = computed(() =>
     view.value ? parseQuickCommand(query.value, view.value.enabledQuickCommands) : null,
@@ -326,17 +328,18 @@ async function prefetchLauncher(): Promise<SpotlightItem[]> {
   return list.map<SpotlightItem>((e) => {
     const isDir = isDirPath(e.exe_path);
     const count = e.launch_count ?? 0;
-    const stem = e.exe_path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+    const stem =
+      e.exe_path
+        .split(/[\\/]/)
+        .pop()
+        ?.replace(/\.[^.]+$/, "") ?? "";
     return {
       providerId: "launcher",
       itemId: String(e.id),
       title: e.name,
       subtitle: e.group_name || (isDir ? "文件夹" : "应用"),
       badge: { short: "启", tone: "primary" },
-      searchFields: [
-        makeField(e.name, 1.2),
-        makeField(stem, 0.6),
-      ],
+      searchFields: [makeField(e.name, 1.2), makeField(stem, 0.6)],
       weight: 1 + Math.min(count, 50) * 0.01,
       payload: {
         exePath: e.exe_path,
@@ -468,11 +471,7 @@ UI 结构:
     <!-- 数据源 -->
     <div class="spotlight-settings-group">
       <div class="group-title">数据源</div>
-      <div
-        v-for="p in editableProviders"
-        :key="p.id"
-        class="provider-row"
-      >
+      <div v-for="p in editableProviders" :key="p.id" class="provider-row">
         <el-switch
           :model-value="config.providers[p.id]?.enabled ?? p.defaultEnabled"
           @update:model-value="(v) => onToggle(p.id, v)"
@@ -486,15 +485,13 @@ UI 结构:
           <el-input
             :model-value="aliasInputs[p.id]"
             placeholder="例如:t, todo"
-            @update:model-value="(v) => aliasInputs[p.id] = v"
+            @update:model-value="(v) => (aliasInputs[p.id] = v)"
             @blur="commitAliases(p.id)"
           />
           <div v-if="aliasErrors[p.id]" class="alias-error">
             {{ aliasErrors[p.id] }}
           </div>
-          <div class="alias-default-hint">
-            默认:{{ p.defaultAliases.join(", ") || "(无)" }}
-          </div>
+          <div class="alias-default-hint">默认:{{ p.defaultAliases.join(", ") || "(无)" }}</div>
         </div>
       </div>
     </div>
@@ -502,11 +499,7 @@ UI 结构:
     <!-- 快速命令 -->
     <div class="spotlight-settings-group">
       <div class="group-title">快速命令</div>
-      <div
-        v-for="qc in allQuickCommands"
-        :key="qc.id"
-        class="quick-command-row"
-      >
+      <div v-for="qc in allQuickCommands" :key="qc.id" class="quick-command-row">
         <el-switch
           :model-value="config.quickCommands[qc.id]?.enabled ?? qc.defaultEnabled"
           @update:model-value="(v) => onToggleQuickCommand(qc.id, v)"
@@ -527,6 +520,7 @@ UI 结构:
 ```
 
 逻辑:
+
 - `onMounted` 调 `configStore.ensureLoaded()`,把 `getView()` 拍成本地 `config` ref
 - `aliasInputs` 独立维护,用户输入时不立即写 store,blur 时校验并提交
 - `commitAliases(id)`:解析逗号、去空、`toLowerCase`,调 `configStore.validateAliases`,有冲突显示行内错误,无冲突调 `saveConfig`
@@ -585,6 +579,7 @@ UI 结构:
 #### `apps/desktop/src/spotlight/config-store.ts`(增量)
 
 `saveConfig` 末尾:
+
 ```typescript
 import { emit } from "@tauri-apps/api/event";
 
@@ -597,6 +592,7 @@ try {
 ```
 
 新增:监听同事件,触发自身 reload:
+
 ```typescript
 import { listen } from "@tauri-apps/api/event";
 
@@ -613,8 +609,7 @@ async function startListening() {
       currentView?.providers.filter((p) => p.enabled).map((p) => p.id) ?? [],
     );
     const enabledChanged =
-      prevEnabled.size !== nextEnabled.size ||
-      [...prevEnabled].some((id) => !nextEnabled.has(id));
+      prevEnabled.size !== nextEnabled.size || [...prevEnabled].some((id) => !nextEnabled.has(id));
     for (const cb of subscribers) cb(currentView!);
     if (enabledChanged) {
       // 通过 subscribe 让 SpotlightPanel 决定是否重跑 prefetchAll
@@ -671,6 +666,7 @@ onBeforeUnmount(() => {
 #### `apps/desktop/src/components/settings/SpotlightSettings.vue`(增量)
 
 让设置面板也订阅配置变更(防止双窗口编辑漂移):
+
 ```typescript
 let unsub: (() => void) | null = null;
 onMounted(async () => {
@@ -703,17 +699,18 @@ onBeforeUnmount(() => unsub?.());
 
 ### 主要风险
 
-| 风险 | 影响 | 缓解 |
-|------|------|------|
-| M2 改 6 个 provider,某个 provider 类型未对齐导致编译失败 | 中 | 一次只改一个 provider,改完立即 typecheck |
-| M3 spotlight-query.ts 签名变化,SpotlightPanel.vue 多处调用未对齐 | 中 | 改完 spotlight-query.ts 立即 typecheck,SpotlightPanel.vue 编辑前用 Grep 找全所有调用点 |
-| M3 user_settings 读写竞争 | 低 | 设计的 `inFlightSave` 排队机制覆盖 |
-| M5 SettingsPanel 现有 section 顺序影响视觉,Spotlight 放错位置 | 低 | 设计文档已固化为「系统集成」之前;改完 dev 截图对比 |
-| M6 跨窗口 emit 在 Tauri 2 上可能需要显式指定 target | 中 | 第一次实施时先用全局 emit,若 Spotlight 窗口收不到,改为 `app.emit_to(SPOTLIGHT_LABEL, ...)` |
+| 风险                                                             | 影响 | 缓解                                                                                       |
+| ---------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------ |
+| M2 改 6 个 provider,某个 provider 类型未对齐导致编译失败         | 中   | 一次只改一个 provider,改完立即 typecheck                                                   |
+| M3 spotlight-query.ts 签名变化,SpotlightPanel.vue 多处调用未对齐 | 中   | 改完 spotlight-query.ts 立即 typecheck,SpotlightPanel.vue 编辑前用 Grep 找全所有调用点     |
+| M3 user_settings 读写竞争                                        | 低   | 设计的 `inFlightSave` 排队机制覆盖                                                         |
+| M5 SettingsPanel 现有 section 顺序影响视觉,Spotlight 放错位置    | 低   | 设计文档已固化为「系统集成」之前;改完 dev 截图对比                                         |
+| M6 跨窗口 emit 在 Tauri 2 上可能需要显式指定 target              | 中   | 第一次实施时先用全局 emit,若 Spotlight 窗口收不到,改为 `app.emit_to(SPOTLIGHT_LABEL, ...)` |
 
 ### 回退策略
 
 每个 milestone 独立 commit。若线上发现某 milestone 引入问题:
+
 - M6 出问题 → revert M6,跨窗口同步失效但功能整体可用,用户需重启 Spotlight 才能让配置生效
 - M5 出问题 → revert M5,设置 UI 不可见,但 store 仍可通过手改数据库验证
 - M3/M4 出问题 → revert 至 M2,行为退化到 v0.6 等价(provider 元信息变了存储位置,但运行时一致)

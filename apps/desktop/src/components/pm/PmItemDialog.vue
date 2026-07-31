@@ -21,7 +21,10 @@
           <div class="pm-item-project-card-body">
             <div class="pm-item-section-eyebrow">所属项目</div>
             <div class="pm-item-project-card-main">
-              <span class="pm-item-project-card-dot" :style="{ backgroundColor: projectDisplayColor }" />
+              <span
+                class="pm-item-project-card-dot"
+                :style="{ backgroundColor: projectDisplayColor }"
+              />
               <span class="pm-item-project-card-name">{{ projectDisplayName }}</span>
             </div>
           </div>
@@ -32,9 +35,7 @@
               @command="handleProjectSwitchCommand"
               @visible-change="handleProjectSwitchVisibleChange"
             >
-              <button type="button" class="pm-item-project-switch-trigger">
-                切换项目
-              </button>
+              <button type="button" class="pm-item-project-switch-trigger">切换项目</button>
               <template #dropdown>
                 <el-dropdown-menu class="pm-item-project-switch-menu">
                   <el-dropdown-item
@@ -45,7 +46,10 @@
                   >
                     <div class="pm-item-project-switch-item">
                       <span class="pm-item-project-switch-item-name">{{ p.name }}</span>
-                      <span v-if="p.id === dialogProjectId" class="pm-item-project-switch-item-meta">
+                      <span
+                        v-if="p.id === dialogProjectId"
+                        class="pm-item-project-switch-item-meta"
+                      >
                         当前项目
                       </span>
                       <span
@@ -75,15 +79,28 @@
         <div class="pm-item-dialog-core-grid">
           <el-form-item label="类型" class="pm-item-dialog-inline-field">
             <el-select v-model="form.itemType">
-              <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
+              <el-option
+                v-for="(meta, key) in PM_ITEM_TYPE_MAP"
+                :key="key"
+                :label="meta.label"
+                :value="key"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="优先级" class="pm-item-dialog-inline-field">
             <el-select v-model="form.priority">
               <template #prefix>
-                <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[form.priority]?.color }" />
+                <span
+                  class="priority-dot"
+                  :style="{ backgroundColor: PM_PRIORITY_MAP[form.priority]?.color }"
+                />
               </template>
-              <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key">
+              <el-option
+                v-for="(meta, key) in PM_PRIORITY_MAP"
+                :key="key"
+                :label="meta.label"
+                :value="key"
+              >
                 <span class="priority-dot" :style="{ backgroundColor: meta.color }" />
                 {{ meta.label }}
               </el-option>
@@ -91,7 +108,12 @@
           </el-form-item>
           <el-form-item label="状态" class="pm-item-dialog-inline-field">
             <el-select v-model="form.status">
-              <el-option v-for="col in PM_STATUS_COLUMNS" :key="col.key" :label="col.label" :value="col.key" />
+              <el-option
+                v-for="col in PM_STATUS_COLUMNS"
+                :key="col.key"
+                :label="col.label"
+                :value="col.key"
+              />
             </el-select>
           </el-form-item>
         </div>
@@ -118,36 +140,38 @@
 
       <!-- 链接 -->
       <div class="pm-item-card pm-item-dialog-inline-row pm-item-dialog-inline-row--link">
-          <div class="pm-item-dialog-inline-label">链接</div>
-          <div class="pm-item-dialog-inline-content pm-item-dialog-inline-content--link">
-            <div class="pm-item-dialog-link-main">
-              <el-form-item class="pm-item-dialog-inline-form-item pm-item-dialog-inline-form-item--grow">
-                <el-input
-                  v-model="form.linkUrl"
-                  placeholder="https://example.com 或 localhost:3000"
-                />
-              </el-form-item>
-              <div class="pm-item-dialog-link-actions">
-                <el-button
-                  plain
-                  class="pm-item-dialog-link-clear-btn"
-                  :disabled="!form.linkUrl"
-                  @click="form.linkUrl = ''"
-                >
-                  清空
-                </el-button>
-                <el-button
-                  type="primary"
-                  plain
-                  class="pm-item-dialog-link-open-btn"
-                  :disabled="!formOpenableLink"
-                  @click="openFormLink"
-                >
-                  打开
-                </el-button>
-              </div>
+        <div class="pm-item-dialog-inline-label">链接</div>
+        <div class="pm-item-dialog-inline-content pm-item-dialog-inline-content--link">
+          <div class="pm-item-dialog-link-main">
+            <el-form-item
+              class="pm-item-dialog-inline-form-item pm-item-dialog-inline-form-item--grow"
+            >
+              <el-input
+                v-model="form.linkUrl"
+                placeholder="https://example.com 或 localhost:3000"
+              />
+            </el-form-item>
+            <div class="pm-item-dialog-link-actions">
+              <el-button
+                plain
+                class="pm-item-dialog-link-clear-btn"
+                :disabled="!form.linkUrl"
+                @click="form.linkUrl = ''"
+              >
+                清空
+              </el-button>
+              <el-button
+                type="primary"
+                plain
+                class="pm-item-dialog-link-open-btn"
+                :disabled="!formOpenableLink"
+                @click="openFormLink"
+              >
+                打开
+              </el-button>
             </div>
           </div>
+        </div>
       </div>
 
       <!-- 描述 -->
@@ -173,22 +197,33 @@
             <div class="pm-siyuan-link-subtitle">{{ siyuanLocationSummary }}</div>
           </div>
           <div class="pm-siyuan-inline-actions">
-            <el-button size="small" type="primary" plain @click="$emit('open-siyuan-link-picker')">关联页面</el-button>
+            <el-button size="small" type="primary" plain @click="$emit('open-siyuan-link-picker')"
+              >关联页面</el-button
+            >
           </div>
         </div>
         <div v-if="linkedPages.length > 0" class="pm-siyuan-page-list">
           <div v-for="row in linkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
             <span class="pm-siyuan-page-title">{{ row.page.docTitle }}</span>
-            <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主</el-tag>
+            <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary"
+              >主</el-tag
+            >
             <span class="pm-siyuan-page-notebook">{{ row.page.notebookName }}</span>
             <span class="pm-siyuan-page-path">{{ row.page.docHpath }}</span>
             <span class="pm-siyuan-page-actions">
-              <el-button size="small" link @click="$emit('open-siyuan-page', row.page)">打开</el-button>
-              <el-dropdown trigger="click" @command="(command) => $emit('siyuan-page-command', row, command)">
+              <el-button size="small" link @click="$emit('open-siyuan-page', row.page)"
+                >打开</el-button
+              >
+              <el-dropdown
+                trigger="click"
+                @command="(command) => $emit('siyuan-page-command', row, command)"
+              >
                 <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary">更换主页面</el-dropdown-item>
+                    <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary"
+                      >更换主页面</el-dropdown-item
+                    >
                     <el-dropdown-item v-else command="promote-primary">设为主页面</el-dropdown-item>
                     <el-dropdown-item command="remove">移除</el-dropdown-item>
                   </el-dropdown-menu>
@@ -205,13 +240,31 @@
         <div class="pm-item-section-title">流转记录</div>
         <div class="pm-item-dialog-core-grid">
           <el-form-item label="开始执行" class="pm-item-dialog-inline-field">
-            <el-date-picker v-model="form.startedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+            <el-date-picker
+              v-model="form.startedAt"
+              type="datetime"
+              clearable
+              placeholder="自动记录，可手动修改"
+              style="width: 100%"
+            />
           </el-form-item>
           <el-form-item label="开始测试" class="pm-item-dialog-inline-field">
-            <el-date-picker v-model="form.testingAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+            <el-date-picker
+              v-model="form.testingAt"
+              type="datetime"
+              clearable
+              placeholder="自动记录，可手动修改"
+              style="width: 100%"
+            />
           </el-form-item>
           <el-form-item label="完成时间" class="pm-item-dialog-inline-field">
-            <el-date-picker v-model="form.completedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+            <el-date-picker
+              v-model="form.completedAt"
+              type="datetime"
+              clearable
+              placeholder="自动记录，可手动修改"
+              style="width: 100%"
+            />
           </el-form-item>
         </div>
       </div>
@@ -224,12 +277,9 @@
     </el-form>
     <template #footer>
       <el-button :disabled="submitting" @click="handleCancel">取消</el-button>
-      <el-button
-        type="primary"
-        :loading="submitting"
-        :disabled="submitting"
-        @click="handleSubmit"
-      >确定</el-button>
+      <el-button type="primary" :loading="submitting" :disabled="submitting" @click="handleSubmit"
+        >确定</el-button
+      >
     </template>
   </el-dialog>
 </template>
@@ -237,10 +287,21 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { ElMessageBox } from "element-plus";
-import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanPageRef, PmSiyuanLocation } from "../../types/pm";
+import type {
+  PmProject,
+  PmItem,
+  PmItemType,
+  PmPriority,
+  PmItemStatus,
+  PmSiyuanPageRef,
+  PmSiyuanLocation,
+} from "../../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
 import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../../utils/pmDate";
-import { formatPmSiyuanLocationLabel, resolvePmSiyuanEffectiveLocation } from "../../utils/pmSiyuan";
+import {
+  formatPmSiyuanLocationLabel,
+  resolvePmSiyuanEffectiveLocation,
+} from "../../utils/pmSiyuan";
 import RichDescriptionEditor from "../RichDescriptionEditor.vue";
 import { ensureDataDir } from "../../rich/data-dir";
 import {
@@ -274,7 +335,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   "update:visible": [value: boolean];
   "update:formProjectId": [value: number | null];
-  "submit": [form: typeof form.value];
+  submit: [form: typeof form.value];
   "open-siyuan-link-picker": [];
   "open-siyuan-page": [page: PmSiyuanPageRef];
   "siyuan-page-command": [row: ItemSiyuanLinkedRow, command: string | number | object];
@@ -329,8 +390,8 @@ const projectSwitcherEnabled = computed(
   () => (props.isOverview || Boolean(props.editingItem)) && projectOptions.value.length > 1,
 );
 
-const dialogProject = computed(() =>
-  props.projects.find((project) => project.id === dialogProjectId.value) ?? null,
+const dialogProject = computed(
+  () => props.projects.find((project) => project.id === dialogProjectId.value) ?? null,
 );
 
 const projectDisplayName = computed(() => {
@@ -356,7 +417,10 @@ const projectDisplayColor = computed(() => {
 });
 
 const effectiveLocation = computed(() =>
-  resolvePmSiyuanEffectiveLocation(dialogProject.value?.siyuanLocationOverride, props.globalSiyuanLocation),
+  resolvePmSiyuanEffectiveLocation(
+    dialogProject.value?.siyuanLocationOverride,
+    props.globalSiyuanLocation,
+  ),
 );
 
 const effectiveLocationSource = computed(() => {
@@ -469,15 +533,11 @@ function isDirty(): boolean {
 async function confirmDiscardIfDirty(): Promise<boolean> {
   if (!isDirty()) return true;
   try {
-    await ElMessageBox.confirm(
-      "有未保存的修改，确定关闭？已编辑的内容将丢失。",
-      "未保存的修改",
-      {
-        confirmButtonText: "放弃修改",
-        cancelButtonText: "继续编辑",
-        type: "warning",
-      },
-    );
+    await ElMessageBox.confirm("有未保存的修改，确定关闭？已编辑的内容将丢失。", "未保存的修改", {
+      confirmButtonText: "放弃修改",
+      cancelButtonText: "继续编辑",
+      type: "warning",
+    });
     return true;
   } catch {
     return false;
@@ -503,18 +563,21 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-watch(() => props.visible, (v) => {
-  if (v) {
-    window.addEventListener("keydown", onKeydown);
-    // 等下一帧让 form 和 props 都就绪，再记录 dirty 检测的初始快照
-    void nextTick(() => {
-      initialSnapshot.value = currentSnapshot();
-    });
-  } else {
-    window.removeEventListener("keydown", onKeydown);
-    initialSnapshot.value = "";
-  }
-});
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) {
+      window.addEventListener("keydown", onKeydown);
+      // 等下一帧让 form 和 props 都就绪，再记录 dirty 检测的初始快照
+      void nextTick(() => {
+        initialSnapshot.value = currentSnapshot();
+      });
+    } else {
+      window.removeEventListener("keydown", onKeydown);
+      initialSnapshot.value = "";
+    }
+  },
+);
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
@@ -522,46 +585,52 @@ onUnmounted(() => {
 
 // ── Watch ────────────────────────────────────────────────
 
-watch(() => props.editingItem, (item) => {
-  if (item) {
-    const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
-    form.value = {
-      title: item.title,
-      refCode: item.refCode ?? "",
-      itemType: item.itemType,
-      priority: item.priority,
-      status: item.status,
-      startAt: normalizedDateRange.startAt,
-      endAt: normalizedDateRange.endAt,
-      linkUrl: item.linkUrl ?? "",
-      description: item.description,
-      startedAt: item.startedAt ?? null,
-      testingAt: item.testingAt ?? null,
-      completedAt: item.completedAt ?? null,
-    };
-  } else {
-    form.value = {
-      title: "",
-      refCode: "",
-      itemType: "task",
-      priority: "P2",
-      status: "todo",
-      startAt: null,
-      endAt: null,
-      linkUrl: "",
-      description: "",
-      startedAt: null,
-      testingAt: null,
-      completedAt: null,
-    };
-  }
-}, { immediate: true });
+watch(
+  () => props.editingItem,
+  (item) => {
+    if (item) {
+      const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
+      form.value = {
+        title: item.title,
+        refCode: item.refCode ?? "",
+        itemType: item.itemType,
+        priority: item.priority,
+        status: item.status,
+        startAt: normalizedDateRange.startAt,
+        endAt: normalizedDateRange.endAt,
+        linkUrl: item.linkUrl ?? "",
+        description: item.description,
+        startedAt: item.startedAt ?? null,
+        testingAt: item.testingAt ?? null,
+        completedAt: item.completedAt ?? null,
+      };
+    } else {
+      form.value = {
+        title: "",
+        refCode: "",
+        itemType: "task",
+        priority: "P2",
+        status: "todo",
+        startAt: null,
+        endAt: null,
+        linkUrl: "",
+        description: "",
+        startedAt: null,
+        testingAt: null,
+        completedAt: null,
+      };
+    }
+  },
+  { immediate: true },
+);
 
 // ── Rich description lifecycle ────────────────────────────
 
 const editorRef = ref<RichEditorExposed | null>(null);
 const dataDirReady = ref(false);
-void ensureDataDir().then(() => { dataDirReady.value = true; });
+void ensureDataDir().then(() => {
+  dataDirReady.value = true;
+});
 const submittedThisRound = ref(false);
 const richLifecycle = useRichDescriptionLifecycle({
   ownerType: "pm_item",
@@ -605,7 +674,7 @@ watch(
         console.warn("PmItemDialog cleanup cancel failed:", e);
       }
     }
-  }
+  },
 );
 
 defineExpose({

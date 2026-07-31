@@ -3,8 +3,21 @@
     <div class="vault-lock__card">
       <div class="vault-lock__icon">
         <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="8" y="22" width="32" height="22" rx="4" stroke="currentColor" stroke-width="2.5" />
-          <path d="M16 22V16a8 8 0 0 1 16 0v6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+          <rect
+            x="8"
+            y="22"
+            width="32"
+            height="22"
+            rx="4"
+            stroke="currentColor"
+            stroke-width="2.5"
+          />
+          <path
+            d="M16 22V16a8 8 0 0 1 16 0v6"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
           <circle cx="24" cy="33" r="3" fill="currentColor" />
           <path d="M24 36v3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
         </svg>
@@ -12,7 +25,9 @@
 
       <template v-if="mode === 'setup'">
         <h2 class="vault-lock__title">创建密码库</h2>
-        <p class="vault-lock__hint">设置主密码以保护你的凭据数据。请务必牢记此密码，密码丢失将无法恢复数据。</p>
+        <p class="vault-lock__hint">
+          设置主密码以保护你的凭据数据。请务必牢记此密码，密码丢失将无法恢复数据。
+        </p>
         <el-form @submit.prevent="onSetup" class="vault-lock__form">
           <el-form-item>
             <el-input
@@ -45,7 +60,8 @@
             :disabled="!setupPassword || !setupConfirm"
             class="vault-lock__btn"
             @click="onSetup"
-          >创建密码库</el-button>
+            >创建密码库</el-button
+          >
         </el-form>
       </template>
 
@@ -72,7 +88,8 @@
             :disabled="!unlockPassword"
             class="vault-lock__btn"
             @click="onUnlock"
-          >解锁</el-button>
+            >解锁</el-button
+          >
         </el-form>
       </template>
 
@@ -277,8 +294,7 @@ async function onUnlock() {
   width: 100%;
   height: 100%;
   background:
-    radial-gradient(ellipse at 30% 20%, var(--lc-accent-dim) 0%, transparent 50%),
-    var(--lc-bg);
+    radial-gradient(ellipse at 30% 20%, var(--lc-accent-dim) 0%, transparent 50%), var(--lc-bg);
 }
 
 .vault-lock__card {
@@ -307,7 +323,8 @@ async function onUnlock() {
 }
 
 @keyframes iconPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.85;
     transform: scale(1);
   }

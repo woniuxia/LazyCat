@@ -58,38 +58,48 @@ describe("base64", () => {
   });
 
   it("明确类型的解码决策优先自动识别", () => {
-    expect(resolveBase64DecodeKind({
-      detectedKind: "standard",
-      manualChoice: "url-safe",
-      currentKind: "url-safe",
-    })).toBe("standard");
+    expect(
+      resolveBase64DecodeKind({
+        detectedKind: "standard",
+        manualChoice: "url-safe",
+        currentKind: "url-safe",
+      }),
+    ).toBe("standard");
 
-    expect(resolveBase64DecodeKind({
-      detectedKind: "url-safe",
-      manualChoice: "standard",
-      currentKind: "standard",
-    })).toBe("url-safe");
+    expect(
+      resolveBase64DecodeKind({
+        detectedKind: "url-safe",
+        manualChoice: "standard",
+        currentKind: "standard",
+      }),
+    ).toBe("url-safe");
   });
 
   it("歧义输入的解码决策优先 manualChoice，否则回退 Standard", () => {
-    expect(resolveBase64DecodeKind({
-      detectedKind: "ambiguous",
-      manualChoice: "url-safe",
-      currentKind: "standard",
-    })).toBe("url-safe");
+    expect(
+      resolveBase64DecodeKind({
+        detectedKind: "ambiguous",
+        manualChoice: "url-safe",
+        currentKind: "standard",
+      }),
+    ).toBe("url-safe");
 
-    expect(resolveBase64DecodeKind({
-      detectedKind: "ambiguous",
-      manualChoice: null,
-      currentKind: "url-safe",
-    })).toBe("standard");
+    expect(
+      resolveBase64DecodeKind({
+        detectedKind: "ambiguous",
+        manualChoice: null,
+        currentKind: "url-safe",
+      }),
+    ).toBe("standard");
   });
 
   it("none 输入的解码决策沿用当前显示类型", () => {
-    expect(resolveBase64DecodeKind({
-      detectedKind: "none",
-      manualChoice: "standard",
-      currentKind: "url-safe",
-    })).toBe("url-safe");
+    expect(
+      resolveBase64DecodeKind({
+        detectedKind: "none",
+        manualChoice: "standard",
+        currentKind: "url-safe",
+      }),
+    ).toBe("url-safe");
   });
 });

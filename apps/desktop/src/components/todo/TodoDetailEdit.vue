@@ -31,8 +31,16 @@
             <InlinePmSelector
               v-else
               :project-id="draft.projectId"
-              :project-name="draft.projectId ? projectOptions.find(p => p.id === draft.projectId)?.name ?? null : null"
-              :project-color="draft.projectId ? projectOptions.find(p => p.id === draft.projectId)?.color ?? null : null"
+              :project-name="
+                draft.projectId
+                  ? (projectOptions.find((p) => p.id === draft.projectId)?.name ?? null)
+                  : null
+              "
+              :project-color="
+                draft.projectId
+                  ? (projectOptions.find((p) => p.id === draft.projectId)?.color ?? null)
+                  : null
+              "
               :pm-item-id="draft.pmItemId"
               :pm-item-title="draft.pmItemTitle"
               :pm-item-status="draft.pmItemStatus"
@@ -102,10 +110,7 @@
                     :label="opt.label"
                     :value="opt.value"
                   >
-                    <span
-                      class="priority-dot"
-                      :class="'priority-' + opt.value.toLowerCase()"
-                    />
+                    <span class="priority-dot" :class="'priority-' + opt.value.toLowerCase()" />
                     {{ opt.label }}
                   </el-option>
                 </el-select>
@@ -145,7 +150,12 @@
                   @update:model-value="$emit('eventDateChange', $event)"
                 />
                 <div class="time-picker-fused">
-                  <el-select :model-value="timeHour" class="time-fused-select" placeholder="时" @update:model-value="$emit('eventHourChange', $event)">
+                  <el-select
+                    :model-value="timeHour"
+                    class="time-fused-select"
+                    placeholder="时"
+                    @update:model-value="$emit('eventHourChange', $event)"
+                  >
                     <el-option
                       v-for="option in hourOptions"
                       :key="option.value"
@@ -176,19 +186,22 @@
                     size="small"
                     class="date-preset-btn"
                     @click="$emit('fillQuickDate', 0)"
-                  >今天</el-button>
+                    >今天</el-button
+                  >
                   <el-button
                     text
                     size="small"
                     class="date-preset-btn"
                     @click="$emit('fillQuickDate', 1)"
-                  >明天</el-button>
+                    >明天</el-button
+                  >
                   <el-button
                     text
                     size="small"
                     class="date-preset-btn"
                     @click="$emit('fillQuickDate', 2)"
-                  >后天</el-button>
+                    >后天</el-button
+                  >
                 </div>
                 <el-button
                   v-if="!draft.eventDate || !draft.eventTime"
@@ -196,14 +209,16 @@
                   size="small"
                   class="time-fused-clear"
                   @click="$emit('fillDefaultDateTime')"
-                >填充</el-button>
+                  >填充</el-button
+                >
                 <el-button
                   v-else
                   text
                   size="small"
                   class="time-fused-clear"
                   @click="$emit('clearEventSchedule')"
-                >清空</el-button>
+                  >清空</el-button
+                >
               </div>
             </el-form-item>
             <el-form-item label="提醒">
@@ -224,7 +239,10 @@
             </el-form-item>
           </div>
 
-          <div v-if="draft.repeatPreset === 'none'" class="todo-form-section action-binding-section">
+          <div
+            v-if="draft.repeatPreset === 'none'"
+            class="todo-form-section action-binding-section"
+          >
             <el-form-item label="执行动作">
               <el-select
                 v-model="draft.actionType"
@@ -419,12 +437,9 @@
                   size="small"
                   style="width: 150px; flex-shrink: 0"
                 />
-                <el-button
-                  text
-                  size="small"
-                  type="danger"
-                  @click="draft.links.splice(i, 1)"
-                >删除</el-button>
+                <el-button text size="small" type="danger" @click="draft.links.splice(i, 1)"
+                  >删除</el-button
+                >
               </div>
             </div>
             <el-button
@@ -453,7 +468,13 @@
           size="small"
           link
           type="success"
-          @click="$emit('changeStatus', selectedItem.id, isDoneItem(selectedItem) ? 'pending' : 'completed')"
+          @click="
+            $emit(
+              'changeStatus',
+              selectedItem.id,
+              isDoneItem(selectedItem) ? 'pending' : 'completed',
+            )
+          "
         >
           {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
         </el-button>
@@ -609,7 +630,7 @@ watch(
       (editorRef.value as any)?.reset?.(props.draft.description ?? "");
     });
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 defineExpose({
@@ -663,9 +684,8 @@ const showCronRepeatFields = computed(
 );
 
 const repeatFormTip = computed(() => {
-  if (showCronRepeatFields.value)
-    return "Cron 表达式决定实际触发时间；日期只作为首次生效下界。";
-    return "重复事项会从日期起按规则生成实例；选择\u201C此后未发生项\u201D时，保存的是重复规则。";
+  if (showCronRepeatFields.value) return "Cron 表达式决定实际触发时间；日期只作为首次生效下界。";
+  return "重复事项会从日期起按规则生成实例；选择\u201C此后未发生项\u201D时，保存的是重复规则。";
 });
 
 const dialogTitle = computed(() => (props.mode === "create" ? "新增事项" : "编辑事项"));
@@ -900,10 +920,18 @@ function disabledAllSeconds(..._args: unknown[]) {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.priority-p0 { background-color: var(--lc-danger); }
-.priority-p1 { background-color: var(--lc-warning); }
-.priority-p2 { background-color: var(--lc-accent); }
-.priority-p3 { background-color: var(--lc-text-muted); }
+.priority-p0 {
+  background-color: var(--lc-danger);
+}
+.priority-p1 {
+  background-color: var(--lc-warning);
+}
+.priority-p2 {
+  background-color: var(--lc-accent);
+}
+.priority-p3 {
+  background-color: var(--lc-text-muted);
+}
 .datetime-row {
   display: flex;
   align-items: center;
@@ -967,10 +995,10 @@ function disabledAllSeconds(..._args: unknown[]) {
 .repeat-radio-group :deep(.el-radio-button__inner) {
   min-width: 76px;
 }
-  .detail-pane-footer {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
+.detail-pane-footer {
+  padding-left: 14px;
+  padding-right: 14px;
+}
 .date-quick-presets {
   display: flex;
   gap: 4px;

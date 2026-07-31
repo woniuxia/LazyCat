@@ -35,7 +35,13 @@
       <el-button @click="mergeFiles">执行合并</el-button>
     </div>
 
-    <el-input class="panel-grid-full" v-model="fileToolOutput" type="textarea" :rows="10" readonly />
+    <el-input
+      class="panel-grid-full"
+      v-model="fileToolOutput"
+      type="textarea"
+      :rows="10"
+      readonly
+    />
   </div>
 </template>
 
@@ -61,7 +67,8 @@ function toDialogPath(result: string | { path: string } | null): string {
 async function pickSourceFile() {
   try {
     const selected = await open({ multiple: false });
-    sourcePath.value = toDialogPath(selected as string | { path: string } | null) || sourcePath.value;
+    sourcePath.value =
+      toDialogPath(selected as string | { path: string } | null) || sourcePath.value;
   } catch {
     // dialog cancelled
   }

@@ -23,9 +23,7 @@ export function createEmptyCombinationDraft(): ActionCombinationDraft {
   };
 }
 
-export function createCombinationDraft(
-  detail: ActionCombinationDetail,
-): ActionCombinationDraft {
+export function createCombinationDraft(detail: ActionCombinationDetail): ActionCombinationDraft {
   return {
     id: detail.id,
     name: detail.name,
@@ -66,9 +64,7 @@ export function createEmptyCombinationStep(): ActionCombinationDraftStep {
   };
 }
 
-export function toCombinationSaveInput(
-  draft: ActionCombinationDraft,
-): ActionCombinationSaveInput {
+export function toCombinationSaveInput(draft: ActionCombinationDraft): ActionCombinationSaveInput {
   return {
     ...(draft.id === undefined ? {} : { id: draft.id }),
     name: draft.name.trim(),
@@ -87,11 +83,11 @@ export function moveCombinationStep(
 ): ActionCombinationDraftStep[] {
   const moved = [...source];
   if (
-    fromIndex < 0
-    || fromIndex >= moved.length
-    || toIndex < 0
-    || toIndex >= moved.length
-    || fromIndex === toIndex
+    fromIndex < 0 ||
+    fromIndex >= moved.length ||
+    toIndex < 0 ||
+    toIndex >= moved.length ||
+    fromIndex === toIndex
   ) {
     return moved;
   }

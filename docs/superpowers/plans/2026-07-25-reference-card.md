@@ -134,18 +134,69 @@ import { detectClipboardContent, type ClipboardContentType } from "./clipboard-d
 export const MAX_REFERENCE_CARD_TEXT_BYTES = 8 * 1024 * 1024;
 
 export const MONACO_LANGUAGE_OPTIONS = [
-  "javascript", "typescript", "python", "java", "go", "rust", "sql", "html", "css",
-  "json", "xml", "yaml", "bash", "shell", "markdown", "plaintext", "c", "cpp", "csharp",
-  "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml",
+  "javascript",
+  "typescript",
+  "python",
+  "java",
+  "go",
+  "rust",
+  "sql",
+  "html",
+  "css",
+  "json",
+  "xml",
+  "yaml",
+  "bash",
+  "shell",
+  "markdown",
+  "plaintext",
+  "c",
+  "cpp",
+  "csharp",
+  "php",
+  "ruby",
+  "swift",
+  "kotlin",
+  "scala",
+  "lua",
+  "r",
+  "dart",
+  "dockerfile",
+  "graphql",
+  "toml",
 ] as const;
 
 export const MONACO_LANGUAGE_EXTENSIONS: Record<string, string> = {
-  javascript: "js", typescript: "ts", python: "py", java: "java", go: "go",
-  rust: "rs", sql: "sql", html: "html", css: "css", json: "json", xml: "xml",
-  yaml: "yml", bash: "sh", shell: "sh", markdown: "md", plaintext: "txt", c: "c",
-  cpp: "cpp", csharp: "cs", php: "php", ruby: "rb", swift: "swift", kotlin: "kt",
-  scala: "scala", lua: "lua", r: "r", dart: "dart", dockerfile: "dockerfile",
-  graphql: "graphql", toml: "toml",
+  javascript: "js",
+  typescript: "ts",
+  python: "py",
+  java: "java",
+  go: "go",
+  rust: "rs",
+  sql: "sql",
+  html: "html",
+  css: "css",
+  json: "json",
+  xml: "xml",
+  yaml: "yml",
+  bash: "sh",
+  shell: "sh",
+  markdown: "md",
+  plaintext: "txt",
+  c: "c",
+  cpp: "cpp",
+  csharp: "cs",
+  php: "php",
+  ruby: "rb",
+  swift: "swift",
+  kotlin: "kt",
+  scala: "scala",
+  lua: "lua",
+  r: "r",
+  dart: "dart",
+  dockerfile: "dockerfile",
+  graphql: "graphql",
+  toml: "toml",
 };
 
 const CLIPBOARD_LANGUAGE_MAP: Partial<Record<ClipboardContentType, string>> = {
@@ -161,9 +212,9 @@ export function detectClipboardMonacoLanguage(text: string): string {
   return (type && CLIPBOARD_LANGUAGE_MAP[type]) || "plaintext";
 }
 
-export function validateReferenceCardText(text: string):
-  | { ok: true }
-  | { ok: false; message: string } {
+export function validateReferenceCardText(
+  text: string,
+): { ok: true } | { ok: false; message: string } {
   if (!text.trim()) return { ok: false, message: "剪贴板中没有可用文本" };
   if (new TextEncoder().encode(text).byteLength > MAX_REFERENCE_CARD_TEXT_BYTES) {
     return { ok: false, message: "参考文本不能超过 8 MiB" };
@@ -175,10 +226,7 @@ export function validateReferenceCardText(text: string):
 在 `SnippetPanel.vue` 删除本地 `defaultLanguages` 和 `languageExtensionMap`，改为：
 
 ```ts
-import {
-  MONACO_LANGUAGE_EXTENSIONS,
-  MONACO_LANGUAGE_OPTIONS,
-} from "../utils/monacoLanguages";
+import { MONACO_LANGUAGE_EXTENSIONS, MONACO_LANGUAGE_OPTIONS } from "../utils/monacoLanguages";
 
 const languageOptions = computed(() => {
   const used = new Set(current.value?.fragments.map((fragment) => fragment.language) ?? []);
@@ -192,8 +240,8 @@ const languageOptions = computed(() => {
 导出文件名处使用：
 
 ```ts
-const ext = MONACO_LANGUAGE_EXTENSIONS[fragment.language.toLowerCase()]
-  ?? fragment.language.toLowerCase();
+const ext =
+  MONACO_LANGUAGE_EXTENSIONS[fragment.language.toLowerCase()] ?? fragment.language.toLowerCase();
 ```
 
 - [ ] **Step 4: 运行测试和类型检查确认 GREEN**
@@ -256,9 +304,9 @@ describe("buildClipboardSuggestionItems", () => {
   it("makes the reference result searchable", () => {
     const [item] = buildClipboardSuggestionItems("临时对照内容");
     const text = item.searchFields.map((field) => field.text);
-    expect(text).toEqual(expect.arrayContaining([
-      "置顶参考卡", "参考", "置顶", "卡片", "clipboard", "reference",
-    ]));
+    expect(text).toEqual(
+      expect.arrayContaining(["置顶参考卡", "参考", "置顶", "卡片", "clipboard", "reference"]),
+    );
   });
 
   it("returns no result for empty or oversized text", () => {
@@ -384,7 +432,9 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
     title: `创建置顶参考卡（剪贴板：${preview(text)}）`,
     subtitle: detected ? `${detected.label} · Enter 创建或聚焦参考卡` : "Enter 创建或聚焦参考卡",
     badge: { short: "参考", tone: "primary" },
-    searchFields: ["置顶参考卡", "参考", "置顶", "卡片", "clipboard", "reference"].map((value) => field(value)),
+    searchFields: ["置顶参考卡", "参考", "置顶", "卡片", "clipboard", "reference"].map((value) =>
+      field(value),
+    ),
     weight: 1.5,
     payload: { suggestionAction: { kind: "open-reference-card", text } },
   });
@@ -419,9 +469,9 @@ if (action?.kind === "open-reference-card" && typeof action.text === "string") {
   return { closeSpotlight: true };
 }
 if (
-  action?.kind === "open-tool"
-  && typeof action.toolId === "string"
-  && typeof action.text === "string"
+  action?.kind === "open-tool" &&
+  typeof action.toolId === "string" &&
+  typeof action.text === "string"
 ) {
   await invoke("spotlight_pick", {
     target: action.toolId,
@@ -1355,11 +1405,23 @@ export default function mountReferenceCardApp() {
           {{ option }}
         </option>
       </select>
-      <button type="button" class="toolbar-button" :class="{ active: wordWrap }" @click="wordWrap = !wordWrap">
+      <button
+        type="button"
+        class="toolbar-button"
+        :class="{ active: wordWrap }"
+        @click="wordWrap = !wordWrap"
+      >
         自动换行
       </button>
       <button type="button" class="toolbar-button" @click="copyAll">复制全部</button>
-      <button type="button" class="toolbar-button close-button" aria-label="关闭" @click="closeCard">×</button>
+      <button
+        type="button"
+        class="toolbar-button close-button"
+        aria-label="关闭"
+        @click="closeCard"
+      >
+        ×
+      </button>
     </header>
     <div v-if="errorMessage" class="card-error" role="alert">{{ errorMessage }}</div>
     <MonacoPane
@@ -1384,7 +1446,9 @@ import type { ReferenceCardInitPayload } from "../types/reference-card";
 import { detectClipboardMonacoLanguage, MONACO_LANGUAGE_OPTIONS } from "../utils/monacoLanguages";
 import MonacoPane from "./MonacoPane.vue";
 
-interface MonacoPaneApi { focusEditor(): void }
+interface MonacoPaneApi {
+  focusEditor(): void;
+}
 
 const content = ref("");
 const language = ref("plaintext");
@@ -1395,12 +1459,15 @@ let unlistenInit: UnlistenFn | null = null;
 
 onMounted(async () => {
   try {
-    unlistenInit = await listen<ReferenceCardInitPayload>(APP_EVENTS.REFERENCE_CARD_INIT, async ({ payload }) => {
-      content.value = payload.content;
-      language.value = detectClipboardMonacoLanguage(payload.content);
-      await nextTick();
-      editorRef.value?.focusEditor();
-    });
+    unlistenInit = await listen<ReferenceCardInitPayload>(
+      APP_EVENTS.REFERENCE_CARD_INIT,
+      async ({ payload }) => {
+        content.value = payload.content;
+        language.value = detectClipboardMonacoLanguage(payload.content);
+        await nextTick();
+        editorRef.value?.focusEditor();
+      },
+    );
     await referenceCardReady();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -1420,8 +1487,11 @@ async function copyAll() {
 }
 
 async function closeCard() {
-  try { await getCurrentWindow().close(); }
-  catch (error) { errorMessage.value = `关闭失败：${error instanceof Error ? error.message : String(error)}`; }
+  try {
+    await getCurrentWindow().close();
+  } catch (error) {
+    errorMessage.value = `关闭失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 function handleEditorError(message: string) {
@@ -1593,8 +1663,11 @@ referenceCardHotkeyInput: referenceCardHotkeyInput.value,
 const savedReferenceCardHotkey = getSetting("hotkey_reference_card") ?? "Ctrl+Alt+Space";
 referenceCardHotkeyInput.value = savedReferenceCardHotkey;
 if (savedReferenceCardHotkey) {
-  try { await registerNamedHotkey("reference-card", savedReferenceCardHotkey); }
-  catch { /* ignore in non-Tauri env */ }
+  try {
+    await registerNamedHotkey("reference-card", savedReferenceCardHotkey);
+  } catch {
+    /* ignore in non-Tauri env */
+  }
 }
 ```
 

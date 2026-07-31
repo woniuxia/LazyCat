@@ -690,20 +690,48 @@ function profile(overrides: Partial<BrowserProfileItem>): BrowserProfileItem {
 
 describe("browserProfiles utils", () => {
   it("uses alias, then Edge display name, then profile dir as display name", () => {
-    expect(getBrowserProfileDisplayName(profile({ alias: "管理员", edgeDisplayName: "个人" }))).toBe("管理员");
-    expect(getBrowserProfileDisplayName(profile({ alias: "", edgeDisplayName: "个人" }))).toBe("个人");
-    expect(getBrowserProfileDisplayName(profile({ alias: "", edgeDisplayName: "", profileDir: "Profile 2" }))).toBe("Profile 2");
+    expect(
+      getBrowserProfileDisplayName(profile({ alias: "管理员", edgeDisplayName: "个人" })),
+    ).toBe("管理员");
+    expect(getBrowserProfileDisplayName(profile({ alias: "", edgeDisplayName: "个人" }))).toBe(
+      "个人",
+    );
+    expect(
+      getBrowserProfileDisplayName(
+        profile({ alias: "", edgeDisplayName: "", profileDir: "Profile 2" }),
+      ),
+    ).toBe("Profile 2");
   });
 
   it("sorts visible profiles before hidden profiles by usage and display name", () => {
     const sorted = sortBrowserProfiles([
-      profile({ profileDir: "Profile 4", edgeDisplayName: "Hidden", hidden: true, launchCount: 99 }),
-      profile({ profileDir: "Profile 2", alias: "管理员", launchCount: 3, lastLaunchedAt: "2026-07-01T09:00:00+08:00" }),
-      profile({ profileDir: "Default", edgeDisplayName: "Alpha", launchCount: 3, lastLaunchedAt: "2026-07-02T09:00:00+08:00" }),
+      profile({
+        profileDir: "Profile 4",
+        edgeDisplayName: "Hidden",
+        hidden: true,
+        launchCount: 99,
+      }),
+      profile({
+        profileDir: "Profile 2",
+        alias: "管理员",
+        launchCount: 3,
+        lastLaunchedAt: "2026-07-01T09:00:00+08:00",
+      }),
+      profile({
+        profileDir: "Default",
+        edgeDisplayName: "Alpha",
+        launchCount: 3,
+        lastLaunchedAt: "2026-07-02T09:00:00+08:00",
+      }),
       profile({ profileDir: "Profile 3", edgeDisplayName: "Beta", launchCount: 2 }),
     ]);
 
-    expect(sorted.map((item) => item.profileDir)).toEqual(["Default", "Profile 2", "Profile 3", "Profile 4"]);
+    expect(sorted.map((item) => item.profileDir)).toEqual([
+      "Default",
+      "Profile 2",
+      "Profile 3",
+      "Profile 4",
+    ]);
   });
 
   it("splits visible and hidden profiles without mutating input", () => {
@@ -719,11 +747,13 @@ describe("browserProfiles utils", () => {
   });
 
   it("builds Spotlight search fields from alias, display name and profile dir", () => {
-    const fields = buildBrowserProfileSearchFields(profile({
-      alias: "管理员",
-      edgeDisplayName: "测试账号",
-      profileDir: "Profile 2",
-    }));
+    const fields = buildBrowserProfileSearchFields(
+      profile({
+        alias: "管理员",
+        edgeDisplayName: "测试账号",
+        profileDir: "Profile 2",
+      }),
+    );
 
     expect(fields.map((field) => field.text)).toEqual(["管理员", "测试账号", "Profile 2"]);
     expect(fields[0].weight).toBeGreaterThan(fields[1].weight);
@@ -857,7 +887,10 @@ async function loadProfiles() {
   loading.value = true;
   errorMessage.value = "";
   try {
-    const result = await invokeToolByChannel("tool:browser-profiles:list", {}) as BrowserProfilesListResponse;
+    const result = (await invokeToolByChannel(
+      "tool:browser-profiles:list",
+      {},
+    )) as BrowserProfilesListResponse;
     if (seq !== requestSeq) return;
     response.value = result;
   } catch (err) {
@@ -1047,10 +1080,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }));
 
-import {
-  browserProfilesProvider,
-  buildBrowserProfileSpotlightItem,
-} from "./browser-profiles";
+import { browserProfilesProvider, buildBrowserProfileSpotlightItem } from "./browser-profiles";
 import type { BrowserProfileItem } from "../../types/browser-profiles";
 
 function profile(overrides: Partial<BrowserProfileItem>): BrowserProfileItem {
@@ -1073,12 +1103,14 @@ beforeEach(() => {
 
 describe("buildBrowserProfileSpotlightItem", () => {
   it("maps alias display name and searchable fields", () => {
-    const item = buildBrowserProfileSpotlightItem(profile({
-      profileDir: "Profile 2",
-      alias: "管理员",
-      edgeDisplayName: "测试账号",
-      launchCount: 8,
-    }));
+    const item = buildBrowserProfileSpotlightItem(
+      profile({
+        profileDir: "Profile 2",
+        alias: "管理员",
+        edgeDisplayName: "测试账号",
+        launchCount: 8,
+      }),
+    );
 
     expect(item.providerId).toBe("browser-profiles");
     expect(item.itemId).toBe("edge:Profile 2");
@@ -1086,7 +1118,11 @@ describe("buildBrowserProfileSpotlightItem", () => {
     expect(item.subtitle).toContain("测试账号");
     expect(item.subtitle).toContain("Profile 2");
     expect(item.badge).toEqual({ short: "Edge", tone: "primary" });
-    expect(item.searchFields.map((field) => field.text)).toEqual(["管理员", "测试账号", "Profile 2"]);
+    expect(item.searchFields.map((field) => field.text)).toEqual([
+      "管理员",
+      "测试账号",
+      "Profile 2",
+    ]);
     expect(item.weight).toBeGreaterThan(1.08);
   });
 });
@@ -1107,10 +1143,12 @@ describe("browserProfilesProvider", () => {
   });
 
   it("launches selected profile as default action", async () => {
-    const item = buildBrowserProfileSpotlightItem(profile({
-      profileDir: "Profile 2",
-      alias: "管理员",
-    }));
+    const item = buildBrowserProfileSpotlightItem(
+      profile({
+        profileDir: "Profile 2",
+        alias: "管理员",
+      }),
+    );
 
     const result = await browserProfilesProvider.defaultAction(item, {} as never);
 
@@ -1134,13 +1172,16 @@ describe("browserProfilesProvider", () => {
   });
 
   it("returns explicit error for malformed payload", async () => {
-    const result = await browserProfilesProvider.defaultAction({
-      providerId: "browser-profiles",
-      itemId: "bad",
-      title: "bad",
-      searchFields: [],
-      payload: {},
-    }, {} as never);
+    const result = await browserProfilesProvider.defaultAction(
+      {
+        providerId: "browser-profiles",
+        itemId: "bad",
+        title: "bad",
+        searchFields: [],
+        payload: {},
+      },
+      {} as never,
+    );
 
     expect(result.errorMessage).toContain("无效");
   });
@@ -1364,19 +1405,21 @@ Add a new top entry to `process.md` after implementation:
 **场景**: 新增 Edge Profile 启动器，按 Profile 目录名发现、展示、别名管理和 Spotlight 启动。
 **使用次数**: 0
 **问题**:
+
 1. Launcher 的通用参数启动会用空白拆分，`--profile-directory=Profile 2` 会被拆坏。
 2. Edge Profile 显示名可变且可能重复，不能作为稳定 key。
 3. 面板和 Spotlight 都需要展示名、排序和权重，若各自实现会形成双重规则。
-**解决**:
-1. 后端独立 `browser_profiles` 模块启动 Edge，并把 profile 参数作为单个 `Command` arg。
-2. 稳定 key 固定使用目录名，扫描结果为事实源，`user_settings` 只做覆盖层。
-3. 前端抽 `browserProfiles.ts` 纯函数，面板和 Spotlight 共用展示名、排序和权重。
-**涉及文件**:
+   **解决**:
+4. 后端独立 `browser_profiles` 模块启动 Edge，并把 profile 参数作为单个 `Command` arg。
+5. 稳定 key 固定使用目录名，扫描结果为事实源，`user_settings` 只做覆盖层。
+6. 前端抽 `browserProfiles.ts` 纯函数，面板和 Spotlight 共用展示名、排序和权重。
+   **涉及文件**:
+
 - `apps/desktop/src-tauri/src/tools/browser_profiles.rs`
 - `apps/desktop/src/components/BrowserProfilesPanel.vue`
 - `apps/desktop/src/utils/browserProfiles.ts`
 - `apps/desktop/src/spotlight/providers/browser-profiles.ts`
-**验证**:
+  **验证**:
 - `cargo test browser_profiles -- --nocapture`
 - `pnpm test src/utils/browserProfiles.test.ts src/spotlight/providers/browser-profiles.test.ts src/spotlight/config-store.test.ts`
 - `pnpm typecheck`

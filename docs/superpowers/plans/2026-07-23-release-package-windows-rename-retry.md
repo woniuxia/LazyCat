@@ -22,6 +22,7 @@
 ### Task 1: 用失败测试定义有限重命名重试行为
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs:600-640`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_archive.rs` 内联 `tests` 模块
 
@@ -222,6 +223,7 @@ git commit -m "fix(release-package): 增加 Windows 重命名有限重试"
 ### Task 2: 将归档替换事务接入重试并保持回滚语义
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs:127-176`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_archive.rs:723-766`
 
@@ -414,6 +416,7 @@ git commit -m "fix(release-package): 重试 Windows 归档目录切换"
 ### Task 3: 完整验证
 
 **Files:**
+
 - Verify: `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
 - Verify: `docs/superpowers/specs/2026-07-23-release-package-windows-rename-retry-design.md`
 

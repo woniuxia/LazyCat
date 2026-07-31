@@ -946,7 +946,7 @@ const formSource = readFileSync(
 
 it("keeps running rules readonly and exposes stop-and-edit", () => {
   expect(source).toContain("停止并编辑");
-  expect(formSource).toContain(":disabled=\"readonly\"");
+  expect(formSource).toContain(':disabled="readonly"');
 });
 
 it("separates save from save-and-start", () => {
@@ -1178,4 +1178,3 @@ The implementation is complete only when all of the following are true:
 10. Startup restoration isolates per-rule failures and application exit preserves `auto_start`.
 11. The frontend keeps running rules readonly and stopped/failed rules editable.
 12. Targeted tests, full relevant suites, typecheck, and web build pass.
-

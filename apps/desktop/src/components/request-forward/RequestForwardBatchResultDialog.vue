@@ -29,20 +29,20 @@ const emit = defineEmits<{
   edit: [ruleId: number];
 }>();
 
-const operationLabel = computed(() => props.operation === "start" ? "启动" : "停止");
+const operationLabel = computed(() => (props.operation === "start" ? "启动" : "停止"));
 const succeeded = computed(() => props.results.filter((result) => result.ok).length);
 const failed = computed(() => props.results.length - succeeded.value);
-const ruleNames = computed(
-  () => new Map(props.rules.map((rule) => [rule.id, rule.name])),
+const ruleNames = computed(() => new Map(props.rules.map((rule) => [rule.id, rule.name])));
+const rows = computed(() =>
+  props.results.map((result) => ({
+    ...result,
+    ruleName: ruleNames.value.get(result.ruleId) ?? `规则 #${result.ruleId}`,
+    ruleExists: ruleNames.value.has(result.ruleId),
+    details: result.ok
+      ? null
+      : parseRequestForwardError(result.error ?? "未提供错误详情", result.state),
+  })),
 );
-const rows = computed(() => props.results.map((result) => ({
-  ...result,
-  ruleName: ruleNames.value.get(result.ruleId) ?? `规则 #${result.ruleId}`,
-  ruleExists: ruleNames.value.has(result.ruleId),
-  details: result.ok
-    ? null
-    : parseRequestForwardError(result.error ?? "未提供错误详情", result.state),
-})));
 
 function stateLabel(state: RequestForwardRuntimeState): string {
   return {
@@ -174,9 +174,15 @@ function updateVisible(value: boolean) {
   font-weight: 600;
 }
 
-.summary-count.is-success { color: #168357; }
-.summary-count.is-failed { color: #bd3e38; }
-.summary-count.is-muted { color: #697586; }
+.summary-count.is-success {
+  color: #168357;
+}
+.summary-count.is-failed {
+  color: #bd3e38;
+}
+.summary-count.is-muted {
+  color: #697586;
+}
 
 .batch-result__list {
   min-height: 0;
@@ -193,17 +199,25 @@ function updateVisible(value: boolean) {
   border-bottom: 1px solid #e1e6eb;
 }
 
-.result-row.is-failed { background: #fffafa; }
+.result-row.is-failed {
+  background: #fffafa;
+}
 
 .result-row__icon {
   margin-top: 2px;
   font-size: 18px;
 }
 
-.result-row.is-success .result-row__icon { color: #168357; }
-.result-row.is-failed .result-row__icon { color: #c23b35; }
+.result-row.is-success .result-row__icon {
+  color: #168357;
+}
+.result-row.is-failed .result-row__icon {
+  color: #c23b35;
+}
 
-.result-row__body { min-width: 0; }
+.result-row__body {
+  min-width: 0;
+}
 
 .result-row__title {
   display: flex;
@@ -256,7 +270,10 @@ function updateVisible(value: boolean) {
   line-height: 1.5;
 }
 
-.result-row__error span { color: #6f5960; font-size: 12px; }
+.result-row__error span {
+  color: #6f5960;
+  font-size: 12px;
+}
 
 .result-row__actions {
   display: flex;
@@ -279,10 +296,23 @@ function updateVisible(value: boolean) {
 }
 
 @media (max-width: 620px) {
-  .batch-result__summary { flex-wrap: wrap; gap: 6px 12px; padding: 9px 10px; }
-  .batch-result__summary strong { width: 100%; }
-  .result-row { grid-template-columns: 20px minmax(0, 1fr); }
-  .result-row__actions { grid-column: 2; }
-  .result-row__title { flex-wrap: wrap; gap: 4px 8px; }
+  .batch-result__summary {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 9px 10px;
+  }
+  .batch-result__summary strong {
+    width: 100%;
+  }
+  .result-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .result-row__actions {
+    grid-column: 2;
+  }
+  .result-row__title {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
 }
 </style>

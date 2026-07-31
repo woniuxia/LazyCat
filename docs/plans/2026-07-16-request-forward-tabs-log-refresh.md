@@ -13,6 +13,7 @@
 ### Task 1: Continuous Background Log Window
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/requestForward.test.ts`
 - Modify: `apps/desktop/src/utils/requestForward.ts`
 
@@ -24,26 +25,34 @@ Import `getRequestForwardLogProbeLimit` and `getRequestForwardLogTargetCount`, t
 expect(getRequestForwardLogProbeLimit(30)).toBe(60);
 expect(getRequestForwardLogProbeLimit(990)).toBe(1000);
 
-expect(getRequestForwardLogTargetCount({
-  loadedCount: 60,
-  previousTotal: 100,
-  nextTotal: 105,
-})).toBe(65);
-expect(getRequestForwardLogTargetCount({
-  loadedCount: 60,
-  previousTotal: 100,
-  nextTotal: 200,
-})).toBe(160);
-expect(getRequestForwardLogTargetCount({
-  loadedCount: 60,
-  previousTotal: 100,
-  nextTotal: 20,
-})).toBe(20);
-expect(getRequestForwardLogTargetCount({
-  loadedCount: 990,
-  previousTotal: 1000,
-  nextTotal: 1000,
-})).toBe(990);
+expect(
+  getRequestForwardLogTargetCount({
+    loadedCount: 60,
+    previousTotal: 100,
+    nextTotal: 105,
+  }),
+).toBe(65);
+expect(
+  getRequestForwardLogTargetCount({
+    loadedCount: 60,
+    previousTotal: 100,
+    nextTotal: 200,
+  }),
+).toBe(160);
+expect(
+  getRequestForwardLogTargetCount({
+    loadedCount: 60,
+    previousTotal: 100,
+    nextTotal: 20,
+  }),
+).toBe(20);
+expect(
+  getRequestForwardLogTargetCount({
+    loadedCount: 990,
+    previousTotal: 1000,
+    nextTotal: 1000,
+  }),
+).toBe(990);
 ```
 
 **Step 2: Run the tests and verify failure**
@@ -99,6 +108,7 @@ git commit -m "test(request-forward): 覆盖日志刷新窗口"
 ### Task 2: Tab and Polling Structure Tests
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 
 **Step 1: Add failing source contract tests**
@@ -108,10 +118,10 @@ Add focused assertions for the component integration points that are meaningful 
 ```ts
 it("splits persisted rules into mounted config and observability tabs", () => {
   expect(source).toContain("activeWorkbenchTab");
-  expect(source).toContain('<el-tabs');
+  expect(source).toContain("<el-tabs");
   expect(source).toContain('label="规则配置"');
   expect(source).toContain('label="运行观测"');
-  expect(source).not.toContain('<el-tab-pane lazy');
+  expect(source).not.toContain("<el-tab-pane lazy");
 });
 
 it("queues one background log refresh from the existing serial poll", () => {
@@ -143,6 +153,7 @@ Do not weaken existing request intent, mutation, polling, or clear/reset asserti
 ### Task 3: Implement Tabs and Automatic Log Refresh
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
 
 **Step 1: Add tab and refresh state**
@@ -195,11 +206,7 @@ Watch `activeWorkbenchTab`; entering `observability` immediately calls `reloadCu
 Wrap the workbench content in one `el-tabs` instance:
 
 ```vue
-<el-tabs
-  v-model="activeWorkbenchTab"
-  class="workbench-tabs"
-  :class="{ 'is-draft': draft }"
->
+<el-tabs v-model="activeWorkbenchTab" class="workbench-tabs" :class="{ 'is-draft': draft }">
   <el-tab-pane label="规则配置" name="config">
     <!-- readonly banner, form scroll, config footer -->
   </el-tab-pane>
@@ -227,6 +234,7 @@ git commit -m "feat(request-forward): 拆分配置与观测工作台"
 ### Task 4: Increase Workbench Density
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
 - Modify: `apps/desktop/src/components/request-forward/RequestForwardRuleForm.vue`
 - Modify: `apps/desktop/src/components/request-forward/RequestForwardLogList.vue`
@@ -266,6 +274,7 @@ git commit -m "style(request-forward): 提升工作台信息密度"
 ### Task 5: Final Validation and Process Record
 
 **Files:**
+
 - Modify: `process.md`
 
 **Step 1: Run the required validation**

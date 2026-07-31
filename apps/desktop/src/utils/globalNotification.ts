@@ -6,10 +6,7 @@ import type {
   ReleasePackageNotificationStatus,
   TodoReminderNotification,
 } from "../types/global-notification";
-import type {
-  ReleasePackageEnvironmentKind,
-  ReleasePackageType,
-} from "../types/release-package";
+import type { ReleasePackageEnvironmentKind, ReleasePackageType } from "../types/release-package";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
@@ -56,26 +53,31 @@ function isReleasePackageType(value: unknown): value is ReleasePackageType {
 }
 
 function isReleasePackageEnvironment(value: unknown): value is ReleasePackageEnvironmentKind {
-  return typeof value === "string"
-    && RELEASE_PACKAGE_ENVIRONMENTS.has(value as ReleasePackageEnvironmentKind);
+  return (
+    typeof value === "string" &&
+    RELEASE_PACKAGE_ENVIRONMENTS.has(value as ReleasePackageEnvironmentKind)
+  );
 }
 
 function isReleasePackageNotificationStatus(
   value: unknown,
 ): value is ReleasePackageNotificationStatus {
-  return typeof value === "string" && RELEASE_PACKAGE_STATUSES.has(value as ReleasePackageNotificationStatus);
+  return (
+    typeof value === "string" &&
+    RELEASE_PACKAGE_STATUSES.has(value as ReleasePackageNotificationStatus)
+  );
 }
 
 function isValidReleasePackageStatusCombination(
   packageType: ReleasePackageType,
   status: ReleasePackageNotificationStatus,
 ): boolean {
-  return packageType !== "local_archive"
-    || (
-      status !== "package_succeeded_upload_failed"
-      && status !== "upload_succeeded_command_failed"
-      && status !== "deployed_health_check_failed"
-    );
+  return (
+    packageType !== "local_archive" ||
+    (status !== "package_succeeded_upload_failed" &&
+      status !== "upload_succeeded_command_failed" &&
+      status !== "deployed_health_check_failed")
+  );
 }
 
 function hasValidCommonFields(value: Record<string, unknown>): boolean {
@@ -84,70 +86,74 @@ function hasValidCommonFields(value: Record<string, unknown>): boolean {
 
 function isTodoReminderAction(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  return isPositiveSafeInteger(value.bindingId)
-    && isNonEmptyString(value.actionType)
-    && isNonEmptyString(value.actionLabel)
-    && isNonEmptyString(value.targetLabel)
-    && typeof value.available === "boolean"
-    && (value.unavailableReason === undefined || isNonEmptyString(value.unavailableReason))
-    && (
-      value.activeDispatchStatus === undefined
-      || (
-        typeof value.activeDispatchStatus === "string"
-        && TODO_ACTIVE_ACTION_STATUSES.has(value.activeDispatchStatus)
-      )
-    );
+  return (
+    isPositiveSafeInteger(value.bindingId) &&
+    isNonEmptyString(value.actionType) &&
+    isNonEmptyString(value.actionLabel) &&
+    isNonEmptyString(value.targetLabel) &&
+    typeof value.available === "boolean" &&
+    (value.unavailableReason === undefined || isNonEmptyString(value.unavailableReason)) &&
+    (value.activeDispatchStatus === undefined ||
+      (typeof value.activeDispatchStatus === "string" &&
+        TODO_ACTIVE_ACTION_STATUSES.has(value.activeDispatchStatus)))
+  );
 }
 
 function isTodoReminderNotification(value: unknown): value is TodoReminderNotification {
   if (!isRecord(value)) return false;
-  return value.kind === "todo-reminder"
-    && hasValidCommonFields(value)
-    && isPositiveSafeInteger(value.eventId)
-    && value.id === `todo-reminder:${value.eventId}`
-    && isPositiveSafeInteger(value.taskId)
-    && isPositiveSafeInteger(value.taskReminderId)
-    && typeof value.title === "string"
-    && typeof value.body === "string"
-    && isNonEmptyString(value.fireAt)
-    && typeof value.reminderPreset === "string"
-    && TODO_REMINDER_PRESETS.has(value.reminderPreset)
-    && typeof value.priority === "string"
-    && TODO_PRIORITIES.has(value.priority)
-    && (value.action === undefined || isTodoReminderAction(value.action));
+  return (
+    value.kind === "todo-reminder" &&
+    hasValidCommonFields(value) &&
+    isPositiveSafeInteger(value.eventId) &&
+    value.id === `todo-reminder:${value.eventId}` &&
+    isPositiveSafeInteger(value.taskId) &&
+    isPositiveSafeInteger(value.taskReminderId) &&
+    typeof value.title === "string" &&
+    typeof value.body === "string" &&
+    isNonEmptyString(value.fireAt) &&
+    typeof value.reminderPreset === "string" &&
+    TODO_REMINDER_PRESETS.has(value.reminderPreset) &&
+    typeof value.priority === "string" &&
+    TODO_PRIORITIES.has(value.priority) &&
+    (value.action === undefined || isTodoReminderAction(value.action))
+  );
 }
 
 function isReleasePackageNotification(value: unknown): value is ReleasePackageNotification {
   if (!isRecord(value)) return false;
-  return value.kind === "release-package"
-    && hasValidCommonFields(value)
-    && isNonEmptyString(value.runId)
-    && value.id === `release-package:${value.runId}`
-    && isPositiveSafeInteger(value.environmentId)
-    && isReleasePackageEnvironment(value.environment)
-    && isPositiveSafeInteger(value.projectId)
-    && isNonEmptyString(value.projectName)
-    && isReleasePackageType(value.packageType)
-    && isReleasePackageNotificationStatus(value.status)
-    && isValidReleasePackageStatusCombination(value.packageType, value.status)
-    && (value.packageType !== "server_upload" || value.archivePath === undefined)
-    && (value.archivePath === undefined || typeof value.archivePath === "string")
-    && (value.error === undefined || typeof value.error === "string");
+  return (
+    value.kind === "release-package" &&
+    hasValidCommonFields(value) &&
+    isNonEmptyString(value.runId) &&
+    value.id === `release-package:${value.runId}` &&
+    isPositiveSafeInteger(value.environmentId) &&
+    isReleasePackageEnvironment(value.environment) &&
+    isPositiveSafeInteger(value.projectId) &&
+    isNonEmptyString(value.projectName) &&
+    isReleasePackageType(value.packageType) &&
+    isReleasePackageNotificationStatus(value.status) &&
+    isValidReleasePackageStatusCombination(value.packageType, value.status) &&
+    (value.packageType !== "server_upload" || value.archivePath === undefined) &&
+    (value.archivePath === undefined || typeof value.archivePath === "string") &&
+    (value.error === undefined || typeof value.error === "string")
+  );
 }
 
 function isActionCombinationNotification(value: unknown): value is ActionCombinationNotification {
   if (!isRecord(value)) return false;
-  return value.kind === "action-combination"
-    && hasValidCommonFields(value)
-    && isNonEmptyString(value.runId)
-    && value.id === `action-combination:${value.runId}`
-    && isPositiveSafeInteger(value.combinationId)
-    && isNonEmptyString(value.combinationName)
-    && typeof value.status === "string"
-    && ACTION_COMBINATION_STATUSES.has(value.status)
-    && Array.isArray(value.failedStepLabels)
-    && value.failedStepLabels.every(isNonEmptyString)
-    && (value.error === undefined || typeof value.error === "string");
+  return (
+    value.kind === "action-combination" &&
+    hasValidCommonFields(value) &&
+    isNonEmptyString(value.runId) &&
+    value.id === `action-combination:${value.runId}` &&
+    isPositiveSafeInteger(value.combinationId) &&
+    isNonEmptyString(value.combinationName) &&
+    typeof value.status === "string" &&
+    ACTION_COMBINATION_STATUSES.has(value.status) &&
+    Array.isArray(value.failedStepLabels) &&
+    value.failedStepLabels.every(isNonEmptyString) &&
+    (value.error === undefined || typeof value.error === "string")
+  );
 }
 
 function parseGlobalNotification(value: unknown): GlobalNotification {
@@ -183,11 +189,7 @@ export function globalNotificationActions(
   notification: GlobalNotification,
 ): GlobalNotificationAction[] {
   if (notification.kind === "todo-reminder") {
-    return [
-      notification.action ? "dispatch-action" : "complete",
-      "dismiss",
-      "snooze",
-    ];
+    return [notification.action ? "dispatch-action" : "complete", "dismiss", "snooze"];
   }
 
   if (notification.kind === "action-combination") {
@@ -196,9 +198,9 @@ export function globalNotificationActions(
 
   const actions: GlobalNotificationAction[] = ["open-tool"];
   if (
-    notification.packageType === "local_archive"
-    && notification.status !== "failed"
-    && notification.archivePath?.trim()
+    notification.packageType === "local_archive" &&
+    notification.status !== "failed" &&
+    notification.archivePath?.trim()
   ) {
     actions.push("open-directory");
   }
@@ -235,9 +237,10 @@ export function releasePackageNotificationCopy(
   }
 }
 
-function localArchiveNotificationCopy(
-  status: ReleasePackageNotificationStatus,
-): { title: string; detail: string } {
+function localArchiveNotificationCopy(status: ReleasePackageNotificationStatus): {
+  title: string;
+  detail: string;
+} {
   switch (status) {
     case "succeeded":
       return { title: "上线包打包成功", detail: "所选产物本地归档完成" };
@@ -256,9 +259,10 @@ function localArchiveNotificationCopy(
   }
 }
 
-function serverUploadNotificationCopy(
-  status: ReleasePackageNotificationStatus,
-): { title: string; detail: string } {
+function serverUploadNotificationCopy(status: ReleasePackageNotificationStatus): {
+  title: string;
+  detail: string;
+} {
   switch (status) {
     case "succeeded":
       return { title: "上线包上传成功", detail: "所选产物服务器上传完成" };

@@ -24,7 +24,11 @@
         <el-input v-model="verifyHash" placeholder="输入 bcrypt hash" clearable />
         <el-button type="primary" @click="doVerify">验证</el-button>
       </div>
-      <div v-if="verifyResult !== null" class="verify-result" :class="verifyResult ? 'pass' : 'fail'">
+      <div
+        v-if="verifyResult !== null"
+        class="verify-result"
+        :class="verifyResult ? 'pass' : 'fail'"
+      >
         {{ verifyResult ? "匹配" : "不匹配" }}
       </div>
     </el-card>
@@ -32,7 +36,14 @@
 </template>
 
 <script lang="ts">
-const bcryptState = { hashPassword: "", hashCost: 10, hashResult: "", verifyPassword: "", verifyHash: "", verifyResult: null as boolean | null };
+const bcryptState = {
+  hashPassword: "",
+  hashCost: 10,
+  hashResult: "",
+  verifyPassword: "",
+  verifyHash: "",
+  verifyResult: null as boolean | null,
+};
 </script>
 
 <script setup lang="ts">
@@ -78,7 +89,9 @@ function copyText(text: string) {
 }
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("bcrypt", (text) => { verifyHash.value = text; });
+watchPendingInput("bcrypt", (text) => {
+  verifyHash.value = text;
+});
 
 onBeforeUnmount(() => {
   bcryptState.hashPassword = hashPassword.value;

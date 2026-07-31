@@ -52,7 +52,7 @@ const META_LABELS: Record<string, string> = {
 /** 断言类型的可读描述 */
 const ASSERTION_LABELS: Record<string, string> = {
   "^": "行首",
-  "$": "行尾",
+  $: "行尾",
   "\\b": "单词边界",
   "\\B": "非单词边界",
 };
@@ -166,15 +166,9 @@ function astToRailroad(node: Expression | null): DiagramItem {
       const inner = astToRailroad(group.expression);
       if (group.capturing) {
         // 捕获组：添加标签
-        const label = group.name
-          ? `#${group.number} "${group.name}"`
-          : `#${group.number}`;
+        const label = group.name ? `#${group.number} "${group.name}"` : `#${group.number}`;
         // 用 Sequence 包裹，前后加注释标记
-        return Sequence(
-          NonTerminal(`( ${label}`),
-          inner,
-          NonTerminal(")")
-        );
+        return Sequence(NonTerminal(`( ${label}`), inner, NonTerminal(")"));
       }
       // 非捕获组：直接返回内部
       return inner;
@@ -318,8 +312,7 @@ export function regexToSvg(pattern: string): string {
 
     return injected;
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : String(err);
+    const message = err instanceof Error ? err.message : String(err);
     return `Error: ${message}`;
   }
 }

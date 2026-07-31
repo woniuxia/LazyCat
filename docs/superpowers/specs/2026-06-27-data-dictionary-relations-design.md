@@ -683,19 +683,19 @@ struct PrimaryPartition {
 
 ## 影响面
 
-| 文件 | 类型 | 说明 |
-|---|---|---|
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | 修改 | schema migration：主键字段、关系表、字段值索引表 |
-| `apps/desktop/src-tauri/src/tools/data_dictionary.rs` | 修改 | 关系保存、详情查询、索引重建 |
-| `apps/desktop/src/bridge/tauri.ts` | 修改 | 新增 `record-detail`、`rebuild-indexes` channel |
-| `apps/desktop/src/types/data-dictionary.ts` | 修改 | 新增关系、详情、重建索引类型 |
-| `apps/desktop/src/types/index.ts` | 修改 | 导出新增数据字典类型 |
-| `apps/desktop/src/utils/dataDictionary.ts` | 修改 | 详情摘要和关联展示 helper |
-| `apps/desktop/src/utils/dataDictionaryRelations.ts` | 新增 | 关系草稿校验、目标主键展示、重复关系检测等纯函数 |
-| `apps/desktop/src/components/DataDictionaryPanel.vue` | 修改 | 字段抽屉、关系配置、详情面板、重建索引菜单 |
-| `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts` | 修改 | 菜单和抽屉结构回归 |
-| `apps/desktop/src/utils/dataDictionary.test.ts` | 修改 | 详情与关系 helper 测试 |
-| `apps/desktop/src/utils/dataDictionaryRelations.test.ts` | 新增 | 关系草稿纯函数测试 |
+| 文件                                                                   | 类型 | 说明                                             |
+| ---------------------------------------------------------------------- | ---- | ------------------------------------------------ |
+| `apps/desktop/src-tauri/src/tools/helpers.rs`                          | 修改 | schema migration：主键字段、关系表、字段值索引表 |
+| `apps/desktop/src-tauri/src/tools/data_dictionary.rs`                  | 修改 | 关系保存、详情查询、索引重建                     |
+| `apps/desktop/src/bridge/tauri.ts`                                     | 修改 | 新增 `record-detail`、`rebuild-indexes` channel  |
+| `apps/desktop/src/types/data-dictionary.ts`                            | 修改 | 新增关系、详情、重建索引类型                     |
+| `apps/desktop/src/types/index.ts`                                      | 修改 | 导出新增数据字典类型                             |
+| `apps/desktop/src/utils/dataDictionary.ts`                             | 修改 | 详情摘要和关联展示 helper                        |
+| `apps/desktop/src/utils/dataDictionaryRelations.ts`                    | 新增 | 关系草稿校验、目标主键展示、重复关系检测等纯函数 |
+| `apps/desktop/src/components/DataDictionaryPanel.vue`                  | 修改 | 字段抽屉、关系配置、详情面板、重建索引菜单       |
+| `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts` | 修改 | 菜单和抽屉结构回归                               |
+| `apps/desktop/src/utils/dataDictionary.test.ts`                        | 修改 | 详情与关系 helper 测试                           |
+| `apps/desktop/src/utils/dataDictionaryRelations.test.ts`               | 新增 | 关系草稿纯函数测试                               |
 
 ## 风险与回滚
 

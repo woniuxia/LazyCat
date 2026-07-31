@@ -13,34 +13,36 @@
 ### Task 1: 移动模板位置 (App.vue)
 
 **Files:**
+
 - Modify: `apps/desktop/src/App.vue:1-67`（template 区域）
 
 **Step 1: 从 `<main class="content">` 中删除 ClipboardSuggestionBar**
 
 在 `apps/desktop/src/App.vue` 第 43 行，删除：
+
 ```html
-      <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
+<ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 ```
 
 **Step 2: 在模板根层最前面插入 ClipboardSuggestionBar**
 
 在 `<template>` 的第一个子元素位置（第 2 行之前）插入：
+
 ```html
-  <!-- 全局浮动：剪贴板智能提示（脱离 viewMode 分支，所有视图可见） -->
-  <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
+<!-- 全局浮动：剪贴板智能提示（脱离 viewMode 分支，所有视图可见） -->
+<ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 ```
 
 改动后模板开头结构：
+
 ```html
 <template>
   <!-- 全局浮动：剪贴板智能提示（脱离 viewMode 分支，所有视图可见） -->
   <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 
-  <div v-if="viewMode === 'main'" class="shell" ...>
-    ...
-  </div>
-  <div v-else-if="viewMode === 'snippet-workspace'" ...>
-    ...
+  <div v-if="viewMode === 'main'" class="shell" ...>...</div>
+  <div v-else-if="viewMode === 'snippet-workspace'" ...>...</div></template
+>
 ```
 
 ---
@@ -48,6 +50,7 @@
 ### Task 2: 样式改为 fixed 浮动 (ClipboardSuggestionBar.vue)
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ClipboardSuggestionBar.vue:126-374`（style 区域）
 
 **Step 1: 修改 `.cb-strip` 容器样式**
@@ -80,6 +83,7 @@
 ```
 
 关键变化：
+
 - 删除 `position: relative` → `position: fixed`
 - 新增 `top: 12px; left: 50%; transform: translateX(-50%);`
 - 新增 `z-index: 9000`

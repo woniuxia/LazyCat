@@ -28,6 +28,7 @@
 ## Task 1: 建立本地部署计划和目录集合
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs:197-350`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs` 的 `transaction_tests` 模块
 
@@ -215,6 +216,7 @@ git commit -m "feat(release-package): 增加远端部署计划"
 ## Task 2: 远端准备一次目录并保留串行回归入口
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs:280-620`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs` 的 `transaction_tests`
 
@@ -494,6 +496,7 @@ git commit -m "perf(release-package): 预创建远端上传目录"
 ## Task 3: 增加可关闭的多会话 SSH socket 注册表
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs:1-285,472-520`
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs:1-235,1287-1335,1418-1440`
 - Test: 上述两个文件内现有测试模块
@@ -657,6 +660,7 @@ git commit -m "feat(release-package): 支持关闭多个 SSH 上传连接"
 ## Task 4: 实现双目标 worker 协调和串行提交
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs:350-650`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_deploy.rs` 的新增并发测试模块
 
@@ -941,6 +945,7 @@ git commit -m "feat(release-package): 并行上传独立目标"
 ## Task 5: 接入 runtime 连接编排和进度节流
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs:221-340,822-930,1287-1478,1980-2030`
 - Test: `apps/desktop/src-tauri/src/tools/release_package_runtime.rs` 的 `pipeline_tests`
 
@@ -1224,6 +1229,7 @@ git commit -m "perf(release-package): 聚合并节流上传进度"
 ## Task 6: 补充真实 SSH fixture、经验文档和最终验证
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/release_package_remote.rs` 的 ignored fixture 测试
 - Modify: `docs/experience/release-package.md`
 - Test: Rust release-package 全量测试和可用时的 loopback SSH fixture

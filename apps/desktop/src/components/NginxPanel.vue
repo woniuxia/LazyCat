@@ -58,7 +58,7 @@
       <div class="setting-label">日志详细配置</div>
       <div class="log-row">
         <el-switch v-model="generateAccessLog" active-text="Access 日志" />
-        <el-select v-model="accessLogFormat" :disabled="!generateAccessLog" style="width: 140px;">
+        <el-select v-model="accessLogFormat" :disabled="!generateAccessLog" style="width: 140px">
           <el-option label="main" value="main" />
           <el-option label="combined" value="combined" />
           <el-option label="json" value="json" />
@@ -71,7 +71,7 @@
       </div>
       <div class="log-row">
         <el-switch v-model="generateErrorLog" active-text="Error 日志" />
-        <el-select v-model="errorLogLevel" :disabled="!generateErrorLog" style="width: 140px;">
+        <el-select v-model="errorLogLevel" :disabled="!generateErrorLog" style="width: 140px">
           <el-option label="debug" value="debug" />
           <el-option label="info" value="info" />
           <el-option label="notice" value="notice" />
@@ -89,7 +89,8 @@
         关闭访问日志时将生成 <code>access_log off;</code>，并不再输出自定义 access/error 日志项。
       </div>
       <div class="setting-hint">
-        使用 <code>json</code> 格式时，请在 nginx 的 <code>http {}</code> 块预先定义 <code>log_format json ...;</code>。
+        使用 <code>json</code> 格式时，请在 nginx 的 <code>http {}</code> 块预先定义
+        <code>log_format json ...;</code>。
       </div>
       <div v-if="generateAccessLog || generateErrorLog" class="log-preview">
         <div class="setting-label">样例日志</div>
@@ -116,9 +117,13 @@
 
     <div class="panel-grid-full">
       <el-space wrap>
-        <el-button type="primary" :loading="loadingGenerate" @click="generateConfig">生成配置</el-button>
+        <el-button type="primary" :loading="loadingGenerate" @click="generateConfig"
+          >生成配置</el-button
+        >
         <el-button :loading="loadingLint" @click="lintConfig">校验配置</el-button>
-        <el-button :loading="loadingGenerateAndLint" @click="generateAndLint">一键生成并校验</el-button>
+        <el-button :loading="loadingGenerateAndLint" @click="generateAndLint"
+          >一键生成并校验</el-button
+        >
         <el-button :disabled="!configOutput.trim()" @click="copyConfig">复制配置</el-button>
       </el-space>
     </div>
@@ -143,7 +148,9 @@
     <div class="panel-grid-full">
       <el-descriptions :column="3" border size="small">
         <el-descriptions-item label="校验状态">
-          <el-tag :type="lintValid ? 'success' : 'danger'">{{ lintValid ? "通过" : "未通过" }}</el-tag>
+          <el-tag :type="lintValid ? 'success' : 'danger'">{{
+            lintValid ? "通过" : "未通过"
+          }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="错误数">{{ lintErrorCount }}</el-descriptions-item>
         <el-descriptions-item label="警告数">{{ lintWarnCount }}</el-descriptions-item>
@@ -154,7 +161,9 @@
       <el-table-column prop="line" label="行号" width="90" />
       <el-table-column prop="level" label="级别" width="90">
         <template #default="{ row }">
-          <el-tag size="small" :type="row.level === 'error' ? 'danger' : 'warning'">{{ row.level }}</el-tag>
+          <el-tag size="small" :type="row.level === 'error' ? 'danger' : 'warning'">{{
+            row.level
+          }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="message" label="问题" min-width="500" show-overflow-tooltip />

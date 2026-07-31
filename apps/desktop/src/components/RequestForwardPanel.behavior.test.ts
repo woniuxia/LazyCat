@@ -2,10 +2,7 @@
 import { createRenderer, defineComponent, h, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ElMessageBox } from "element-plus";
-import type {
-  RequestForwardRule,
-  RequestForwardRuntimeStatus,
-} from "../types/request-forward";
+import type { RequestForwardRule, RequestForwardRuntimeStatus } from "../types/request-forward";
 
 const panelHarness = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -66,7 +63,7 @@ function createPanelRenderer() {
     nextSibling(node) {
       const siblings = node.parent?.children ?? [];
       const index = siblings.indexOf(node);
-      return index >= 0 ? siblings[index + 1] ?? null : null;
+      return index >= 0 ? (siblings[index + 1] ?? null) : null;
     },
     setScopeId() {},
     insertStaticContent(content, parent, anchor) {
@@ -110,12 +107,15 @@ function registerElementStubs(
   ]) {
     app.component(name, generic);
   }
-  app.component("el-button", defineComponent({
-    inheritAttrs: false,
-    setup(_props, { attrs, slots }) {
-      return () => h("button", attrs, slots.default?.());
-    },
-  }));
+  app.component(
+    "el-button",
+    defineComponent({
+      inheritAttrs: false,
+      setup(_props, { attrs, slots }) {
+        return () => h("button", attrs, slots.default?.());
+      },
+    }),
+  );
   app.directive("loading", () => undefined);
 }
 
@@ -179,10 +179,13 @@ afterEach(() => {
 describe("RequestForwardPanel log capture behavior", () => {
   it("does not poll logs while paused and loads them after explicit capture enable", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
     let captureEnabled = false;
     const status = (): RequestForwardRuntimeStatus => ({
       ruleId: rule.id,
@@ -232,31 +235,38 @@ describe("RequestForwardPanel log capture behavior", () => {
 
     await vi.advanceTimersByTimeAsync(2_000);
     await flushPanel();
-    expect(panelHarness.invoke.mock.calls.filter(
-      ([channel]) => channel === "tool:request-forward:log-list",
-    )).toHaveLength(initialLogCalls);
+    expect(
+      panelHarness.invoke.mock.calls.filter(
+        ([channel]) => channel === "tool:request-forward:log-list",
+      ),
+    ).toHaveLength(initialLogCalls);
 
     const enableButton = findButton(root, "实时采集");
     expect(enableButton?.props["aria-pressed"]).toBe(false);
-    await (enableButton?.props.onClick as (() => Promise<void>))();
+    await (enableButton?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
-    expect(panelHarness.invoke).toHaveBeenCalledWith(
-      "tool:request-forward:log-capture-update",
-      { id: rule.id, enabled: true },
-    );
-    expect(panelHarness.invoke.mock.calls.filter(
-      ([channel]) => channel === "tool:request-forward:log-list",
-    )).toHaveLength(initialLogCalls + 1);
+    expect(panelHarness.invoke).toHaveBeenCalledWith("tool:request-forward:log-capture-update", {
+      id: rule.id,
+      enabled: true,
+    });
+    expect(
+      panelHarness.invoke.mock.calls.filter(
+        ([channel]) => channel === "tool:request-forward:log-list",
+      ),
+    ).toHaveLength(initialLogCalls + 1);
     expect(findButton(root, "实时采集")?.props["aria-pressed"]).toBe(true);
     app.unmount();
   }, 10_000);
 
   it("imports a validated bundle atomically and selects the first imported rule", async () => {
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
     const importedRule = { ...rule, id: 8, name: "导入规则" };
     let imported = false;
     dialogHarness.open.mockReset();
@@ -275,11 +285,22 @@ describe("RequestForwardPanel log capture behavior", () => {
           lastObservabilityError: null,
           logCaptureEnabled: false,
         });
-        return { items: (imported ? [rule, importedRule] : [rule]).map((item) => statusFor(item.id)) };
+        return {
+          items: (imported ? [rule, importedRule] : [rule]).map((item) => statusFor(item.id)),
+        };
       }
       if (channel === "tool:request-forward:stats-get") {
         const id = (payload as { id: number }).id;
-        return { item: { ruleId: id, eventCount: 0, uploadBytes: 0, downloadBytes: 0, errorCount: 0, updatedAt: "" } };
+        return {
+          item: {
+            ruleId: id,
+            eventCount: 0,
+            uploadBytes: 0,
+            downloadBytes: 0,
+            errorCount: 0,
+            updatedAt: "",
+          },
+        };
       }
       if (channel === "tool:request-forward:log-list") return { items: [], total: 0 };
       if (channel === "tool:file:read-text") {
@@ -288,17 +309,19 @@ describe("RequestForwardPanel log capture behavior", () => {
             format: "lazycat.request-forward.rules",
             version: 1,
             exportedAt: "2026-07-31T08:00:00Z",
-            rules: [{
-              name: "导入规则",
-              protocol: "http",
-              bindHost: "127.0.0.1",
-              listenPort: 8081,
-              targetUrl: "http://127.0.0.1:3001",
-              targetHost: null,
-              targetPort: null,
-              captureHttpHeaders: true,
-              captureHttpBody: true,
-            }],
+            rules: [
+              {
+                name: "导入规则",
+                protocol: "http",
+                bindHost: "127.0.0.1",
+                listenPort: 8081,
+                targetUrl: "http://127.0.0.1:3001",
+                targetHost: null,
+                targetPort: null,
+                captureHttpHeaders: true,
+                captureHttpBody: true,
+              },
+            ],
           }),
         };
       }
@@ -318,14 +341,13 @@ describe("RequestForwardPanel log capture behavior", () => {
     await flushPanel();
 
     const importButton = findButtonByAriaLabel(root, "导入规则包");
-    await (importButton?.props.onClick as (() => Promise<void>))();
+    await (importButton?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
     expect(dialogHarness.open).toHaveBeenCalled();
-    expect(panelHarness.invoke).toHaveBeenCalledWith(
-      "tool:file:read-text",
-      { path: "E:\\tmp\\request-forward-rules.json" },
-    );
+    expect(panelHarness.invoke).toHaveBeenCalledWith("tool:file:read-text", {
+      path: "E:\\tmp\\request-forward-rules.json",
+    });
     expect(panelHarness.invoke).toHaveBeenCalledWith(
       "tool:request-forward:bundle-import",
       expect.objectContaining({ bundle: expect.objectContaining({ version: 1 }) }),

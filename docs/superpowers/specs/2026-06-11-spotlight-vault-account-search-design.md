@@ -68,10 +68,10 @@ let _ = conn.execute_batch("ALTER TABLE vault_entries ADD COLUMN plain_fields TE
 
 ### 新旧格式判定与统一读写
 
-| 状态 | `plain_fields` | `encrypted_blob` 解密后 |
-|---|---|---|
-| 旧格式（未迁移） | `NULL` | 完整字段 JSON（含 password） |
-| 新格式 | 非密码字段 JSON | `{"password": "..."}` |
+| 状态             | `plain_fields`  | `encrypted_blob` 解密后      |
+| ---------------- | --------------- | ---------------------------- |
+| 旧格式（未迁移） | `NULL`          | 完整字段 JSON（含 password） |
+| 新格式           | 非密码字段 JSON | `{"password": "..."}`        |
 
 `vault.rs` 新增两个纯函数（可单测）：
 
@@ -119,15 +119,15 @@ fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN])
 
 ## 后端接口变更（均不改返回结构的既有键）
 
-| 命令 | 变更 |
-|---|---|
-| `meta_list`（:925） | SELECT 增加 `plain_fields`；返回项追加 `"plainFields": <解析后的 JSON 对象，解析失败或未迁移均返回 null>`；keyword 过滤从 `title LIKE ?` 扩展为 `(title LIKE ? OR IFNULL(plain_fields,'') LIKE ?)`（口径一致性修补——当前所有调用方均不传 keyword） |
-| `create` / `update` | `build_fields()` 产物经 `split_fields` 拆两路：密码部分加密入 `encrypted_blob`，明文部分序列化入 `plain_fields`；INSERT/UPDATE 语句增加该列 |
-| `get` / `reveal_one` | 解密 blob 后经 `merge_fields` 合成完整 `fields` 返回，结构不变 |
-| `list`（:513） | 仍要求会话（鉴权语义不变）；`account`/`summary` 优先从 `plain_fields` 直接读取（省去逐行解密），`plain_fields IS NULL` 的行退回现状解密路径 |
-| `change_password` | 见迁移设计触达路径 2 |
-| `unlock` | 会话建立后调用 `backfill_plain_fields` |
-| `record_usage` | **取消活跃会话要求**（现要求会话，vault.rs:850）——它仅递增明文计数列 `view_count`/`copy_count`，与 `meta_list` 免会话口径一致；否则锁定态「复制账号」的计数会静默丢失 |
+| 命令                 | 变更                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `meta_list`（:925）  | SELECT 增加 `plain_fields`；返回项追加 `"plainFields": <解析后的 JSON 对象，解析失败或未迁移均返回 null>`；keyword 过滤从 `title LIKE ?` 扩展为 `(title LIKE ? OR IFNULL(plain_fields,'') LIKE ?)`（口径一致性修补——当前所有调用方均不传 keyword） |
+| `create` / `update`  | `build_fields()` 产物经 `split_fields` 拆两路：密码部分加密入 `encrypted_blob`，明文部分序列化入 `plain_fields`；INSERT/UPDATE 语句增加该列                                                                                                        |
+| `get` / `reveal_one` | 解密 blob 后经 `merge_fields` 合成完整 `fields` 返回，结构不变                                                                                                                                                                                     |
+| `list`（:513）       | 仍要求会话（鉴权语义不变）；`account`/`summary` 优先从 `plain_fields` 直接读取（省去逐行解密），`plain_fields IS NULL` 的行退回现状解密路径                                                                                                        |
+| `change_password`    | 见迁移设计触达路径 2                                                                                                                                                                                                                               |
+| `unlock`             | 会话建立后调用 `backfill_plain_fields`                                                                                                                                                                                                             |
+| `record_usage`       | **取消活跃会话要求**（现要求会话，vault.rs:850）——它仅递增明文计数列 `view_count`/`copy_count`，与 `meta_list` 免会话口径一致；否则锁定态「复制账号」的计数会静默丢失                                                                              |
 
 `build_fields()` 本身不改（仍产出完整字段 JSON，拆分发生在其后），现有 `test_build_fields_*` 单测不受影响。
 
@@ -157,16 +157,16 @@ plainFields?: VaultPlainFields | null;
 
 > 空串过滤对全部字段生效（含存量的标签/分类/环境字段——现状空串也会入索引），属顺带的轻微行为变更，无实际匹配影响，由单测锁定。
 
-| 字段 | 权重 | 说明 |
-|---|---|---|
-| 标题 | 1.2 | 现状不变 |
-| **账号 account** | **1.1** | 新增，仅次于标题 |
-| 标签 | 1.0 | 现状不变 |
-| **url / address / dbName / schema** | **0.8** | 新增 |
-| 环境 | 0.7 | 现状不变 |
-| 分类 | 0.6 | 现状不变 |
-| **serverType / dbType** | **0.6** | 新增 |
-| **备注 notes** | **0.5** | 新增，权重最低 |
+| 字段                                | 权重    | 说明             |
+| ----------------------------------- | ------- | ---------------- |
+| 标题                                | 1.2     | 现状不变         |
+| **账号 account**                    | **1.1** | 新增，仅次于标题 |
+| 标签                                | 1.0     | 现状不变         |
+| **url / address / dbName / schema** | **0.8** | 新增             |
+| 环境                                | 0.7     | 现状不变         |
+| 分类                                | 0.6     | 现状不变         |
+| **serverType / dbType**             | **0.6** | 新增             |
+| **备注 notes**                      | **0.5** | 新增，权重最低   |
 
 ### 副标题
 
@@ -234,12 +234,12 @@ test_merge_fields_invalid_plain_text
 
 ## 影响面
 
-| 文件 | 改动 |
-|---|---|
-| `apps/desktop/src-tauri/src/tools/helpers.rs` | `vault_entries` 增加 `plain_fields` 列迁移（1 行） |
-| `apps/desktop/src-tauri/src/tools/vault.rs` | 新增 `split_fields`/`merge_fields`/`backfill_plain_fields`；`meta_list`/`create`/`update`/`get`/`list`/`reveal_one`/`change_password`/`unlock` 适配；新增单测 |
-| `apps/desktop/src/spotlight/providers/vault.ts` | `VaultPlainFields` 类型、searchFields 扩展、副标题改版、`copy_account` 动作 |
-| `apps/desktop/src/spotlight/providers/vault.test.ts` | 新增 |
+| 文件                                                 | 改动                                                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src-tauri/src/tools/helpers.rs`        | `vault_entries` 增加 `plain_fields` 列迁移（1 行）                                                                                                            |
+| `apps/desktop/src-tauri/src/tools/vault.rs`          | 新增 `split_fields`/`merge_fields`/`backfill_plain_fields`；`meta_list`/`create`/`update`/`get`/`list`/`reveal_one`/`change_password`/`unlock` 适配；新增单测 |
+| `apps/desktop/src/spotlight/providers/vault.ts`      | `VaultPlainFields` 类型、searchFields 扩展、副标题改版、`copy_account` 动作                                                                                   |
+| `apps/desktop/src/spotlight/providers/vault.test.ts` | 新增                                                                                                                                                          |
 
 **不动**：`VaultPanel.vue`、`SpotlightPanel.vue`、`SpotlightVaultUnlockInput.vue`、`bridge/tauri.ts`（通道已存在）、`utils/vaultClipboard.ts`、`build_fields()` 及其单测。
 

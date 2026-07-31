@@ -107,7 +107,10 @@ export function usePmSiyuan(deps: {
 
   // ── Computed: item effective location ──────────────────
   const itemEffectiveLocation = computed(() =>
-    resolvePmSiyuanEffectiveLocation(deps.dialogProjectSiyuanOverride.value, globalSiyuanLocation.value),
+    resolvePmSiyuanEffectiveLocation(
+      deps.dialogProjectSiyuanOverride.value,
+      globalSiyuanLocation.value,
+    ),
   );
 
   // ── Computed: config ───────────────────────────────────
@@ -133,12 +136,13 @@ export function usePmSiyuan(deps: {
   });
   const locationPickerTreeKey = computed(
     () =>
-      `${locationPickerTarget.value}:${locationPickerSearchKeyword.value}:${
-        locationPickerExpandedKeys.value.join("|")
-      }:${locationPickerValue.value?.parentDocId ?? locationPickerValue.value?.notebookId ?? "none"}`,
+      `${locationPickerTarget.value}:${locationPickerSearchKeyword.value}:${locationPickerExpandedKeys.value.join(
+        "|",
+      )}:${locationPickerValue.value?.parentDocId ?? locationPickerValue.value?.notebookId ?? "none"}`,
   );
   const locationPickerCurrentNodeKey = computed(
-    () => locationPickerValue.value?.parentDocId ?? locationPickerValue.value?.notebookId ?? undefined,
+    () =>
+      locationPickerValue.value?.parentDocId ?? locationPickerValue.value?.notebookId ?? undefined,
   );
   const locationPickerSelectionTarget = computed(() =>
     formatPmSiyuanLocationTargetLabel(locationPickerValue.value),
@@ -184,8 +188,10 @@ export function usePmSiyuan(deps: {
       pageLocationState.value === "missing-location" ||
       pageLocationState.value === "invalid-location" ||
       pageLocationState.value === "missing-config"
-    ) return false;
-    if (pageLocationState.value === "load-error" && pageLocationResults.value.length === 0) return false;
+    )
+      return false;
+    if (pageLocationState.value === "load-error" && pageLocationResults.value.length === 0)
+      return false;
     return true;
   });
   const pageDialogTitle = computed(() => {
@@ -222,7 +228,10 @@ export function usePmSiyuan(deps: {
       Boolean(itemEffectiveLocation.value),
   );
   const pageShowAllLoading = computed(
-    () => pageResultSource.value === "all" && pageSearchingAll.value && pageAllResults.value.length === 0,
+    () =>
+      pageResultSource.value === "all" &&
+      pageSearchingAll.value &&
+      pageAllResults.value.length === 0,
   );
   const pageEmptyMessage = computed(() => {
     if (pageResultSource.value === "all") {
@@ -287,10 +296,15 @@ export function usePmSiyuan(deps: {
         loadingDirectory.value = true;
         error.value = "";
         errorContext.value = null;
-        const result = (await invokeToolByChannel("tool:pm:siyuan-directory", { baseUrl, token })) as PmSiyuanDirectoryResult;
+        const result = (await invokeToolByChannel("tool:pm:siyuan-directory", {
+          baseUrl,
+          token,
+        })) as PmSiyuanDirectoryResult;
         directory.value = result?.notebooks ?? [];
         directoryFetchedAt.value = result?.fetchedAt
-          ? (typeof result.fetchedAt === "string" ? result.fetchedAt : new Date().toLocaleString())
+          ? typeof result.fetchedAt === "string"
+            ? result.fetchedAt
+            : new Date().toLocaleString()
           : new Date().toLocaleString();
         if (showSuccess) ElMessage.success("目录已加载");
         return true;
@@ -312,7 +326,9 @@ export function usePmSiyuan(deps: {
   }
 
   // ── Config functions (D10) ─────────────────────────────
-  function openDrawer() { drawerVisible.value = true; }
+  function openDrawer() {
+    drawerVisible.value = true;
+  }
 
   function saveConfig() {
     try {
@@ -335,7 +351,9 @@ export function usePmSiyuan(deps: {
       testing.value = true;
       error.value = "";
       errorContext.value = null;
-      const result = (await invokeToolByChannel("tool:pm:siyuan-test", { baseUrl, token })) as { version?: string };
+      const result = (await invokeToolByChannel("tool:pm:siyuan-test", { baseUrl, token })) as {
+        version?: string;
+      };
       testingVersion.value = result.version ?? "未知版本";
       ElMessage.success("连接成功");
     } catch (err) {
@@ -363,8 +381,12 @@ export function usePmSiyuan(deps: {
     if (isPmSiyuanNotebookDirectory(data)) {
       if (data.closed) return null;
       return {
-        notebookId: data.id, notebookName: data.name,
-        parentDocId: null, parentDocTitle: null, parentHpath: null, parentPath: null,
+        notebookId: data.id,
+        notebookName: data.name,
+        parentDocId: null,
+        parentDocTitle: null,
+        parentHpath: null,
+        parentPath: null,
       };
     }
     let current = node.parent ?? null;
@@ -374,9 +396,12 @@ export function usePmSiyuan(deps: {
     const notebook = current?.data as PmSiyuanNotebookDirectory | undefined;
     if (!notebook || notebook.closed) return null;
     return {
-      notebookId: notebook.id, notebookName: notebook.name,
-      parentDocId: data.id, parentDocTitle: data.name,
-      parentHpath: data.hpath, parentPath: data.path,
+      notebookId: notebook.id,
+      notebookName: notebook.name,
+      parentDocId: data.id,
+      parentDocTitle: data.name,
+      parentHpath: data.hpath,
+      parentPath: data.path,
     };
   }
 
@@ -428,26 +453,38 @@ export function usePmSiyuan(deps: {
     locationDialogVisible.value = false;
   }
 
-  function clearLocationPicker() { locationPickerValue.value = null; }
+  function clearLocationPicker() {
+    locationPickerValue.value = null;
+  }
 
-  function clearProjectSiyuanOverride() { deps.setProjectFormSiyuanOverride(false, null); }
+  function clearProjectSiyuanOverride() {
+    deps.setProjectFormSiyuanOverride(false, null);
+  }
 
   // ── Item page management ───────────────────────────────
   function applyItemPrimaryPage(page: PmSiyuanPageRef | null) {
-    const result = setPmSiyuanPrimaryPage(deps.itemPrimaryPage.value, deps.itemExtraPages.value, page);
+    const result = setPmSiyuanPrimaryPage(
+      deps.itemPrimaryPage.value,
+      deps.itemExtraPages.value,
+      page,
+    );
     deps.itemPrimaryPage.value = result.primaryPage ? { ...result.primaryPage } : null;
     deps.itemExtraPages.value = clonePages(result.extraPages);
   }
 
   function addItemExtraPage(page: PmSiyuanPageRef) {
     deps.itemExtraPages.value = addPmSiyuanExtraPage(
-      deps.itemPrimaryPage.value, deps.itemExtraPages.value, page,
+      deps.itemPrimaryPage.value,
+      deps.itemExtraPages.value,
+      page,
     ).map((item) => ({ ...item }));
   }
 
   function hasItemLinkedPage(docId: string): boolean {
-    return deps.itemPrimaryPage.value?.docId === docId ||
-      deps.itemExtraPages.value.some((p) => p.docId === docId);
+    return (
+      deps.itemPrimaryPage.value?.docId === docId ||
+      deps.itemExtraPages.value.some((p) => p.docId === docId)
+    );
   }
 
   function removeItemLinkedPage(docId: string) {
@@ -490,7 +527,9 @@ export function usePmSiyuan(deps: {
     pageLocationRefreshError.value = "";
   }
 
-  async function refreshPageLocationResults(options: { keepResultsOnError?: boolean; sessionId?: number } = {}) {
+  async function refreshPageLocationResults(
+    options: { keepResultsOnError?: boolean; sessionId?: number } = {},
+  ) {
     const { keepResultsOnError = false, sessionId = pageDialogSessionId.value } = options;
     if (!configReady.value) {
       pageLocationResults.value = [];
@@ -517,7 +556,10 @@ export function usePmSiyuan(deps: {
     pageLocationRefreshError.value = error.value || "当前位置列表加载失败，请稍后重试。";
   }
 
-  async function openPageDialog(mode: "primary" | "extra", intent: "link" | "replace-primary" = "link") {
+  async function openPageDialog(
+    mode: "primary" | "extra",
+    intent: "link" | "replace-primary" = "link",
+  ) {
     resetPageDialogState(mode);
     pageDialogIntent.value = intent;
     if (!deps.editingItem.value && mode === "primary") {
@@ -553,14 +595,18 @@ export function usePmSiyuan(deps: {
       ElMessage.warning("请输入至少 2 个字符后再扩展到全库");
       return;
     }
-    try { ensureConfig(); } catch (err) {
+    try {
+      ensureConfig();
+    } catch (err) {
       ElMessage.warning((err as Error).message);
       return;
     }
     try {
       pageSearchingAll.value = true;
       const result = (await invokeToolByChannel("tool:pm:siyuan-search-pages", {
-        keyword, searchAll: true, location: null,
+        keyword,
+        searchAll: true,
+        location: null,
       })) as PmSiyuanSearchResult;
       if (sessionId !== pageDialogSessionId.value) return;
       pageAllResults.value = clonePages(result?.items ?? []);
@@ -608,7 +654,10 @@ export function usePmSiyuan(deps: {
     }
     try {
       pageCreating.value = true;
-      const dateRange = normalizePmDateRangeForDraft(deps.itemForm.value.startAt, deps.itemForm.value.endAt);
+      const dateRange = normalizePmDateRangeForDraft(
+        deps.itemForm.value.startAt,
+        deps.itemForm.value.endAt,
+      );
       const result = (await invokeToolByChannel("tool:pm:siyuan-create-page", {
         title,
         description: deps.itemForm.value.description,
@@ -649,7 +698,10 @@ export function usePmSiyuan(deps: {
   async function checkSiyuanRunning(): Promise<boolean> {
     try {
       const { baseUrl, token } = ensureConfig();
-      const result = (await invokeToolByChannel("tool:pm:siyuan-check-running", { baseUrl, token })) as {
+      const result = (await invokeToolByChannel("tool:pm:siyuan-check-running", {
+        baseUrl,
+        token,
+      })) as {
         running: boolean;
       };
       return result.running;
@@ -660,7 +712,9 @@ export function usePmSiyuan(deps: {
 
   async function launchSiyuan(): Promise<boolean> {
     try {
-      const result = (await invokeToolByChannel("tool:pm:siyuan-launch", {})) as { launched: boolean };
+      const result = (await invokeToolByChannel("tool:pm:siyuan-launch", {})) as {
+        launched: boolean;
+      };
       return result.launched;
     } catch (err) {
       ElMessage.error((err as Error).message);

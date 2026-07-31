@@ -12,11 +12,16 @@
     <template v-else-if="viewState === 'project-only'">
       <div class="pm-project-only-card">
         <span class="proj-dot" :style="{ background: projectColor || '#909399' }" />
-        <span class="pm-project-only-name">{{ projectName || '未命名项目' }}</span>
+        <span class="pm-project-only-name">{{ projectName || "未命名项目" }}</span>
         <span class="pm-only-tag">仅项目</span>
         <button type="button" class="pm-close-btn" title="清除项目关联" @click="emit('clear-all')">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path
+              d="M4 4l8 8M12 4l-8 8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
         </button>
       </div>
@@ -34,9 +39,19 @@
     <template v-else-if="viewState === 'linked'">
       <div class="pm-linked-card">
         <div class="pm-linked-body">
-          <button type="button" class="pm-close-btn is-corner" title="解除关联" @click="emit('unlink')">
+          <button
+            type="button"
+            class="pm-close-btn is-corner"
+            title="解除关联"
+            @click="emit('unlink')"
+          >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
             </svg>
           </button>
           <div class="pm-linked-line-1">
@@ -48,7 +63,9 @@
             >
               {{ pmStatusLabel(pmItemStatus) }}
             </el-tag>
-            <span class="pm-linked-title" :title="pmItemTitle || ''">{{ pmItemTitle || `#${pmItemId}` }}</span>
+            <span class="pm-linked-title" :title="pmItemTitle || ''">{{
+              pmItemTitle || `#${pmItemId}`
+            }}</span>
           </div>
           <div v-if="projectName" class="pm-linked-line-2">
             <span class="pm-linked-project">
@@ -85,7 +102,12 @@
           </div>
           <button type="button" class="pm-search-close" title="收起" @click="closeSearch">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
             </svg>
           </button>
         </div>
@@ -99,18 +121,20 @@
             clearable
             @input="onSearchInput"
           />
-          <div v-if="!projectId" class="pm-hint">
-            请先在「仅项目」Tab 选择一个项目
-          </div>
+          <div v-if="!projectId" class="pm-hint">请先在「仅项目」Tab 选择一个项目</div>
           <div v-else-if="candidatesLoading" class="pm-hint">搜索中...</div>
           <div v-else-if="candidates.length === 0" class="pm-hint">
-            {{ keyword ? '未找到匹配的工作项' : '该项目暂无工作项' }}
+            {{ keyword ? "未找到匹配的工作项" : "该项目暂无工作项" }}
           </div>
           <div v-else class="pm-cand-groups">
-            <div v-for="group in groupedCandidates" :key="group.projectId ?? 0" class="pm-cand-group">
+            <div
+              v-for="group in groupedCandidates"
+              :key="group.projectId ?? 0"
+              class="pm-cand-group"
+            >
               <div class="pm-cand-group-head">
                 <span class="proj-dot" :style="{ background: group.color || '#909399' }" />
-                <span class="pm-cand-group-name">{{ group.name || '未命名项目' }}</span>
+                <span class="pm-cand-group-name">{{ group.name || "未命名项目" }}</span>
                 <span class="pm-cand-group-count">{{ group.items.length }}</span>
               </div>
               <div class="pm-cand-group-body">
@@ -130,13 +154,7 @@
             </div>
           </div>
           <div class="pm-search-footer">
-            <el-button
-              size="small"
-              link
-              type="primary"
-              :disabled="!projectId"
-              @click="gotoCreate"
-            >
+            <el-button size="small" link type="primary" :disabled="!projectId" @click="gotoCreate">
               + 新建工作项
             </el-button>
           </div>
@@ -144,14 +162,9 @@
 
         <!-- Tab: 仅项目 -->
         <div v-else class="pm-search-body">
-          <el-input
-            v-model="projectKeyword"
-            size="small"
-            placeholder="搜索项目名"
-            clearable
-          />
+          <el-input v-model="projectKeyword" size="small" placeholder="搜索项目名" clearable />
           <div v-if="filteredProjects.length === 0" class="pm-hint">
-            {{ projectKeyword ? '未找到匹配的项目' : '暂无可用项目' }}
+            {{ projectKeyword ? "未找到匹配的项目" : "暂无可用项目" }}
           </div>
           <div v-else class="pm-project-list">
             <div
@@ -182,12 +195,7 @@
         <div class="pm-create-field">
           <label class="pm-create-label">所属项目</label>
           <el-select v-model="createProjectId" size="small" style="width: 100%">
-            <el-option
-              v-for="p in projectList"
-              :key="p.id"
-              :label="p.name"
-              :value="p.id"
-            />
+            <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
         </div>
         <div class="pm-create-field">
@@ -428,10 +436,18 @@ function priorityClass(priority: string | null | undefined): string {
   flex-shrink: 0;
   display: inline-block;
 }
-.prio-dot--p0 { background: #f56c6c; }
-.prio-dot--p1 { background: #e6a23c; }
-.prio-dot--p2 { background: #909399; }
-.prio-dot--p3 { background: #c0c4cc; }
+.prio-dot--p0 {
+  background: #f56c6c;
+}
+.prio-dot--p1 {
+  background: #e6a23c;
+}
+.prio-dot--p2 {
+  background: #909399;
+}
+.prio-dot--p3 {
+  background: #c0c4cc;
+}
 
 .muted-link {
   color: var(--el-text-color-secondary) !important;
@@ -448,7 +464,9 @@ function priorityClass(priority: string | null | undefined): string {
   color: var(--el-text-color-placeholder);
   display: inline-grid;
   place-items: center;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   flex-shrink: 0;
 }
 .pm-close-btn:hover {
@@ -471,7 +489,9 @@ function priorityClass(priority: string | null | undefined): string {
   border-radius: 8px;
   cursor: pointer;
   background: var(--el-fill-color-lighter);
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 .pm-empty-card:hover {
   border-color: var(--el-color-primary);

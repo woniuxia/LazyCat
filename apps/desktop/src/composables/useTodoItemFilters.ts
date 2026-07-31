@@ -22,7 +22,8 @@ export function useTodoItemFilters(options: TodoItemFiltersOptions) {
     return items.value.filter((item) => {
       if (!keyword) return true;
       return (
-        item.title.toLowerCase().includes(keyword) || item.description.toLowerCase().includes(keyword)
+        item.title.toLowerCase().includes(keyword) ||
+        item.description.toLowerCase().includes(keyword)
       );
     });
   });
@@ -44,7 +45,9 @@ export function useTodoItemFilters(options: TodoItemFiltersOptions) {
   const recentWeekItems = computed(() => bucketedItems.value.recentWeekItems);
   const doneItems = computed(() => bucketedItems.value.doneItems);
 
-  const hasActiveFilter = computed(() => filterType.value !== null || filterPriority.value !== null);
+  const hasActiveFilter = computed(
+    () => filterType.value !== null || filterPriority.value !== null,
+  );
 
   function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
     let result = list;

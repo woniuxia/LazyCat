@@ -73,7 +73,10 @@
           <div
             v-for="row in result.versions"
             :key="row.version"
-            :class="['maven-version-card', { 'maven-current-version': row.version === parsed?.version }]"
+            :class="[
+              'maven-version-card',
+              { 'maven-current-version': row.version === parsed?.version },
+            ]"
           >
             <div class="maven-version-header">
               <span class="maven-version-name">{{ row.version }}</span>
@@ -85,12 +88,7 @@
               <span class="maven-version-size">
                 {{ row.hasJar ? formatSize(row.jarSize) : "-" }}
               </span>
-              <el-button
-                v-if="row.hasJar"
-                link
-                size="small"
-                @click="openVersionDir(row.version)"
-              >
+              <el-button v-if="row.hasJar" link size="small" @click="openVersionDir(row.version)">
                 打开
               </el-button>
             </div>

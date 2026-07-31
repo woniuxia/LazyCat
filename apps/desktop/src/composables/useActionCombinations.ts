@@ -93,9 +93,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   function updateCombinationRunStatus(run: ActionCombinationRunDetail): void {
     if (typeof run.combinationId !== "number") return;
     combinations.value = combinations.value.map((summary) =>
-      summary.id === run.combinationId
-        ? { ...summary, latestRunStatus: run.status }
-        : summary,
+      summary.id === run.combinationId ? { ...summary, latestRunStatus: run.status } : summary,
     );
   }
 
@@ -106,9 +104,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     }
   }
 
-  async function loadDefinitions(
-    expectedGeneration = lifecycleGeneration,
-  ): Promise<void> {
+  async function loadDefinitions(expectedGeneration = lifecycleGeneration): Promise<void> {
     const response = (await invokeToolByChannel(
       "tool:action-center:combination-definition-list",
       {},
@@ -117,18 +113,16 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     definitions.value = response.definitions;
   }
 
-  async function loadCombinations(
-    expectedGeneration = lifecycleGeneration,
-  ): Promise<void> {
+  async function loadCombinations(expectedGeneration = lifecycleGeneration): Promise<void> {
     const requestVersion = ++combinationListRequestVersion;
-    const response = (await invokeToolByChannel(
-      "tool:action-center:combination-list",
-      {},
-    )) as { combinations: ActionCombinationSummary[] };
+    const response = (await invokeToolByChannel("tool:action-center:combination-list", {})) as {
+      combinations: ActionCombinationSummary[];
+    };
     if (
-      expectedGeneration !== lifecycleGeneration
-      || requestVersion !== combinationListRequestVersion
-    ) return;
+      expectedGeneration !== lifecycleGeneration ||
+      requestVersion !== combinationListRequestVersion
+    )
+      return;
     const currentRun = activeRun.value;
     combinations.value = response.combinations.map((summary) =>
       currentRun?.combinationId === summary.id
@@ -138,10 +132,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   }
 
   async function fetchRunHistory(combinationId: number): Promise<ActionCombinationRunDetail[]> {
-    const response = (await invokeToolByChannel(
-      "tool:action-center:combination-run-list",
-      { combinationId },
-    )) as { runs: ActionCombinationRunDetail[] };
+    const response = (await invokeToolByChannel("tool:action-center:combination-run-list", {
+      combinationId,
+    })) as { runs: ActionCombinationRunDetail[] };
     return response.runs;
   }
 
@@ -150,9 +143,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const version = ++historyRequestVersion;
     const runs = await fetchRunHistory(combinationId);
     if (
-      generation === lifecycleGeneration
-      && version === historyRequestVersion
-      && selectedId.value === combinationId
+      generation === lifecycleGeneration &&
+      version === historyRequestVersion &&
+      selectedId.value === combinationId
     ) {
       runHistory.value = runs;
     }
@@ -173,10 +166,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
 
   async function refreshActiveRun(runId: string): Promise<void> {
     const version = ++runRefreshVersion;
-    const run = (await invokeToolByChannel(
-      "tool:action-center:combination-run-get",
-      { runId },
-    )) as ActionCombinationRunDetail;
+    const run = (await invokeToolByChannel("tool:action-center:combination-run-get", {
+      runId,
+    })) as ActionCombinationRunDetail;
     if (version !== runRefreshVersion || activeRun.value?.id !== runId) return;
     activeRun.value = run;
     updateCombinationRunStatus(run);
@@ -188,10 +180,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   }
 
   async function getRun(runId: string): Promise<ActionCombinationRunDetail> {
-    return (await invokeToolByChannel(
-      "tool:action-center:combination-run-get",
-      { runId },
-    )) as ActionCombinationRunDetail;
+    return (await invokeToolByChannel("tool:action-center:combination-run-get", {
+      runId,
+    })) as ActionCombinationRunDetail;
   }
 
   function schedulePoll(runId: string): void {
@@ -277,10 +268,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const generation = lifecycleGeneration;
     const version = ++selectionVersion;
     historyRequestVersion += 1;
-    const detail = (await invokeToolByChannel(
-      "tool:action-center:combination-get",
-      { combinationId },
-    )) as ActionCombinationDetail;
+    const detail = (await invokeToolByChannel("tool:action-center:combination-get", {
+      combinationId,
+    })) as ActionCombinationDetail;
     if (generation !== lifecycleGeneration || version !== selectionVersion) return;
     selectedId.value = detail.id;
     selectedCombination.value = detail;
@@ -321,14 +311,11 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const clearedTargets = new Map(stepTargets.value);
     clearedTargets.delete(localStepId);
     stepTargets.value = clearedTargets;
-    const response = (await invokeToolByChannel(
-      "tool:action-center:combination-target-list",
-      { actionType },
-    )) as { targets: ActionCombinationTarget[] };
-    if (
-      generation !== lifecycleGeneration
-      || targetRequestVersions.get(localStepId) !== version
-    ) return;
+    const response = (await invokeToolByChannel("tool:action-center:combination-target-list", {
+      actionType,
+    })) as { targets: ActionCombinationTarget[] };
+    if (generation !== lifecycleGeneration || targetRequestVersions.get(localStepId) !== version)
+      return;
     const next = new Map(stepTargets.value);
     next.set(localStepId, response.targets);
     stepTargets.value = next;
@@ -346,10 +333,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     saving.value = true;
     try {
       const input = toCombinationSaveInput(draft.value);
-      const response = (await invokeToolByChannel(
-        "tool:action-center:combination-save",
-        { ...input },
-      )) as { id: number };
+      const response = (await invokeToolByChannel("tool:action-center:combination-save", {
+        ...input,
+      })) as { id: number };
       const result: ActionCombinationSaveResult = { id: response.id };
       if (generation !== lifecycleGeneration) return result;
       commitSavedDraft(response.id);
@@ -385,10 +371,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const generation = lifecycleGeneration;
     starting.value = true;
     try {
-      const run = (await invokeToolByChannel(
-        "tool:action-center:combination-run",
-        { combinationId },
-      )) as ActionCombinationRunDetail;
+      const run = (await invokeToolByChannel("tool:action-center:combination-run", {
+        combinationId,
+      })) as ActionCombinationRunDetail;
       await trackRun(run, generation);
       return run;
     } finally {

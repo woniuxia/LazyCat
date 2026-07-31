@@ -30,7 +30,10 @@ describe("buildQuickAddPayload", () => {
       baseContext,
       new Date(2026, 6, 4, 14, 3, 0, 0),
     );
-    expect(splitDateTime(payload?.eventAt as string)).toEqual({ date: "2026-07-04", time: "14:05" });
+    expect(splitDateTime(payload?.eventAt as string)).toEqual({
+      date: "2026-07-04",
+      time: "14:05",
+    });
   });
 
   it("moves 'today' forward even when already on a tick", () => {
@@ -39,7 +42,10 @@ describe("buildQuickAddPayload", () => {
       baseContext,
       new Date(2026, 6, 4, 14, 0, 0, 0),
     );
-    expect(splitDateTime(payload?.eventAt as string)).toEqual({ date: "2026-07-04", time: "14:05" });
+    expect(splitDateTime(payload?.eventAt as string)).toEqual({
+      date: "2026-07-04",
+      time: "14:05",
+    });
   });
 
   it("carries 'today' across midnight into the next day", () => {
@@ -48,7 +54,10 @@ describe("buildQuickAddPayload", () => {
       baseContext,
       new Date(2026, 6, 4, 23, 58, 0, 0),
     );
-    expect(splitDateTime(payload?.eventAt as string)).toEqual({ date: "2026-07-05", time: "00:00" });
+    expect(splitDateTime(payload?.eventAt as string)).toEqual({
+      date: "2026-07-05",
+      time: "00:00",
+    });
   });
 
   it("uses 09:00 for 'tomorrow' and explicit dates", () => {
@@ -57,7 +66,10 @@ describe("buildQuickAddPayload", () => {
       baseContext,
       new Date(2026, 6, 4, 14, 3, 0, 0),
     );
-    expect(splitDateTime(tomorrow?.eventAt as string)).toEqual({ date: "2026-07-05", time: "09:00" });
+    expect(splitDateTime(tomorrow?.eventAt as string)).toEqual({
+      date: "2026-07-05",
+      time: "09:00",
+    });
 
     const picked = buildQuickAddPayload(
       buildInput({ dateChoice: { kind: "date", date: "2026-07-20" } }),
@@ -73,7 +85,10 @@ describe("buildQuickAddPayload", () => {
       baseContext,
       new Date(2026, 6, 31, 10, 0, 0, 0),
     );
-    expect(splitDateTime(payload?.eventAt as string)).toEqual({ date: "2026-08-01", time: "09:00" });
+    expect(splitDateTime(payload?.eventAt as string)).toEqual({
+      date: "2026-08-01",
+      time: "09:00",
+    });
   });
 
   it("omits eventAt when no date is chosen", () => {

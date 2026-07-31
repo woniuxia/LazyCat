@@ -7,8 +7,12 @@ describe("TodoPanel title enter behavior", () => {
   it("saves both create and edit forms when Enter is pressed in the title input", () => {
     expect(source).toContain('@title-enter="onTitleEnter"');
     expect(source).toContain("function onTitleEnter(event: KeyboardEvent)");
-    expect(source).toMatch(/detailMode\.value\s*===\s*"create"[\s\S]*itemDialogMode\.value\s*===\s*"create"/);
-    expect(source).toMatch(/detailMode\.value\s*===\s*"edit"[\s\S]*itemDialogMode\.value\s*===\s*"edit_item"/);
+    expect(source).toMatch(
+      /detailMode\.value\s*===\s*"create"[\s\S]*itemDialogMode\.value\s*===\s*"create"/,
+    );
+    expect(source).toMatch(
+      /detailMode\.value\s*===\s*"edit"[\s\S]*itemDialogMode\.value\s*===\s*"edit_item"/,
+    );
     expect(source).toMatch(/void saveItem\(\)/);
   });
 });

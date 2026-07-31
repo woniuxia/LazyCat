@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  PmSiyuanLocation,
-  PmSiyuanNotebookDirectory,
-  PmSiyuanPageRef,
-} from "../types/pm";
+import type { PmSiyuanLocation, PmSiyuanNotebookDirectory, PmSiyuanPageRef } from "../types/pm";
 import {
   addPmSiyuanExtraPage,
   collectPmSiyuanPagesForLocation,
@@ -181,7 +177,11 @@ describe("pmSiyuan utils", () => {
     const result = collectPmSiyuanPagesForLocation(createNotebookTree(), rootLocation);
 
     expect(result.state).toBe("ready");
-    expect(result.pages.map((page) => page.docId)).toEqual(["doc-parent", "doc-child", "doc-alone"]);
+    expect(result.pages.map((page) => page.docId)).toEqual([
+      "doc-parent",
+      "doc-child",
+      "doc-alone",
+    ]);
   });
 
   it("collects parent page and descendants for a child location", () => {

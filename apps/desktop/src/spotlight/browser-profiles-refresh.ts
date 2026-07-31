@@ -10,16 +10,12 @@ export function createBrowserProfilesRefreshGuard(): BrowserProfilesRefreshGuard
   return { writeVersion: 0 };
 }
 
-export function beginBrowserProfilesLocalRefresh(
-  guard: BrowserProfilesRefreshGuard,
-): number {
+export function beginBrowserProfilesLocalRefresh(guard: BrowserProfilesRefreshGuard): number {
   guard.writeVersion += 1;
   return guard.writeVersion;
 }
 
-export function captureBrowserProfilesPrefetchVersion(
-  guard: BrowserProfilesRefreshGuard,
-): number {
+export function captureBrowserProfilesPrefetchVersion(guard: BrowserProfilesRefreshGuard): number {
   return guard.writeVersion;
 }
 

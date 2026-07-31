@@ -22,6 +22,7 @@
 ### Task 1: 当前参考卡按 Esc 关闭
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ReferenceCard.contract.test.ts`
 - Modify: `apps/desktop/src/components/ReferenceCard.vue`
 - Test: `apps/desktop/src/components/ReferenceCard.contract.test.ts`
@@ -32,12 +33,8 @@
 
 ```typescript
 it("closes the focused card on Escape before Monaco handles it", () => {
-  expect(component).toContain(
-    'window.addEventListener("keydown", onWindowKeydown, true)',
-  );
-  expect(component).toContain(
-    'window.removeEventListener("keydown", onWindowKeydown, true)',
-  );
+  expect(component).toContain('window.addEventListener("keydown", onWindowKeydown, true)');
+  expect(component).toContain('window.removeEventListener("keydown", onWindowKeydown, true)');
   expect(component).toContain('if (event.key !== "Escape") return;');
   expect(component).toContain("event.preventDefault();");
   expect(component).toContain("event.stopPropagation();");
@@ -129,6 +126,7 @@ git commit -m "feat(reference-card): 支持 Esc 关闭当前卡片"
 ### Task 2: 完成前验证
 
 **Files:**
+
 - Verify: `apps/desktop/src/components/ReferenceCard.vue`
 - Verify: `apps/desktop/src/components/ReferenceCard.contract.test.ts`
 

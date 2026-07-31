@@ -42,7 +42,8 @@ export function usePmContextMenu(deps: PmContextMenuDeps) {
 
     const nextStatus = deps.findNextStatus(item);
     if (nextStatus) {
-      const nextLabel = PM_STATUS_COLUMNS.find((entry) => entry.key === nextStatus)?.label ?? nextStatus;
+      const nextLabel =
+        PM_STATUS_COLUMNS.find((entry) => entry.key === nextStatus)?.label ?? nextStatus;
       actions.push({
         label: `推进到「${nextLabel}」`,
         action: () => void deps.advanceItemStatusFor(item),

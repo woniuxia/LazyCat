@@ -16,10 +16,7 @@ export function mergeSpotlightProviderItems(
   queryTime: Map<SpotlightProviderId, SpotlightItem[]>,
 ): Map<SpotlightProviderId, SpotlightItem[]> {
   const merged = new Map<SpotlightProviderId, SpotlightItem[]>();
-  const providerIds = new Set<SpotlightProviderId>([
-    ...prefetched.keys(),
-    ...queryTime.keys(),
-  ]);
+  const providerIds = new Set<SpotlightProviderId>([...prefetched.keys(), ...queryTime.keys()]);
 
   for (const providerId of providerIds) {
     const seen = new Set<string>();
@@ -49,11 +46,7 @@ export function createQueryTimeResultGuard() {
       latestScope = scope;
       return seq;
     },
-    isCurrent(
-      requestSeq: number,
-      query: string,
-      scope: SpotlightProviderId | null,
-    ): boolean {
+    isCurrent(requestSeq: number, query: string, scope: SpotlightProviderId | null): boolean {
       if (requestSeq !== seq) return false;
       return query === latestQuery && scope === latestScope;
     },

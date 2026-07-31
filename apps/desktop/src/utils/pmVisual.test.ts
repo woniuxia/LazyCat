@@ -9,7 +9,12 @@ import {
   summarizePmItemTags,
 } from "./pmVisual";
 
-const createProject = (id: number, name: string, status: PmProject["status"], sortOrder: number): PmProject => ({
+const createProject = (
+  id: number,
+  name: string,
+  status: PmProject["status"],
+  sortOrder: number,
+): PmProject => ({
   id,
   name,
   description: "",
@@ -57,10 +62,7 @@ describe("pmVisual", () => {
   });
 
   it("缺失计数时按 0 参与排序", () => {
-    const projects = [
-      createProject(1, "甲", "active", 2),
-      createProject(2, "乙", "active", 1),
-    ];
+    const projects = [createProject(1, "甲", "active", 2), createProject(2, "乙", "active", 1)];
 
     const sorted = sortPmProjectsForSidebar(projects, {});
     expect(sorted.map((project) => project.id)).toEqual([2, 1]);

@@ -31,9 +31,9 @@ describe("Todo action binding UI wiring", () => {
 
   it("connects the action composable to both edit and detail components", () => {
     expect(panelSource).toContain("useTodoActionBinding(itemDraft)");
-    expect(panelSource).toContain(":action-definitions=\"actionDefinitions\"");
-    expect(panelSource).toContain(":action-targets=\"actionTargets\"");
-    expect(panelSource).toContain(":latest-dispatch=\"latestDispatch\"");
+    expect(panelSource).toContain(':action-definitions="actionDefinitions"');
+    expect(panelSource).toContain(':action-targets="actionTargets"');
+    expect(panelSource).toContain(':latest-dispatch="latestDispatch"');
     expect(panelSource).toContain("dispatchTodoAction");
     expect(panelSource).toContain("loadLatestDispatch");
   });

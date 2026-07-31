@@ -40,7 +40,7 @@
 
 ## 涉及文件
 
-| 文件 | 改动 |
-|------|------|
-| `apps/desktop/src/App.vue` | 模板：移动 `ClipboardSuggestionBar` 到根层 |
+| 文件                                                     | 改动                                                               |
+| -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `apps/desktop/src/App.vue`                               | 模板：移动 `ClipboardSuggestionBar` 到根层                         |
 | `apps/desktop/src/components/ClipboardSuggestionBar.vue` | 样式：`position: fixed` + 居中 + z-index + 阴影增强 + 动画方向调整 |

@@ -39,10 +39,12 @@
 ### Task 1: Content-Type Utility Functions
 
 **Files:**
+
 - Modify: `apps/desktop/src/utils/apiMock.test.ts`
 - Modify: `apps/desktop/src/utils/apiMock.ts`
 
 **Interfaces:**
+
 - Consumes: existing `inferMockContentTypeFromFileName(fileName: string): string`
 - Produces:
   - `API_MOCK_CONTENT_TYPE_PRESETS: ApiMockContentTypePreset[]`
@@ -81,120 +83,130 @@ import {
 Append these tests inside the existing `describe("apiMock utils", () => { ... })` block:
 
 ```ts
-  it("exposes common content type presets", () => {
-    const values = API_MOCK_CONTENT_TYPE_PRESETS.map((item) => item.value);
+it("exposes common content type presets", () => {
+  const values = API_MOCK_CONTENT_TYPE_PRESETS.map((item) => item.value);
 
-    expect(values).toEqual(
-      expect.arrayContaining([
-        "application/json; charset=utf-8",
-        "application/json",
-        "text/plain; charset=utf-8",
-        "text/html; charset=utf-8",
-        "application/xml",
-        "text/xml; charset=utf-8",
-        "text/csv; charset=utf-8",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data",
-        "image/png",
-        "image/jpeg",
-        "image/svg+xml",
-        "image/webp",
-        "image/gif",
-        "application/pdf",
-        "application/zip",
-        "application/wasm",
-        "application/octet-stream",
-        "text/css; charset=utf-8",
-        "text/javascript; charset=utf-8",
-      ]),
-    );
-    expect(new Set(values).size).toBe(values.length);
-  });
+  expect(values).toEqual(
+    expect.arrayContaining([
+      "application/json; charset=utf-8",
+      "application/json",
+      "text/plain; charset=utf-8",
+      "text/html; charset=utf-8",
+      "application/xml",
+      "text/xml; charset=utf-8",
+      "text/csv; charset=utf-8",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data",
+      "image/png",
+      "image/jpeg",
+      "image/svg+xml",
+      "image/webp",
+      "image/gif",
+      "application/pdf",
+      "application/zip",
+      "application/wasm",
+      "application/octet-stream",
+      "text/css; charset=utf-8",
+      "text/javascript; charset=utf-8",
+    ]),
+  );
+  expect(new Set(values).size).toBe(values.length);
+});
 
-  it("normalizes content type MIME without parameters", () => {
-    expect(normalizeMockContentType(" Application/JSON; Charset=UTF-8 ")).toBe("application/json");
-    expect(normalizeMockContentType("application/vnd.lazycat.mock+json; version=1")).toBe(
-      "application/vnd.lazycat.mock+json",
-    );
-    expect(normalizeMockContentType("")).toBe("");
-  });
+it("normalizes content type MIME without parameters", () => {
+  expect(normalizeMockContentType(" Application/JSON; Charset=UTF-8 ")).toBe("application/json");
+  expect(normalizeMockContentType("application/vnd.lazycat.mock+json; version=1")).toBe(
+    "application/vnd.lazycat.mock+json",
+  );
+  expect(normalizeMockContentType("")).toBe("");
+});
 
-  it("trims content type before saving", () => {
-    expect(trimMockContentType("  application/json; charset=utf-8  ")).toBe("application/json; charset=utf-8");
-  });
+it("trims content type before saving", () => {
+  expect(trimMockContentType("  application/json; charset=utf-8  ")).toBe(
+    "application/json; charset=utf-8",
+  );
+});
 
-  it("rejects unsafe or malformed content type values", () => {
-    expect(validateMockContentTypeHeader("").ok).toBe(true);
-    expect(validateMockContentTypeHeader(" application/vnd.lazycat.mock+json; version=1 ").ok).toBe(true);
-    expect(validateMockContentTypeHeader("application/json\r\nX-Bad: 1")).toEqual({
-      ok: false,
-      message: "Content-Type 不能包含换行符",
-    });
-    expect(validateMockContentTypeHeader("json")).toEqual({
-      ok: false,
-      message: "Content-Type 必须是 type/subtype 格式",
-    });
+it("rejects unsafe or malformed content type values", () => {
+  expect(validateMockContentTypeHeader("").ok).toBe(true);
+  expect(validateMockContentTypeHeader(" application/vnd.lazycat.mock+json; version=1 ").ok).toBe(
+    true,
+  );
+  expect(validateMockContentTypeHeader("application/json\r\nX-Bad: 1")).toEqual({
+    ok: false,
+    message: "Content-Type 不能包含换行符",
   });
+  expect(validateMockContentTypeHeader("json")).toEqual({
+    ok: false,
+    message: "Content-Type 必须是 type/subtype 格式",
+  });
+});
 
-  it("blocks invalid JSON when the response content type is JSON", () => {
-    expect(
-      validateMockStaticResponseContent({
-        contentType: "application/json; charset=utf-8",
-        bodyText: "{ bad json",
-      }),
-    ).toEqual({
-      level: "error",
-      message: "当前 Content-Type 是 JSON，但响应 Body 不是合法 JSON",
-    });
-    expect(
-      validateMockStaticResponseContent({
-        contentType: "application/json",
-        bodyText: "{ \"ok\": true }",
-      }),
-    ).toBeNull();
+it("blocks invalid JSON when the response content type is JSON", () => {
+  expect(
+    validateMockStaticResponseContent({
+      contentType: "application/json; charset=utf-8",
+      bodyText: "{ bad json",
+    }),
+  ).toEqual({
+    level: "error",
+    message: "当前 Content-Type 是 JSON，但响应 Body 不是合法 JSON",
   });
+  expect(
+    validateMockStaticResponseContent({
+      contentType: "application/json",
+      bodyText: '{ "ok": true }',
+    }),
+  ).toBeNull();
+});
 
-  it("warns for response content types that need user confirmation", () => {
-    expect(
-      validateMockStaticResponseContent({
-        contentType: "application/xml",
-        bodyText: "<root>",
-      }),
-    ).toEqual({
-      level: "warning",
-      message: "当前 Content-Type 是 XML，请确认响应 Body 是正确的 XML 内容",
-    });
-    expect(
-      validateMockStaticResponseContent({
-        contentType: "text/html; charset=utf-8",
-        bodyText: "<main>",
-      }),
-    ).toEqual({
-      level: "warning",
-      message: "当前 Content-Type 是 HTML，请确认响应 Body 是 HTML 内容",
-    });
-    expect(
-      validateMockStaticResponseContent({
-        contentType: "multipart/form-data",
-        bodyText: "",
-      }),
-    ).toEqual({
-      level: "warning",
-      message: "multipart/form-data 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
-    });
+it("warns for response content types that need user confirmation", () => {
+  expect(
+    validateMockStaticResponseContent({
+      contentType: "application/xml",
+      bodyText: "<root>",
+    }),
+  ).toEqual({
+    level: "warning",
+    message: "当前 Content-Type 是 XML，请确认响应 Body 是正确的 XML 内容",
   });
+  expect(
+    validateMockStaticResponseContent({
+      contentType: "text/html; charset=utf-8",
+      bodyText: "<main>",
+    }),
+  ).toEqual({
+    level: "warning",
+    message: "当前 Content-Type 是 HTML，请确认响应 Body 是 HTML 内容",
+  });
+  expect(
+    validateMockStaticResponseContent({
+      contentType: "multipart/form-data",
+      bodyText: "",
+    }),
+  ).toEqual({
+    level: "warning",
+    message: "multipart/form-data 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+  });
+});
 
-  it("warns when selected content type and imported file extension disagree", () => {
-    expect(getMockFileContentTypeWarning({ contentType: "application/pdf", fileName: "avatar.png" })).toBe(
-      "上传文件看起来是 image/png，当前 Content-Type 是 application/pdf，请确认是否正确。",
-    );
-    expect(
-      getMockFileContentTypeWarning({ contentType: "text/plain; charset=utf-8", fileName: "readme.txt" }),
-    ).toBe("");
-    expect(getMockFileContentTypeWarning({ contentType: "application/octet-stream", fileName: "avatar.png" })).toBe(
-      "",
-    );
-  });
+it("warns when selected content type and imported file extension disagree", () => {
+  expect(
+    getMockFileContentTypeWarning({ contentType: "application/pdf", fileName: "avatar.png" }),
+  ).toBe("上传文件看起来是 image/png，当前 Content-Type 是 application/pdf，请确认是否正确。");
+  expect(
+    getMockFileContentTypeWarning({
+      contentType: "text/plain; charset=utf-8",
+      fileName: "readme.txt",
+    }),
+  ).toBe("");
+  expect(
+    getMockFileContentTypeWarning({
+      contentType: "application/octet-stream",
+      fileName: "avatar.png",
+    }),
+  ).toBe("");
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -304,7 +316,8 @@ export function validateMockStaticResponseContent(input: {
   if (mime === "application/x-www-form-urlencoded") {
     return {
       level: "warning",
-      message: "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+      message:
+        "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
     };
   }
   if (mime === "multipart/form-data") {
@@ -317,10 +330,14 @@ export function validateMockStaticResponseContent(input: {
   return null;
 }
 
-export function getMockFileContentTypeWarning(input: { contentType: string; fileName: string }): string {
+export function getMockFileContentTypeWarning(input: {
+  contentType: string;
+  fileName: string;
+}): string {
   const current = normalizeMockContentType(input.contentType);
   const inferred = normalizeMockContentType(inferMockContentTypeFromFileName(input.fileName));
-  if (!current || !inferred || current === "application/octet-stream" || current === inferred) return "";
+  if (!current || !inferred || current === "application/octet-stream" || current === inferred)
+    return "";
   return `上传文件看起来是 ${inferred}，当前 Content-Type 是 ${current}，请确认是否正确。`;
 }
 ```
@@ -347,9 +364,11 @@ git commit -m "feat(api-mock): 添加 content-type 校验工具"
 ### Task 2: Save-Time Validation Wiring
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ApiMockPanel.vue`
 
 **Interfaces:**
+
 - Consumes:
   - `trimMockContentType(contentType: string): string`
   - `validateMockContentTypeHeader(contentType: string): ApiMockValidationResult`
@@ -396,35 +415,35 @@ import {
 In `saveRoute()`, after the existing CORS validation block and before the file-required check, insert:
 
 ```ts
-  const contentType = trimMockContentType(routeForm.contentType);
-  const contentTypeResult = validateMockContentTypeHeader(contentType);
-  if (!contentTypeResult.ok) {
-    ElMessage.error(contentTypeResult.message);
-    return;
-  }
+const contentType = trimMockContentType(routeForm.contentType);
+const contentTypeResult = validateMockContentTypeHeader(contentType);
+if (!contentTypeResult.ok) {
+  ElMessage.error(contentTypeResult.message);
+  return;
+}
 
-  const staticContentNotice =
-    routeForm.responseKind === "static_body"
-      ? validateMockStaticResponseContent({ contentType, bodyText: routeForm.bodyText })
-      : null;
-  if (staticContentNotice?.level === "error") {
-    ElMessage.error(staticContentNotice.message);
-    return;
-  }
-  if (staticContentNotice?.level === "warning") {
-    ElMessage.warning(staticContentNotice.message);
-  }
+const staticContentNotice =
+  routeForm.responseKind === "static_body"
+    ? validateMockStaticResponseContent({ contentType, bodyText: routeForm.bodyText })
+    : null;
+if (staticContentNotice?.level === "error") {
+  ElMessage.error(staticContentNotice.message);
+  return;
+}
+if (staticContentNotice?.level === "warning") {
+  ElMessage.warning(staticContentNotice.message);
+}
 
-  if (routeForm.responseKind === "file" && routeFile.value) {
-    const fileContentTypeWarning = getMockFileContentTypeWarning({
-      contentType,
-      fileName: routeFile.value.originalName,
-    });
-    if (fileContentTypeWarning) {
-      ElMessage.warning(fileContentTypeWarning);
-    }
+if (routeForm.responseKind === "file" && routeFile.value) {
+  const fileContentTypeWarning = getMockFileContentTypeWarning({
+    contentType,
+    fileName: routeFile.value.originalName,
+  });
+  if (fileContentTypeWarning) {
+    ElMessage.warning(fileContentTypeWarning);
   }
-  routeForm.contentType = contentType;
+}
+routeForm.contentType = contentType;
 ```
 
 Then change the save payload field from:
@@ -462,9 +481,11 @@ git commit -m "feat(api-mock): 保存路由时校验 content-type"
 ### Task 3: Content-Type Select UI and File Import Warning
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/ApiMockPanel.vue`
 
 **Interfaces:**
+
 - Consumes:
   - `API_MOCK_CONTENT_TYPE_PRESETS`
   - `getMockFileContentTypeWarning(input): string`
@@ -484,7 +505,7 @@ Add `API_MOCK_CONTENT_TYPE_PRESETS` to the `../utils/apiMock` import block:
 Replace this template block:
 
 ```vue
-              <el-form-item label="Content-Type">
+<el-form-item label="Content-Type">
                 <el-input v-model="routeForm.contentType" placeholder="application/json; charset=utf-8" />
               </el-form-item>
 ```
@@ -492,7 +513,7 @@ Replace this template block:
 with:
 
 ```vue
-              <el-form-item label="Content-Type">
+<el-form-item label="Content-Type">
                 <el-select
                   v-model="routeForm.contentType"
                   filterable
@@ -521,27 +542,27 @@ with:
 In `pickFile()`, after `routeForm.contentType = contentType;` and `routeFile.value = result.file;`, add:
 
 ```ts
-    const fileContentTypeWarning = getMockFileContentTypeWarning({
-      contentType,
-      fileName: selected,
-    });
-    if (fileContentTypeWarning) {
-      ElMessage.warning(fileContentTypeWarning);
-    }
+const fileContentTypeWarning = getMockFileContentTypeWarning({
+  contentType,
+  fileName: selected,
+});
+if (fileContentTypeWarning) {
+  ElMessage.warning(fileContentTypeWarning);
+}
 ```
 
 The resulting success branch should be:
 
 ```ts
-    routeForm.contentType = contentType;
-    routeFile.value = result.file;
-    const fileContentTypeWarning = getMockFileContentTypeWarning({
-      contentType,
-      fileName: selected,
-    });
-    if (fileContentTypeWarning) {
-      ElMessage.warning(fileContentTypeWarning);
-    }
+routeForm.contentType = contentType;
+routeFile.value = result.file;
+const fileContentTypeWarning = getMockFileContentTypeWarning({
+  contentType,
+  fileName: selected,
+});
+if (fileContentTypeWarning) {
+  ElMessage.warning(fileContentTypeWarning);
+}
 ```
 
 - [ ] **Step 4: Add compact option styling**
@@ -597,10 +618,12 @@ git commit -m "feat(api-mock): 支持选择常见 content-type"
 ### Task 4: Final Verification
 
 **Files:**
+
 - No code changes expected.
 - Optionally modify `process.md` only if implementation reveals a reusable project lesson not already covered by the existing API Mock entries.
 
 **Interfaces:**
+
 - Consumes: completed Tasks 1-3.
 - Produces: verified implementation ready for user review.
 

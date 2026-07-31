@@ -3,7 +3,11 @@
     <!-- Base64 -->
     <div v-if="activeTool === 'base64'" class="panel-grid encode-grid encode-grid--toolbar">
       <div class="panel-grid-full">
-        <el-radio-group :model-value="base64UrlSafe" size="small" @update:model-value="handleBase64TypeChange">
+        <el-radio-group
+          :model-value="base64UrlSafe"
+          size="small"
+          @update:model-value="handleBase64TypeChange"
+        >
           <el-radio-button :value="false">Standard</el-radio-button>
           <el-radio-button :value="true">URL-safe</el-radio-button>
         </el-radio-group>
@@ -13,7 +17,13 @@
         <span class="char-count">{{ base64Input.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="base64Output" type="textarea" resize="none" readonly placeholder="结果" />
+        <el-input
+          :model-value="base64Output"
+          type="textarea"
+          resize="none"
+          readonly
+          placeholder="结果"
+        />
         <span class="char-count">{{ base64Output.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -34,7 +44,13 @@
         <span class="char-count">{{ urlInput.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="urlOutput" type="textarea" resize="none" readonly placeholder="结果" />
+        <el-input
+          :model-value="urlOutput"
+          type="textarea"
+          resize="none"
+          readonly
+          placeholder="结果"
+        />
         <span class="char-count">{{ urlOutput.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -55,7 +71,13 @@
         <span class="char-count">{{ md5Input.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="md5Output" type="textarea" resize="none" readonly placeholder="MD5 结果" />
+        <el-input
+          :model-value="md5Output"
+          type="textarea"
+          resize="none"
+          readonly
+          placeholder="MD5 结果"
+        />
         <span class="char-count">{{ md5Output.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -109,7 +131,13 @@
         <span class="char-count">{{ hashInput.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="hashOutput" type="textarea" resize="none" readonly placeholder="散列结果" />
+        <el-input
+          :model-value="hashOutput"
+          type="textarea"
+          resize="none"
+          readonly
+          placeholder="散列结果"
+        />
         <span class="char-count">{{ hashOutput.length }} 字符</span>
       </div>
       <div v-if="hashAlgo === 'hmac-sha256'" class="panel-grid-full">
@@ -130,11 +158,20 @@
 type PersistedBase64ManualChoice = "standard" | "url-safe" | null;
 
 const encodeState = {
-  base64Input: "", base64Output: "", base64UrlSafe: false, base64ManualChoice: null as PersistedBase64ManualChoice,
-  urlInput: "", urlOutput: "",
-  md5Input: "", md5Output: "",
-  qrInput: "", qrDataUrl: "",
-  hashAlgo: "sha256" as string, hashInput: "", hashOutput: "", hmacKey: "",
+  base64Input: "",
+  base64Output: "",
+  base64UrlSafe: false,
+  base64ManualChoice: null as PersistedBase64ManualChoice,
+  urlInput: "",
+  urlOutput: "",
+  md5Input: "",
+  md5Output: "",
+  qrInput: "",
+  qrDataUrl: "",
+  hashAlgo: "sha256" as string,
+  hashInput: "",
+  hashOutput: "",
+  hmacKey: "",
 };
 </script>
 
@@ -168,7 +205,9 @@ const md5Output = ref(encodeState.md5Output);
 const qrInput = ref(encodeState.qrInput);
 const qrDataUrl = ref(encodeState.qrDataUrl);
 
-const hashAlgo = ref<"sha1" | "sha256" | "sha512" | "hmac-sha256">(encodeState.hashAlgo as "sha1" | "sha256" | "sha512" | "hmac-sha256");
+const hashAlgo = ref<"sha1" | "sha256" | "sha512" | "hmac-sha256">(
+  encodeState.hashAlgo as "sha1" | "sha256" | "sha512" | "hmac-sha256",
+);
 const hashInput = ref(encodeState.hashInput);
 const hashOutput = ref(encodeState.hashOutput);
 const hmacKey = ref(encodeState.hmacKey);
@@ -180,19 +219,25 @@ async function call(channel: string, payload: Record<string, unknown>): Promise<
 
 async function runBase64(mode: "encode" | "decode") {
   try {
-    const decodeKind = mode === "decode"
-      ? resolveBase64DecodeKind({
-          detectedKind: detectAndSyncBase64Kind(base64Input.value),
-          manualChoice: base64ManualChoice.value,
-          currentKind: getCurrentBase64Kind(),
-        })
-      : null;
+    const decodeKind =
+      mode === "decode"
+        ? resolveBase64DecodeKind({
+            detectedKind: detectAndSyncBase64Kind(base64Input.value),
+            manualChoice: base64ManualChoice.value,
+            currentKind: getCurrentBase64Kind(),
+          })
+        : null;
     if (decodeKind) {
       setBase64DisplayKind(decodeKind);
     }
-    const channel = mode === "encode"
-      ? (base64UrlSafe.value ? "tool:encode:base64-url-encode" : "tool:encode:base64-encode")
-      : (decodeKind === "url-safe" ? "tool:encode:base64-url-decode" : "tool:encode:base64-decode");
+    const channel =
+      mode === "encode"
+        ? base64UrlSafe.value
+          ? "tool:encode:base64-url-encode"
+          : "tool:encode:base64-encode"
+        : decodeKind === "url-safe"
+          ? "tool:encode:base64-url-decode"
+          : "tool:encode:base64-decode";
     base64Output.value = await call(channel, { input: base64Input.value });
   } catch (e) {
     ElMessage.error((e as Error).message);
@@ -320,19 +365,26 @@ function handleBase64TypeChange(value: string | number | boolean) {
   base64ManualChoice.value = urlSafe ? "url-safe" : "standard";
 }
 
-watch(base64Input, (value) => {
-  if (value === "") {
-    base64ManualChoice.value = null;
-  }
+watch(
+  base64Input,
+  (value) => {
+    if (value === "") {
+      base64ManualChoice.value = null;
+    }
 
-  detectAndSyncBase64Kind(value);
-}, { immediate: true });
+    detectAndSyncBase64Kind(value);
+  },
+  { immediate: true },
+);
 
 const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput(() => props.activeTool, (text) => {
-  if (props.activeTool === "base64") base64Input.value = text;
-  else if (props.activeTool === "url") urlInput.value = text;
-});
+watchPendingInput(
+  () => props.activeTool,
+  (text) => {
+    if (props.activeTool === "base64") base64Input.value = text;
+    else if (props.activeTool === "url") urlInput.value = text;
+  },
+);
 
 onBeforeUnmount(() => {
   encodeState.base64Input = base64Input.value;

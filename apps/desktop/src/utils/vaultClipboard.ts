@@ -9,10 +9,7 @@ export async function writeSecretToClipboard(value: string): Promise<void> {
   await navigator.clipboard.writeText(value);
 }
 
-export function scheduleClipboardClear(
-  secret: string,
-  delayMs: number = DEFAULT_CLEAR_MS,
-): void {
+export function scheduleClipboardClear(secret: string, delayMs: number = DEFAULT_CLEAR_MS): void {
   if (pendingClearTimer) clearTimeout(pendingClearTimer);
   pendingClearTimer = setTimeout(async () => {
     pendingClearTimer = null;

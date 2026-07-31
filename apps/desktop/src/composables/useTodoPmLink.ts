@@ -30,28 +30,48 @@ export function useTodoPmLink(deps: TodoPmLinkDeps) {
   const todoPmCandidates = ref<PmCandidateItem[]>([]);
   const skipProjectWatch = ref(false);
   // projectId 放宽为可空：候选项 projectId 本身可空，原 .vue 内声明未经 tsc 检查
-  const todoLinkedPmItem = ref<{ id: number; title: string; status: string; projectId: number | null } | null>(null);
+  const todoLinkedPmItem = ref<{
+    id: number;
+    title: string;
+    status: string;
+    projectId: number | null;
+  } | null>(null);
   const pmCreateDialogVisible = ref(false);
   const pmCreateTitle = ref("");
   const pmCreateProjectId = ref<number | null>(null);
 
   function pmStatusColor(status: string | null | undefined): string {
-    return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.color ?? "#909399";
+    return PM_STATUS_COLUMNS.find((c) => c.key === (status || "todo"))?.color ?? "#909399";
   }
   function pmStatusLabel(status: string | null | undefined): string {
-    return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.label ?? "待办";
+    return PM_STATUS_COLUMNS.find((c) => c.key === (status || "todo"))?.label ?? "待办";
   }
 
-  async function loadTodoPmCandidates(projectId: number, linkedPmItemId?: number | null, keyword?: string) {
+  async function loadTodoPmCandidates(
+    projectId: number,
+    linkedPmItemId?: number | null,
+    keyword?: string,
+  ) {
     try {
-      const result = await invokeToolByChannel("tool:todo:pm-candidates", { projectId, keyword: keyword || undefined }) as { items: PmCandidateItem[] };
+      const result = (await invokeToolByChannel("tool:todo:pm-candidates", {
+        projectId,
+        keyword: keyword || undefined,
+      })) as { items: PmCandidateItem[] };
       let candidates = result?.items || [];
       // Ensure currently linked PM item is in the list (it may be filtered out by other criteria)
       if (linkedPmItemId && !candidates.some((c) => c.id === linkedPmItemId)) {
         const linked = todoLinkedPmItem.value;
         if (linked && linked.id === linkedPmItemId) {
           candidates = [
-            { id: linked.id, title: linked.title, status: linked.status, priority: "P2", projectId: linked.projectId, projectName: null, projectColor: null },
+            {
+              id: linked.id,
+              title: linked.title,
+              status: linked.status,
+              priority: "P2",
+              projectId: linked.projectId,
+              projectName: null,
+              projectColor: null,
+            },
             ...candidates,
           ];
         }
@@ -92,13 +112,13 @@ export function useTodoPmLink(deps: TodoPmLinkDeps) {
         // Existing todo — persist the project change before linking
         await submitItemChanges(false);
       }
-      const result = await invokeToolByChannel("tool:pm:item-create", {
+      const result = (await invokeToolByChannel("tool:pm:item-create", {
         projectId,
         title,
         itemType: "task",
         priority: "P2",
         status: "todo",
-      }) as { id: number };
+      })) as { id: number };
       await invokeToolByChannel("tool:todo:item-set-pm-link", {
         todoItemId: todoId,
         pmItemId: result.id,
@@ -153,7 +173,12 @@ export function useTodoPmLink(deps: TodoPmLinkDeps) {
       itemDraft.pmItemProjectId = candidate?.projectId ?? null;
       itemDraft.pmItemStatus = candidate?.status ?? null;
       if (candidate) {
-        todoLinkedPmItem.value = { id: candidate.id, title: candidate.title, status: candidate.status, projectId: candidate.projectId };
+        todoLinkedPmItem.value = {
+          id: candidate.id,
+          title: candidate.title,
+          status: candidate.status,
+          projectId: candidate.projectId,
+        };
       } else {
         todoLinkedPmItem.value = null;
       }
@@ -196,13 +221,13 @@ export function useTodoPmLink(deps: TodoPmLinkDeps) {
       if (itemDraft.id) {
         await submitItemChanges(false);
       }
-      const result = await invokeToolByChannel("tool:pm:item-create", {
+      const result = (await invokeToolByChannel("tool:pm:item-create", {
         projectId,
         title: title.trim(),
         itemType: "task",
         priority: "P2",
         status: "todo",
-      }) as { id: number };
+      })) as { id: number };
       if (itemDraft.id) {
         await invokeToolByChannel("tool:todo:item-set-pm-link", {
           todoItemId: itemDraft.id,

@@ -21,7 +21,12 @@
     </main>
 
     <footer class="prompt-actions">
-      <button class="action-btn action-primary" type="button" :disabled="pending" @click="startToday">
+      <button
+        class="action-btn action-primary"
+        type="button"
+        :disabled="pending"
+        @click="startToday"
+      >
         开始今天
       </button>
       <button class="action-btn" type="button" :disabled="pending" @click="skipToday">

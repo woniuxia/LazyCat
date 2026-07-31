@@ -47,14 +47,20 @@
               <div class="ratio-bar-row">
                 <span class="ratio-label">TCP</span>
                 <div class="ratio-track">
-                  <div class="ratio-fill ratio-fill--tcp" :style="{ width: protocolRatio.tcp + '%' }" />
+                  <div
+                    class="ratio-fill ratio-fill--tcp"
+                    :style="{ width: protocolRatio.tcp + '%' }"
+                  />
                 </div>
                 <span class="ratio-value">{{ protocolRatio.tcp }}%</span>
               </div>
               <div class="ratio-bar-row">
                 <span class="ratio-label">UDP</span>
                 <div class="ratio-track">
-                  <div class="ratio-fill ratio-fill--udp" :style="{ width: protocolRatio.udp + '%' }" />
+                  <div
+                    class="ratio-fill ratio-fill--udp"
+                    :style="{ width: protocolRatio.udp + '%' }"
+                  />
                 </div>
                 <span class="ratio-value">{{ protocolRatio.udp }}%</span>
               </div>
@@ -136,7 +142,8 @@
                     size="small"
                     type="success"
                     class="port-tag"
-                  >{{ port }}</el-tag>
+                    >{{ port }}</el-tag
+                  >
                   <span v-if="row.listeningPorts.length > 5" class="port-more">
                     +{{ row.listeningPorts.length - 5 }}
                   </span>
@@ -153,7 +160,9 @@
               <template #default="{ row }">
                 <el-space>
                   <el-button size="small" @click="showProcessDetail(row.pid)">详情</el-button>
-                  <el-button size="small" type="danger" plain @click="killProcess(row.pid)">结束</el-button>
+                  <el-button size="small" type="danger" plain @click="killProcess(row.pid)"
+                    >结束</el-button
+                  >
                 </el-space>
               </template>
             </el-table-column>
@@ -167,7 +176,9 @@
           连接明细
           <el-badge
             v-if="portConnectionRows.length > 0"
-            :value="truncatedCount > 0 ? portConnectionRows.length + '+' : portConnectionRows.length"
+            :value="
+              truncatedCount > 0 ? portConnectionRows.length + '+' : portConnectionRows.length
+            "
             class="tab-badge"
           />
         </template>
@@ -193,7 +204,8 @@
                   size="small"
                   :type="row.protocol === 'TCP' ? 'primary' : 'warning'"
                   effect="dark"
-                >{{ row.protocol }}</el-tag>
+                  >{{ row.protocol }}</el-tag
+                >
               </template>
             </el-table-column>
             <el-table-column label="PID" width="80">
@@ -214,7 +226,9 @@
             </el-table-column>
             <el-table-column label="状态" width="130">
               <template #default="{ row }">
-                <el-tag size="small" :type="stateTagType(row.state)" effect="light">{{ row.state }}</el-tag>
+                <el-tag size="small" :type="stateTagType(row.state)" effect="light">{{
+                  row.state
+                }}</el-tag>
               </template>
             </el-table-column>
           </el-table>
@@ -235,11 +249,15 @@
         </div>
         <div class="detail-item">
           <span class="detail-item__label">路径</span>
-          <span class="detail-item__value mono detail-item__value--break">{{ processDetail.path || "-" }}</span>
+          <span class="detail-item__value mono detail-item__value--break">{{
+            processDetail.path || "-"
+          }}</span>
         </div>
         <div class="detail-item">
           <span class="detail-item__label">启动命令</span>
-          <span class="detail-item__value mono detail-item__value--break">{{ processDetail.commandLine || "-" }}</span>
+          <span class="detail-item__value mono detail-item__value--break">{{
+            processDetail.commandLine || "-"
+          }}</span>
         </div>
         <div class="detail-item">
           <span class="detail-item__label">启动时间</span>
@@ -309,9 +327,11 @@ const topPorts = computed(() => {
 // 监听地址类型分布
 const bindingTypeStats = computed(() => {
   const listeningRows = portConnectionRows.value.filter(
-    (r) => r.state === "LISTENING" || (r.protocol === "UDP" && r.remoteAddress === "*:*")
+    (r) => r.state === "LISTENING" || (r.protocol === "UDP" && r.remoteAddress === "*:*"),
   );
-  let allInterfaces = 0, loopback = 0, specific = 0;
+  let allInterfaces = 0,
+    loopback = 0,
+    specific = 0;
   for (const row of listeningRows) {
     const ip = row.localAddress.includes(":")
       ? row.localAddress.substring(0, row.localAddress.lastIndexOf(":"))
@@ -504,7 +524,7 @@ async function killProcess(pid: number) {
   font-size: 26px;
   font-weight: 700;
   color: var(--el-text-color-primary);
-  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
   line-height: 1;
 }
 
@@ -578,7 +598,7 @@ async function killProcess(pid: number) {
 }
 
 .state-chip__count {
-  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
   font-weight: 700;
   font-size: 13px;
   min-width: 1.5em;
@@ -618,7 +638,7 @@ async function killProcess(pid: number) {
 
 /* 数据字体 */
 .mono {
-  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
   font-size: 13px;
 }
 
@@ -635,7 +655,7 @@ async function killProcess(pid: number) {
 .port-tag {
   margin-right: 4px;
   margin-bottom: 2px;
-  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
 }
 
 .port-more {
@@ -706,7 +726,7 @@ async function killProcess(pid: number) {
   width: 44px;
   text-align: right;
   font-size: 12px;
-  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }

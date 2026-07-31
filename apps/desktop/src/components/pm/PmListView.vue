@@ -110,10 +110,7 @@
       :class="{ 'has-batch': selectedIds.size > 0 }"
       @scroll="onScroll"
     >
-      <div
-        v-if="filteredItems.length === 0"
-        class="pm-list-empty"
-      >
+      <div v-if="filteredItems.length === 0" class="pm-list-empty">
         <el-empty :description="hasActiveFilters ? '无匹配工作项，试试清空筛选' : '暂无工作项'" />
       </div>
       <template v-else>
@@ -126,7 +123,11 @@
             <el-icon class="group-caret" :class="{ 'is-open': isGroupOpen(group.key) }">
               <CaretRight />
             </el-icon>
-            <span v-if="group.color" class="group-color-dot" :style="{ backgroundColor: group.color }" />
+            <span
+              v-if="group.color"
+              class="group-color-dot"
+              :style="{ backgroundColor: group.color }"
+            />
             <span class="group-label">{{ group.label }}</span>
             <span class="group-count">{{ group.items.length }}</span>
             <span v-if="group.metrics" class="group-metrics">{{ group.metrics }}</span>
@@ -158,12 +159,14 @@
                     <div class="row-expand-meta">
                       <span v-if="row.startAt" class="row-expand-meta-item">
                         <span class="meta-label">开始</span>
-                        <span class="meta-value">{{ formatPmDateForDisplay(row.startAt, 'short') }}</span>
+                        <span class="meta-value">{{
+                          formatPmDateForDisplay(row.startAt, "short")
+                        }}</span>
                       </span>
                       <span v-if="row.endAt" class="row-expand-meta-item">
                         <span class="meta-label">截止</span>
                         <span class="meta-value" :class="{ 'is-overdue': isPmItemOverdue(row) }">
-                          {{ formatPmDateForDisplay(row.endAt, 'short') }}
+                          {{ formatPmDateForDisplay(row.endAt, "short") }}
                         </span>
                       </span>
                       <span v-if="row.startedAt" class="row-expand-meta-item">
@@ -287,7 +290,10 @@
                           >
                             <span
                               class="cell-project-dot"
-                              :style="{ backgroundColor: project.color || '#0ea5e9', marginRight: '6px' }"
+                              :style="{
+                                backgroundColor: project.color || '#0ea5e9',
+                                marginRight: '6px',
+                              }"
                             />
                             {{ project.name }}
                           </el-dropdown-item>
@@ -335,12 +341,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column
-              v-if="colVisible('refCode')"
-              label="编号"
-              width="110"
-              prop="refCode"
-            >
+            <el-table-column v-if="colVisible('refCode')" label="编号" width="110" prop="refCode">
               <template #default="{ row }">
                 <span v-if="row.refCode" class="cell-ref-code">{{ row.refCode }}</span>
               </template>
@@ -510,7 +511,7 @@
                         class="cell-date"
                         :class="{ 'is-overdue': isPmItemOverdue(row) }"
                       >
-                        {{ formatPmDateForDisplay(row.endAt, 'short') }}
+                        {{ formatPmDateForDisplay(row.endAt, "short") }}
                       </span>
                       <span v-else class="cell-empty">设置日期</span>
                     </span>
@@ -522,7 +523,7 @@
                       value-format="YYYY-MM-DD"
                       placeholder="选择截止日期"
                       size="small"
-                      style="width: 100%;"
+                      style="width: 100%"
                       @update:model-value="(val) => onInlineEndAt(row, val as string | null)"
                     />
                     <el-button
@@ -546,18 +547,14 @@
                     class="cell-date"
                     :class="{ 'is-overdue': isPmItemOverdue(row) }"
                   >
-                    {{ formatPmDateForDisplay(row.endAt, 'short') }}
+                    {{ formatPmDateForDisplay(row.endAt, "short") }}
                   </span>
                   <span v-else class="cell-empty">设置日期</span>
                 </span>
               </template>
             </el-table-column>
 
-            <el-table-column
-              v-if="colVisible('tags')"
-              label="标签"
-              min-width="160"
-            >
+            <el-table-column v-if="colVisible('tags')" label="标签" min-width="160">
               <template #default="{ row }">
                 <el-popover
                   v-if="isEditorActive(row.id, 'tags')"
@@ -593,17 +590,13 @@
                     default-first-option
                     placeholder="输入标签后回车"
                     size="small"
-                    style="width: 100%;"
+                    style="width: 100%"
                     @update:model-value="(val) => onInlineTags(row, val as string[])"
                   >
                     <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
                   </el-select>
                 </el-popover>
-                <span
-                  v-else
-                  class="cell-tags"
-                  @click.stop="activatePopover(row.id, 'tags')"
-                >
+                <span v-else class="cell-tags" @click.stop="activatePopover(row.id, 'tags')">
                   <el-tag
                     v-for="tag in (row.tags || []).slice(0, 3)"
                     :key="tag"
@@ -615,9 +608,7 @@
                   <span v-if="(row.tags || []).length > 3" class="tag-more">
                     +{{ row.tags.length - 3 }}
                   </span>
-                  <span v-if="(row.tags || []).length === 0" class="cell-empty">
-                    添加标签
-                  </span>
+                  <span v-if="(row.tags || []).length === 0" class="cell-empty"> 添加标签 </span>
                 </span>
               </template>
             </el-table-column>
@@ -643,7 +634,7 @@
             >
               <template #default="{ row }">
                 <span v-if="row.startAt" class="cell-date">
-                  {{ formatPmDateForDisplay(row.startAt, 'short') }}
+                  {{ formatPmDateForDisplay(row.startAt, "short") }}
                 </span>
                 <span v-else class="cell-empty">—</span>
               </template>
@@ -656,7 +647,9 @@
               prop="startedAt"
             >
               <template #default="{ row }">
-                <span v-if="row.startedAt" class="cell-date">{{ formatDateTime(row.startedAt) }}</span>
+                <span v-if="row.startedAt" class="cell-date">{{
+                  formatDateTime(row.startedAt)
+                }}</span>
                 <span v-else class="cell-empty">—</span>
               </template>
             </el-table-column>
@@ -668,16 +661,14 @@
               prop="completedAt"
             >
               <template #default="{ row }">
-                <span v-if="row.completedAt" class="cell-date">{{ formatDateTime(row.completedAt) }}</span>
+                <span v-if="row.completedAt" class="cell-date">{{
+                  formatDateTime(row.completedAt)
+                }}</span>
                 <span v-else class="cell-empty">—</span>
               </template>
             </el-table-column>
 
-            <el-table-column
-              v-if="colVisible('description')"
-              label="描述摘要"
-              min-width="200"
-            >
+            <el-table-column v-if="colVisible('description')" label="描述摘要" min-width="200">
               <template #default="{ row }">
                 <span v-if="row.description" class="cell-desc" :title="row.description">
                   {{ truncateDesc(row.description) }}
@@ -686,11 +677,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column
-              v-if="colVisible('linkUrl')"
-              label="链接"
-              min-width="140"
-            >
+            <el-table-column v-if="colVisible('linkUrl')" label="链接" min-width="140">
               <template #default="{ row }">
                 <a
                   v-if="row.linkUrl"
@@ -720,12 +707,20 @@
             </el-table-column>
           </el-table>
           <div
-            v-if="groupVirtualActive && (group.key === 'all' || isGroupOpen(group.key)) && windowedItemsOf(group).length < group.items.length"
+            v-if="
+              groupVirtualActive &&
+              (group.key === 'all' || isGroupOpen(group.key)) &&
+              windowedItemsOf(group).length < group.items.length
+            "
             class="pm-list-group-more"
           >
             已展示 {{ windowedItemsOf(group).length }} / {{ group.items.length }} 项
-            <el-button link size="small" @click="loadMoreInGroup(group.key, group.items.length)">显示更多</el-button>
-            <el-button link size="small" @click="showAllInGroup(group.key, group.items.length)">显示全部</el-button>
+            <el-button link size="small" @click="loadMoreInGroup(group.key, group.items.length)"
+              >显示更多</el-button
+            >
+            <el-button link size="small" @click="showAllInGroup(group.key, group.items.length)"
+              >显示全部</el-button
+            >
           </div>
         </div>
         <div v-if="virtualActive && renderedTotal < filteredItems.length" class="pm-list-more-hint">
@@ -769,22 +764,14 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="(meta, key) in PM_PRIORITY_MAP"
-                  :key="key"
-                  :command="key"
-                >
+                <el-dropdown-item v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :command="key">
                   {{ meta.label }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
 
-          <el-dropdown
-            v-if="movableProjects.length > 0"
-            trigger="click"
-            @command="onBatchProject"
-          >
+          <el-dropdown v-if="movableProjects.length > 0" trigger="click" @command="onBatchProject">
             <el-button size="small">
               改项目
               <el-icon class="dropdown-caret"><CaretBottom /></el-icon>
@@ -820,7 +807,7 @@
                 default-first-option
                 placeholder="输入或选择标签"
                 size="small"
-                style="width: 100%;"
+                style="width: 100%"
               >
                 <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
               </el-select>
@@ -852,11 +839,7 @@ import { computed, ref, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { CaretBottom, CaretRight, Edit, Grid } from "@element-plus/icons-vue";
 import type { PmItem, PmItemStatus, PmPriority, PmProject } from "../../types/pm";
-import {
-  PM_ITEM_TYPE_MAP,
-  PM_PRIORITY_MAP,
-  PM_STATUS_COLUMNS,
-} from "../../types/pm";
+import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS } from "../../types/pm";
 import { useToolInvoke } from "../../composables/useToolInvoke";
 import { formatPmDateForDisplay } from "../../utils/pmDate";
 import { isPmItemOverdue } from "../../utils/pmDate";
@@ -1193,8 +1176,7 @@ const filteredItems = computed<PmItem[]>(() => {
     }
     if (f.dateRange) {
       const [start, end] = f.dateRange;
-      const inRange = (d: string | null): boolean =>
-        d !== null && d >= start && d <= end;
+      const inRange = (d: string | null): boolean => d !== null && d >= start && d <= end;
       if (!inRange(item.startAt) && !inRange(item.endAt)) return false;
     }
     return true;
@@ -1252,10 +1234,7 @@ function onScroll() {
   const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
   if (distanceToBottom > SCROLL_TRIGGER_PX) return;
   if (renderLimit.value >= filteredItems.value.length) return;
-  renderLimit.value = Math.min(
-    renderLimit.value + VIRTUAL_CHUNK,
-    filteredItems.value.length,
-  );
+  renderLimit.value = Math.min(renderLimit.value + VIRTUAL_CHUNK, filteredItems.value.length);
 }
 
 watch(
@@ -1690,10 +1669,12 @@ async function onBatchDelete() {
   border-color: rgba(14, 165, 233, 0.12);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: none;
-  transition: box-shadow 0.18s var(--lc-ease), border-color 0.18s var(--lc-ease);
+  transition:
+    box-shadow 0.18s var(--lc-ease),
+    border-color 0.18s var(--lc-ease);
 }
 .toolbar-select :deep(.el-select__wrapper.is-focused) {
-  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.10);
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.1);
   border-color: rgba(14, 165, 233, 0.28);
 }
 .toolbar-select :deep(.el-select__placeholder) {
@@ -1721,7 +1702,7 @@ async function onBatchDelete() {
 .toolbar-date :deep(.el-date-editor .el-input__wrapper.is-focus) {
   box-shadow:
     inset 0 0 0 1px rgba(14, 165, 233, 0.28),
-    0 6px 16px rgba(14, 165, 233, 0.10);
+    0 6px 16px rgba(14, 165, 233, 0.1);
 }
 .toolbar-group {
   width: 120px;
@@ -1906,7 +1887,9 @@ async function onBatchDelete() {
   color: var(--lc-text-muted);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
 }
 .cell-title:hover .title-edit-icon {
   opacity: 1;
@@ -1958,7 +1941,9 @@ async function onBatchDelete() {
 }
 .cell-editable {
   cursor: pointer;
-  transition: background 0.15s var(--lc-ease), filter 0.15s;
+  transition:
+    background 0.15s var(--lc-ease),
+    filter 0.15s;
 }
 .cell-editable:hover {
   filter: brightness(1.05);
@@ -2066,7 +2051,9 @@ async function onBatchDelete() {
 /* ---------- Batch slide transition ---------- */
 .pm-list-batch-slide-enter-active,
 .pm-list-batch-slide-leave-active {
-  transition: transform 0.25s var(--lc-ease-out), opacity 0.25s var(--lc-ease-out);
+  transition:
+    transform 0.25s var(--lc-ease-out),
+    opacity 0.25s var(--lc-ease-out);
 }
 .pm-list-batch-slide-enter-from,
 .pm-list-batch-slide-leave-to {

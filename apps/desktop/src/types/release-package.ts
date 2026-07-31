@@ -24,7 +24,13 @@ export type ReleasePackageTargetStatus =
   | "failed"
   | "cancelled"
   | "skipped";
-export type ReleasePackageCommandStatus = "skipped" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
+export type ReleasePackageCommandStatus =
+  | "skipped"
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 export interface ReleasePackageUploadConfig {
   sshHost: string;
@@ -78,7 +84,9 @@ export interface ReleasePackageProject extends ReleasePackageProjectDraft {
   updatedAt: string;
 }
 
-export interface ReleasePackageProjectListResult { projects: ReleasePackageProject[] }
+export interface ReleasePackageProjectListResult {
+  projects: ReleasePackageProject[];
+}
 
 export type ReleasePackagePrepareResult =
   | {
@@ -146,8 +154,12 @@ export interface ReleasePackageRemotePreflightResult {
   expiresAt: string;
   targets: ReleasePackageRemoteTargetCheck[];
 }
-export interface ReleasePackageStartResult { runId: string }
-export interface ReleasePackageCancelResult { cancelRequested: boolean }
+export interface ReleasePackageStartResult {
+  runId: string;
+}
+export interface ReleasePackageCancelResult {
+  cancelRequested: boolean;
+}
 
 export interface ReleasePackageUploadProgress {
   uploadedBytes: number;

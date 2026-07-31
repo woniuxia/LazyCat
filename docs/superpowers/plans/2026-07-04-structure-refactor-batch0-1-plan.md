@@ -7,12 +7,12 @@
 
 ## 总览
 
-| 阶段 | 交付 | 验证 |
-|---|---|---|
-| 0 | App.vue Tauri 环境守卫 | typecheck、build:web、test、e2e |
-| 1a | 18 个 PM 组件迁入 `components/pm/` | typecheck、build:web、test、e2e |
-| 1b | PmPanel 拆出 3 个 composable 和 2 个组件 | 同上，加 PM 行为清单冒烟 |
-| 收尾 | 记录通用结构治理经验 | 文档检查 |
+| 阶段 | 交付                                     | 验证                            |
+| ---- | ---------------------------------------- | ------------------------------- |
+| 0    | App.vue Tauri 环境守卫                   | typecheck、build:web、test、e2e |
+| 1a   | 18 个 PM 组件迁入 `components/pm/`       | typecheck、build:web、test、e2e |
+| 1b   | PmPanel 拆出 3 个 composable 和 2 个组件 | 同上，加 PM 行为清单冒烟        |
+| 收尾 | 记录通用结构治理经验                     | 文档检查                        |
 
 ## 阶段 0：App.vue Tauri 环境守卫
 

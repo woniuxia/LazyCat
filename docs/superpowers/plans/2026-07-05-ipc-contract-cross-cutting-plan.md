@@ -9,15 +9,15 @@
 
 ## 总览
 
-| 阶段 | 产出 | 新增/修改文件 |
-|------|------|---------------|
-| 1 | X1a：38 个工具模块显式声明 supported_actions + 前置守卫 | `src-tauri/src/tools/*.rs` |
-| 2 | X1b：mod.rs 聚合、白名单 const 化、契约对账测试 | `tools/mod.rs`、新增 `tools/contract_tests.rs`、`src/bridge/tauri.ts` 头注释 |
-| 3 | X2：事件名双侧常量化 + 纳入对账 | 新增 `src/bridge/events.ts`、`src-tauri/src/events.rs`；替换约 13 个文件的字面量 |
-| 4 | X3 前置：useToolInvoke 升级（TDD） | `composables/useToolInvoke.ts`、新增 `.test.ts` |
-| 5 | X4 前置：useDebouncedKeyword / useListSearch（TDD） | 新增 `composables/useListSearch.ts`、`.test.ts` |
-| 6 | 试点面板批（X3+X4 捆绑，4 个独立提交） | Snippet / Launcher / Hosts / Dns 四面板 |
-| 7 | 收尾沉淀 | `process.md` |
+| 阶段 | 产出                                                    | 新增/修改文件                                                                    |
+| ---- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1    | X1a：38 个工具模块显式声明 supported_actions + 前置守卫 | `src-tauri/src/tools/*.rs`                                                       |
+| 2    | X1b：mod.rs 聚合、白名单 const 化、契约对账测试         | `tools/mod.rs`、新增 `tools/contract_tests.rs`、`src/bridge/tauri.ts` 头注释     |
+| 3    | X2：事件名双侧常量化 + 纳入对账                         | 新增 `src/bridge/events.ts`、`src-tauri/src/events.rs`；替换约 13 个文件的字面量 |
+| 4    | X3 前置：useToolInvoke 升级（TDD）                      | `composables/useToolInvoke.ts`、新增 `.test.ts`                                  |
+| 5    | X4 前置：useDebouncedKeyword / useListSearch（TDD）     | 新增 `composables/useListSearch.ts`、`.test.ts`                                  |
+| 6    | 试点面板批（X3+X4 捆绑，4 个独立提交）                  | Snippet / Launcher / Hosts / Dns 四面板                                          |
+| 7    | 收尾沉淀                                                | `process.md`                                                                     |
 
 前端路径相对 `apps/desktop/src/`，Rust 路径相对 `apps/desktop/src-tauri/src/`。
 

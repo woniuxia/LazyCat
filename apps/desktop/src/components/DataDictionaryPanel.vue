@@ -127,7 +127,8 @@
               title="点击复制"
               @click.stop="copySummaryValue(part.value)"
             >
-              <b>{{ part.label }}</b>{{ part.value }}
+              <b>{{ part.label }}</b
+              >{{ part.value }}
             </span>
           </div>
         </button>
@@ -170,7 +171,11 @@
     <section class="dd-detail" v-loading="detailLoading">
       <div class="dd-detail-head">
         <h3>{{ detailTitle }}</h3>
-        <el-button v-if="detailError && selectedItem" size="small" @click="loadRecordDetail(selectedItem)">
+        <el-button
+          v-if="detailError && selectedItem"
+          size="small"
+          @click="loadRecordDetail(selectedItem)"
+        >
           重试
         </el-button>
       </div>
@@ -241,11 +246,7 @@
       destroy-on-close
     >
       <div class="dd-import-form">
-        <el-input
-          v-if="importMode === 'create'"
-          v-model="importForm.name"
-          placeholder="字典名称"
-        />
+        <el-input v-if="importMode === 'create'" v-model="importForm.name" placeholder="字典名称" />
         <el-input
           v-if="importMode === 'create'"
           v-model="importForm.description"
@@ -257,12 +258,7 @@
             <span>{{ importFileName }}</span>
             <small>{{ importForm.inputPath }}</small>
           </div>
-          <el-button
-            v-if="importForm.inputPath"
-            :icon="Delete"
-            text
-            @click="clearImportFile"
-          >
+          <el-button v-if="importForm.inputPath" :icon="Delete" text @click="clearImportFile">
             清除
           </el-button>
         </div>
@@ -281,7 +277,11 @@
           <span>{{ preview.fields.length }} 个字段</span>
         </div>
         <el-form-item v-if="preview && importMode === 'create'" label="主键字段" required>
-          <el-select v-model="importPrimaryPath" placeholder="选择用于唯一定位记录的字段" filterable>
+          <el-select
+            v-model="importPrimaryPath"
+            placeholder="选择用于唯一定位记录的字段"
+            filterable
+          >
             <el-option
               v-for="field in preview.fields"
               :key="field.fieldPath"
@@ -300,7 +300,12 @@
       <template #footer>
         <el-button @click="importDialogVisible = false">取消</el-button>
         <el-button :loading="previewing" @click="previewImport">预览</el-button>
-        <el-button type="primary" :loading="savingImport" :disabled="!canSaveImport" @click="saveImport">
+        <el-button
+          type="primary"
+          :loading="savingImport"
+          :disabled="!canSaveImport"
+          @click="saveImport"
+        >
           保存
         </el-button>
       </template>
@@ -342,8 +347,8 @@
                 <el-form-item label="主键字段">
                   <el-select
                     v-model="fieldPrimaryPath"
-                  filterable
-                  placeholder="请选择主键字段"
+                    filterable
+                    placeholder="请选择主键字段"
                     size="small"
                   >
                     <el-option
@@ -395,7 +400,11 @@
                   </el-select>
                 </el-form-item>
                 <el-form-item label="排序方向">
-                  <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
+                  <el-radio-group
+                    v-model="fieldSortDirection"
+                    :disabled="!fieldSortPath"
+                    size="small"
+                  >
                     <el-radio-button
                       v-for="option in sortDirectionOptions"
                       :key="option.value"
@@ -415,9 +424,7 @@
             <h4>关系配置</h4>
             <el-button size="small" @click="addRelationDraft">添加关系</el-button>
           </div>
-          <div v-if="!fieldRelationDrafts.length" class="dd-empty dd-relation-empty">
-            暂无关系
-          </div>
+          <div v-if="!fieldRelationDrafts.length" class="dd-empty dd-relation-empty">暂无关系</div>
           <div
             v-for="(relation, index) in fieldRelationDrafts"
             :key="index"
@@ -482,7 +489,12 @@
                   <el-icon class="dd-field-drag-handle" title="拖拽排序"><Rank /></el-icon>
                 </template>
               </el-table-column>
-              <el-table-column prop="fieldPath" label="字段" min-width="190" show-overflow-tooltip />
+              <el-table-column
+                prop="fieldPath"
+                label="字段"
+                min-width="190"
+                show-overflow-tooltip
+              />
               <el-table-column label="显示名" min-width="160">
                 <template #default="{ row }">
                   <el-input v-model="row.displayName" size="small" />
@@ -503,7 +515,9 @@
                   <el-switch
                     :model-value="row.visible"
                     size="small"
-                    @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                    @update:model-value="
+                      (visible) => setFieldVisible(row.fieldPath, Boolean(visible))
+                    "
                   />
                 </template>
               </el-table-column>
@@ -523,7 +537,12 @@
               empty-text="暂无非展示字段"
               size="small"
             >
-              <el-table-column prop="fieldPath" label="字段" min-width="220" show-overflow-tooltip />
+              <el-table-column
+                prop="fieldPath"
+                label="字段"
+                min-width="220"
+                show-overflow-tooltip
+              />
               <el-table-column label="显示名" min-width="160">
                 <template #default="{ row }">
                   <el-input v-model="row.displayName" size="small" />
@@ -544,7 +563,9 @@
                   <el-switch
                     :model-value="row.visible"
                     size="small"
-                    @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                    @update:model-value="
+                      (visible) => setFieldVisible(row.fieldPath, Boolean(visible))
+                    "
                   />
                 </template>
               </el-table-column>
@@ -761,7 +782,8 @@ const resultEmptyTitle = computed(() => {
 
 const resultEmptyDescription = computed(() => {
   if (!dictionaries.value.length) return "导入一个 JSON 数组后即可开始检索字段值。";
-  if (currentDictionaryRequiresPrimary.value) return "配置主键后才能记录常用记录和进入当前字典模式。";
+  if (currentDictionaryRequiresPrimary.value)
+    return "配置主键后才能记录常用记录和进入当前字典模式。";
   if (searchScope.value === "current" && currentDictionary.value?.recordCount === 0) {
     return "可以通过替换字典数据写入记录。";
   }
@@ -794,8 +816,7 @@ async function loadDictionaries(preferredId?: number) {
   dictionaries.value = result.items;
   const nextId =
     [preferredId, searchScope.value === "current" ? selectedId.value : null].find(
-      (id): id is number =>
-        typeof id === "number" && result.items.some((item) => item.id === id),
+      (id): id is number => typeof id === "number" && result.items.some((item) => item.id === id),
     ) ?? null;
   if (nextId) {
     await selectDictionary(nextId);
@@ -818,10 +839,7 @@ async function selectDictionary(id: number) {
   resetRecordDetail();
   searchHasMore.value = false;
   searchError.value = "";
-  const result = await ipc<DataDictionaryGetResponse>(
-    "tool:data-dictionary:get",
-    { id },
-  );
+  const result = await ipc<DataDictionaryGetResponse>("tool:data-dictionary:get", { id });
   if (requestId !== dictionaryRequestSeq || selectedId.value !== id) return;
   currentDictionary.value = result.dictionary;
   fields.value = result.fields;
@@ -948,7 +966,7 @@ async function loadPopularRecords(
     const result = await ipc<DataDictionaryPopularRecordsResult>(
       "tool:data-dictionary:popular-records",
       {
-        dictionaryId: scope === "current" ? dictionaryId ?? undefined : undefined,
+        dictionaryId: scope === "current" ? (dictionaryId ?? undefined) : undefined,
         limit: 10,
       },
     );
@@ -995,10 +1013,7 @@ async function loadRecordDetail(
   await loadRecordDetailById(item.id, options);
 }
 
-async function loadRecordDetailById(
-  recordId: number,
-  options: { markUsed?: boolean } = {},
-) {
+async function loadRecordDetailById(recordId: number, options: { markUsed?: boolean } = {}) {
   const requestId = ++detailRequestSeq;
   detailLoading.value = true;
   detailError.value = "";
@@ -1077,10 +1092,7 @@ async function ensureFieldCache(items: DataDictionarySearchItem[]) {
     new Set(items.map((item) => item.dictionaryId).filter((id) => !fieldCache.value[id])),
   );
   for (const id of missing) {
-    const result = await ipc<DataDictionaryGetResponse>(
-      "tool:data-dictionary:get",
-      { id },
-    );
+    const result = await ipc<DataDictionaryGetResponse>("tool:data-dictionary:get", { id });
     fieldCache.value = { ...fieldCache.value, [id]: result.fields };
   }
 }
@@ -1173,11 +1185,7 @@ async function handleFieldSortEnd(event: Sortable.SortableEvent) {
 }
 
 async function setFieldVisible(fieldPath: string, visible: boolean) {
-  fieldDrafts.value = setDataDictionaryFieldVisibility(
-    fieldDrafts.value,
-    fieldPath,
-    visible,
-  );
+  fieldDrafts.value = setDataDictionaryFieldVisibility(fieldDrafts.value, fieldPath, visible);
   await nextTick();
   destroyFieldSortable();
   initFieldSortable();
@@ -1365,7 +1373,7 @@ function normalizeDialogPath(selected: Awaited<ReturnType<typeof open>>): string
   if (typeof selected === "string") return selected;
   if (Array.isArray(selected)) {
     const first = selected[0];
-    return typeof first === "string" ? first : first?.path ?? "";
+    return typeof first === "string" ? first : (first?.path ?? "");
   }
   return selected.path ?? "";
 }
@@ -1443,10 +1451,13 @@ async function saveImport() {
       await loadDictionaries(created.id);
       ElMessage.success(importWriteMessage("已导入", created));
     } else if (target) {
-      const replaced = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:replace-records", {
-        dictionaryId: target.id,
-        ...buildImportPayload(),
-      });
+      const replaced = await ipc<DataDictionaryImportWriteResult>(
+        "tool:data-dictionary:replace-records",
+        {
+          dictionaryId: target.id,
+          ...buildImportPayload(),
+        },
+      );
       importDialogVisible.value = false;
       await loadDictionaries(target.id);
       ElMessage.success(importWriteMessage("已替换", replaced));
@@ -1579,12 +1590,10 @@ async function saveFieldConfigWithConfirmation(
   });
 }
 
-function parsePrimaryPruneError(error: unknown):
-  | {
-      code: string;
-      skippedPrimaryRecordCount: number;
-    }
-  | null {
+function parsePrimaryPruneError(error: unknown): {
+  code: string;
+  skippedPrimaryRecordCount: number;
+} | null {
   const message = (error as Error).message || String(error);
   try {
     const parsed = JSON.parse(message);
@@ -1806,7 +1815,9 @@ watch(savingDictionaryOrder, (disabled) => {
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.16s ease, border-color 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease;
 }
 
 .dd-dictionary-item {
@@ -1963,7 +1974,9 @@ watch(savingDictionaryOrder, (disabled) => {
   cursor: copy;
   font-size: 12px;
   text-overflow: ellipsis;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
   white-space: nowrap;
 }
 
@@ -1998,7 +2011,10 @@ watch(savingDictionaryOrder, (disabled) => {
 .dd-match-tag {
   max-width: 100%;
   cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .dd-match-tag:hover {
@@ -2318,7 +2334,9 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-relation-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(140px, 0.8fr) auto;
+  grid-template-columns:
+    minmax(160px, 1fr) minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(140px, 0.8fr)
+    auto;
   gap: 8px;
   align-items: start;
   padding: 10px 12px;
@@ -2416,7 +2434,9 @@ watch(savingDictionaryOrder, (disabled) => {
   cursor: grab;
   font-size: 17px;
   opacity: 0.52;
-  transition: color 0.16s ease, opacity 0.16s ease;
+  transition:
+    color 0.16s ease,
+    opacity 0.16s ease;
 }
 
 :deep(.el-table__row:hover) .dd-field-drag-handle {

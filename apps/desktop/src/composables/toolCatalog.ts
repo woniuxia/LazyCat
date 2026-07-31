@@ -8,7 +8,10 @@ export const HOME_TOOL: ToolDef = {
 };
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
-  { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" } },
+  {
+    kind: "tool",
+    tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" },
+  },
   { kind: "tool", tool: { id: "calc-draft", name: "计算草稿", desc: "草稿式计算，保留历史记录" } },
   { kind: "tool", tool: { id: "regex", name: "正则工具", desc: "表达式生成与测试" } },
   { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },
@@ -97,7 +100,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
           name: "访问链路诊断",
           desc: "代理、Hosts、DNS、TCP、TLS、HTTP 分层诊断",
         },
-        { id: "request-forward", name: "请求转发", desc: "HTTP、WebSocket、TCP 与 UDP 本地端口转发" },
+        {
+          id: "request-forward",
+          name: "请求转发",
+          desc: "HTTP、WebSocket、TCP 与 UDP 本地端口转发",
+        },
         { id: "api-mock", name: "API Mock", desc: "本地接口 Mock 服务与路由管理" },
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
         { id: "hosts", name: "Hosts 管理", desc: "多配置保存与切换" },

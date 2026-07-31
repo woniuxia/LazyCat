@@ -26,8 +26,8 @@ describe("Windows packaging command guardrails", () => {
 
   it("derives the tag from package.json and always skips upload", () => {
     expect(wrapperSource).toContain('$rootPackageJsonPath = Join-Path $repoRoot "package.json"');
-    expect(wrapperSource).toContain('$version = [string]$rootPackage.version');
-    expect(wrapperSource).toContain('[string]::IsNullOrWhiteSpace($version)');
+    expect(wrapperSource).toContain("$version = [string]$rootPackage.version");
+    expect(wrapperSource).toContain("[string]::IsNullOrWhiteSpace($version)");
     expect(wrapperSource).toContain('& $releaseScript -Tag "v$version" -SkipUpload');
     expect(wrapperSource).not.toContain("-AllPackages");
   });
@@ -46,8 +46,6 @@ describe("Windows packaging command guardrails", () => {
   });
 
   it("loads shared agent rules through the Claude adapter", () => {
-    expect(claudeSource.replaceAll("\r\n", "\n").trim()).toBe(
-      "# CLAUDE.md\n\n@AGENTS.md",
-    );
+    expect(claudeSource.replaceAll("\r\n", "\n").trim()).toBe("# CLAUDE.md\n\n@AGENTS.md");
   });
 });

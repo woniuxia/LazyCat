@@ -130,9 +130,10 @@ const targetCount = Math.min(
   probe.total,
   Math.max(LOG_PAGE_SIZE, loadedCount + Math.max(0, probe.total - previousTotal)),
 );
-const page = probe.items.length >= targetCount
-  ? { ...probe, items: probe.items.slice(0, targetCount) }
-  : await queryLogs({ offset: 0, limit: targetCount });
+const page =
+  probe.items.length >= targetCount
+    ? { ...probe, items: probe.items.slice(0, targetCount) }
+    : await queryLogs({ offset: 0, limit: targetCount });
 logItems.value = page.items;
 logTotal.value = page.total;
 ```

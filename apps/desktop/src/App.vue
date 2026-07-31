@@ -58,7 +58,6 @@
     </main>
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
-
 </template>
 
 <script setup lang="ts">
@@ -92,10 +91,7 @@ import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
 import { useActionDispatchIntent } from "./composables/useActionDispatchIntent";
 import { useActionCenterNavigation } from "./composables/useActionCenterNavigation";
 import { buildClipboardPathSuggestion, detectClipboardPath } from "./utils/clipboard-detect";
-import {
-  shouldHideNamedHotkeyWindow,
-  type HotkeyNavigatePayload,
-} from "./utils/hotkeyNavigate";
+import { shouldHideNamedHotkeyWindow, type HotkeyNavigatePayload } from "./utils/hotkeyNavigate";
 
 const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
 const { setPendingIntent } = useActionDispatchIntent();
@@ -107,7 +103,8 @@ const sidebarItems: SidebarItem[] = getSidebarItems();
 const allTools = getAllTools();
 const allToolMap = getAllToolMap();
 
-const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
+const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } =
+  useTabs();
 const activeTool = activeTabId;
 const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
@@ -132,7 +129,7 @@ function onKeydown(e: KeyboardEvent) {
     const idx = parseInt(e.key, 10) - 1;
     const visibleTabs = [
       HOME_ID,
-      ...openTabs.value.filter(t => t.id !== HOME_ID).map(t => t.id),
+      ...openTabs.value.filter((t) => t.id !== HOME_ID).map((t) => t.id),
     ];
     if (idx < visibleTabs.length) {
       onTabSelect(visibleTabs[idx]);
@@ -192,13 +189,13 @@ const {
   getToolSearchMetaMap,
   setToolSearchMetaMap,
   loadMenuVisibility,
-} =
-  useMenuVisibility(sortedSidebarItems);
+} = useMenuVisibility(sortedSidebarItems);
 const toolSearchMetaMap = computed(() => getToolSearchMetaMap());
 
 const currentTool = computed(() => {
   if (activeTool.value === HOME_ID) return HOME_TOOL;
-  if (activeTool.value === "settings") return { id: "settings", name: "设置", desc: "快捷键与应用偏好设置" };
+  if (activeTool.value === "settings")
+    return { id: "settings", name: "设置", desc: "快捷键与应用偏好设置" };
   return allToolMap.get(activeTool.value);
 });
 
@@ -208,37 +205,58 @@ const currentComponentProps = computed(() => {
   const id = activeTool.value;
   if (ENCODE_PANEL_IDS.has(id)) return { activeTool: id };
   if (id.startsWith("manual-")) return { manualId: id };
-  if (id === "settings") return {
-    hotkeyInput: hotkeyInput.value,
-    snippetsHotkeyInput: snippetsHotkeyInput.value,
-    vaultHotkeyInput: vaultHotkeyInput.value,
-    launcherHotkeyInput: launcherHotkeyInput.value,
-    todoHotkeyInput: todoHotkeyInput.value,
-    quickCaptureHotkeyInput: quickCaptureHotkeyInput.value,
-    referenceCardHotkeyInput: referenceCardHotkeyInput.value,
-    spotlightHotkeyInput: spotlightHotkeyInput.value,
-    homeTopLimit: homeTopLimit.value,
-    sidebarItems,
-    getHiddenIds,
-    setHiddenIds,
-    getToolSearchMetaMap,
-    setToolSearchMetaMap,
-    "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
-    "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
-    "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
-    "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
-    "onUpdate:todoHotkeyInput": (v: string) => { todoHotkeyInput.value = v; },
-    "onUpdate:quickCaptureHotkeyInput": (v: string) => { quickCaptureHotkeyInput.value = v; },
-    "onUpdate:referenceCardHotkeyInput": (v: string) => { referenceCardHotkeyInput.value = v; },
-    "onUpdate:spotlightHotkeyInput": (v: string) => { spotlightHotkeyInput.value = v; },
-    "onUpdate:homeTopLimit": (v: number) => { homeTopLimit.value = v; },
-  };
+  if (id === "settings")
+    return {
+      hotkeyInput: hotkeyInput.value,
+      snippetsHotkeyInput: snippetsHotkeyInput.value,
+      vaultHotkeyInput: vaultHotkeyInput.value,
+      launcherHotkeyInput: launcherHotkeyInput.value,
+      todoHotkeyInput: todoHotkeyInput.value,
+      quickCaptureHotkeyInput: quickCaptureHotkeyInput.value,
+      referenceCardHotkeyInput: referenceCardHotkeyInput.value,
+      spotlightHotkeyInput: spotlightHotkeyInput.value,
+      homeTopLimit: homeTopLimit.value,
+      sidebarItems,
+      getHiddenIds,
+      setHiddenIds,
+      getToolSearchMetaMap,
+      setToolSearchMetaMap,
+      "onUpdate:hotkeyInput": (v: string) => {
+        hotkeyInput.value = v;
+      },
+      "onUpdate:snippetsHotkeyInput": (v: string) => {
+        snippetsHotkeyInput.value = v;
+      },
+      "onUpdate:vaultHotkeyInput": (v: string) => {
+        vaultHotkeyInput.value = v;
+      },
+      "onUpdate:launcherHotkeyInput": (v: string) => {
+        launcherHotkeyInput.value = v;
+      },
+      "onUpdate:todoHotkeyInput": (v: string) => {
+        todoHotkeyInput.value = v;
+      },
+      "onUpdate:quickCaptureHotkeyInput": (v: string) => {
+        quickCaptureHotkeyInput.value = v;
+      },
+      "onUpdate:referenceCardHotkeyInput": (v: string) => {
+        referenceCardHotkeyInput.value = v;
+      },
+      "onUpdate:spotlightHotkeyInput": (v: string) => {
+        spotlightHotkeyInput.value = v;
+      },
+      "onUpdate:homeTopLimit": (v: number) => {
+        homeTopLimit.value = v;
+      },
+    };
   return {};
 });
 
 // Show tab bar when there are tabs other than home, or home is not active
 const showTabBar = computed(() => {
-  return openTabs.value.length > 1 || (openTabs.value.length === 1 && openTabs.value[0].id !== HOME_ID);
+  return (
+    openTabs.value.length > 1 || (openTabs.value.length === 1 && openTabs.value[0].id !== HOME_ID)
+  );
 });
 
 // All tabs for TabBar component (openTabs already includes home)
@@ -323,42 +341,74 @@ onMounted(async () => {
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {
-    try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
+    try {
+      await registerHotkey(savedHotkey);
+    } catch {
+      /* ignore in non-Tauri env */
+    }
   }
   const savedSnippetsHotkey = getSetting("hotkey_snippets") ?? "";
   snippetsHotkeyInput.value = savedSnippetsHotkey;
   if (savedSnippetsHotkey) {
-    try { await registerNamedHotkey("snippets", savedSnippetsHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("snippets", savedSnippetsHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedVaultHotkey = getSetting("hotkey_vault") ?? "";
   vaultHotkeyInput.value = savedVaultHotkey;
   if (savedVaultHotkey) {
-    try { await registerNamedHotkey("vault", savedVaultHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("vault", savedVaultHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedLauncherHotkey = getSetting("hotkey_launcher") ?? "";
   launcherHotkeyInput.value = savedLauncherHotkey;
   if (savedLauncherHotkey) {
-    try { await registerNamedHotkey("launcher", savedLauncherHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("launcher", savedLauncherHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedTodoHotkey = getSetting("hotkey_todo") ?? "";
   todoHotkeyInput.value = savedTodoHotkey;
   if (savedTodoHotkey) {
-    try { await registerNamedHotkey("todo", savedTodoHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("todo", savedTodoHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedQuickCaptureHotkey = getSetting("hotkey_quick_capture") ?? "Ctrl+Shift+N";
   quickCaptureHotkeyInput.value = savedQuickCaptureHotkey;
   if (savedQuickCaptureHotkey) {
-    try { await registerNamedHotkey("quick-capture", savedQuickCaptureHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("quick-capture", savedQuickCaptureHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedReferenceCardHotkey = getSetting("hotkey_reference_card") ?? "Ctrl+Alt+Space";
   referenceCardHotkeyInput.value = savedReferenceCardHotkey;
   if (savedReferenceCardHotkey) {
-    try { await registerNamedHotkey("reference-card", savedReferenceCardHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("reference-card", savedReferenceCardHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   const savedSpotlightHotkey = getSetting("hotkey_spotlight") ?? "Ctrl+Shift+Space";
   spotlightHotkeyInput.value = savedSpotlightHotkey;
   if (savedSpotlightHotkey) {
-    try { await registerNamedHotkey("spotlight", savedSpotlightHotkey); } catch { /* ignore */ }
+    try {
+      await registerNamedHotkey("spotlight", savedSpotlightHotkey);
+    } catch {
+      /* ignore */
+    }
   }
   try {
     await listen(APP_EVENTS.MAIN_WINDOW_TOGGLE, async () => {
@@ -367,17 +417,24 @@ onMounted(async () => {
         focusSearch();
       }
     });
-  } catch { /* ignore in non-Tauri env */ }
+  } catch {
+    /* ignore in non-Tauri env */
+  }
   try {
-    await listen<ActionDispatchRequest>(APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST, ({ payload }) => {
-      if (!payload.dispatchId || !isRealToolId(payload.targetToolId)) {
-        ElMessage.error("动作请求的目标工具无效");
-        return;
-      }
-      setPendingIntent(payload);
-      onSelect(payload.targetToolId);
-    });
-  } catch { /* ignore in non-Tauri env */ }
+    await listen<ActionDispatchRequest>(
+      APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST,
+      ({ payload }) => {
+        if (!payload.dispatchId || !isRealToolId(payload.targetToolId)) {
+          ElMessage.error("动作请求的目标工具无效");
+          return;
+        }
+        setPendingIntent(payload);
+        onSelect(payload.targetToolId);
+      },
+    );
+  } catch {
+    /* ignore in non-Tauri env */
+  }
   try {
     await listen<{ kind: string; toolId?: string }>(APP_EVENTS.WIDGET_NAVIGATE, (event) => {
       const { kind, toolId } = event.payload;
@@ -388,17 +445,23 @@ onMounted(async () => {
         onSelect("todo");
       }
     });
-  } catch { /* ignore in non-Tauri env */ }
+  } catch {
+    /* ignore in non-Tauri env */
+  }
   try {
     await listen<HotkeyNavigatePayload>(APP_EVENTS.HOTKEY_NAVIGATE, async (event) => {
       const { target, text, source, itemId, projectId, view } = event.payload;
-      if (shouldHideNamedHotkeyWindow(event.payload, {
-        activeTool: activeTool.value,
-      })) {
+      if (
+        shouldHideNamedHotkeyWindow(event.payload, {
+          activeTool: activeTool.value,
+        })
+      ) {
         try {
           await appWindow?.hide();
           return;
-        } catch { /* ignore in non-Tauri env */ }
+        } catch {
+          /* ignore in non-Tauri env */
+        }
       }
       if (itemId) {
         if (target === "action-center") {
@@ -417,16 +480,16 @@ onMounted(async () => {
             const { usePmNavigation } = await import("./composables/usePmNavigation");
             const { hasView } = await import("./composables/pmViewRegistry");
             const parsedProject = projectId ? Number(projectId) : null;
-            const projectIdValue = parsedProject != null && Number.isFinite(parsedProject)
-              ? parsedProject
-              : null;
+            const projectIdValue =
+              parsedProject != null && Number.isFinite(parsedProject) ? parsedProject : null;
             const viewId = view && hasView(view) ? view : undefined;
             usePmNavigation().requestFocus(parsedItem, projectIdValue, viewId);
           } else if (target === "todo") {
             const { useTodoNavigation } = await import("./composables/useTodoNavigation");
             useTodoNavigation().requestFocus(parsedItem);
           } else if (target === "data-dictionary") {
-            const { useDataDictionaryNavigation } = await import("./composables/useDataDictionaryNavigation");
+            const { useDataDictionaryNavigation } =
+              await import("./composables/useDataDictionaryNavigation");
             useDataDictionaryNavigation().requestFocus(parsedItem);
           }
         }
@@ -440,7 +503,9 @@ onMounted(async () => {
         });
       }
     });
-  } catch { /* ignore in non-Tauri env */ }
+  } catch {
+    /* ignore in non-Tauri env */
+  }
   try {
     await listen<{ name: string }>(APP_EVENTS.HOSTS_APPLIED, (event) => {
       const name = event.payload?.name ?? "";
@@ -450,7 +515,9 @@ onMounted(async () => {
           : "已应用 Hosts 配置（可在 Hosts 工具撤销）",
       );
     });
-  } catch { /* ignore in non-Tauri env */ }
+  } catch {
+    /* ignore in non-Tauri env */
+  }
   window.addEventListener("keydown", onKeydown);
   await ensureClipboardListener();
 });

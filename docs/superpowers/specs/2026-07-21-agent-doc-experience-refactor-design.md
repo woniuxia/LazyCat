@@ -55,22 +55,22 @@
 
 在 `docs/experience/` 下建立以下聚合文件：
 
-| 文件 | 主要范围 |
-|------|----------|
-| `architecture.md` | 结构治理、IPC 契约、Tauri 能力、跨模块通用架构 |
-| `ui-and-styling.md` | Element Plus、布局、弹层、交互状态和视觉实现 |
-| `data-dictionary.md` | 数据字典存储、索引、检索、排序、关系和异步状态 |
-| `todo.md` | Todo 数据模型、日期时间、提醒、排序、详情交互 |
-| `pm.md` | PM 视图、筛选、甘特图、思源集成和工作项模型 |
-| `spotlight-and-launcher.md` | Spotlight、快捷键、浏览器身份、provider 缓存 |
-| `api-and-network-tools.md` | API Mock、访问链路、Cron、连通性和其他网络工具 |
-| `request-forward.md` | 请求转发运行态、日志、预检、布局和恢复动作 |
-| `release-package.md` | 上线包构建、归档、并行目标和运行态日志 |
+| 文件                           | 主要范围                                              |
+| ------------------------------ | ----------------------------------------------------- |
+| `architecture.md`              | 结构治理、IPC 契约、Tauri 能力、跨模块通用架构        |
+| `ui-and-styling.md`            | Element Plus、布局、弹层、交互状态和视觉实现          |
+| `data-dictionary.md`           | 数据字典存储、索引、检索、排序、关系和异步状态        |
+| `todo.md`                      | Todo 数据模型、日期时间、提醒、排序、详情交互         |
+| `pm.md`                        | PM 视图、筛选、甘特图、思源集成和工作项模型           |
+| `spotlight-and-launcher.md`    | Spotlight、快捷键、浏览器身份、provider 缓存          |
+| `api-and-network-tools.md`     | API Mock、访问链路、Cron、连通性和其他网络工具        |
+| `request-forward.md`           | 请求转发运行态、日志、预检、布局和恢复动作            |
+| `release-package.md`           | 上线包构建、归档、并行目标和运行态日志                |
 | `windows-build-and-release.md` | Windows 打包、便携包、WebView2、版本与 GitHub Release |
-| `vault-and-inbox.md` | 密码库、收纳箱及其跨工具数据流 |
-| `manuals-and-resources.md` | 离线手册、资源抓取、本地预览和外部资源本地化 |
-| `agent-workflow.md` | Agent 文档治理、计划、验证和协作经验 |
-| `other-tools.md` | 不足以独立成域的工具经验，如 Base64、文本、JSON 树等 |
+| `vault-and-inbox.md`           | 密码库、收纳箱及其跨工具数据流                        |
+| `manuals-and-resources.md`     | 离线手册、资源抓取、本地预览和外部资源本地化          |
+| `agent-workflow.md`            | Agent 文档治理、计划、验证和协作经验                  |
+| `other-tools.md`               | 不足以独立成域的工具经验，如 Base64、文本、JSON 树等  |
 
 每份文件顶部包含适用范围、关键词和文内目录。经验条目继续按日期倒序排列。
 
@@ -130,9 +130,11 @@
 **关键点**：...
 
 **涉及文件**：
+
 - `path/to/file`
 
 **验证**：
+
 - `command`
 
 **使用次数**：0

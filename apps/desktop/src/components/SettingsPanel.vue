@@ -24,7 +24,9 @@
           <div class="setting-item">
             <div class="setting-label">
               <span class="label-text">常用工具显示数量</span>
-              <span class="label-desc">首页"常用工具"区域显示的工具总数（收藏全部优先显示，其余按近30天点击次数排序）</span>
+              <span class="label-desc"
+                >首页"常用工具"区域显示的工具总数（收藏全部优先显示，其余按近30天点击次数排序）</span
+              >
             </div>
             <div class="setting-control">
               <el-input-number
@@ -276,10 +278,7 @@
               <span class="label-desc">应用将在系统启动时自动运行</span>
             </div>
             <div class="setting-control">
-              <el-switch
-                v-model="autostartEnabled"
-                @change="handleAutostartChange"
-              />
+              <el-switch v-model="autostartEnabled" @change="handleAutostartChange" />
             </div>
           </div>
 
@@ -303,10 +302,7 @@
               <span class="label-desc">关闭时隐藏到系统托盘而非退出应用</span>
             </div>
             <div class="setting-control">
-              <el-switch
-                v-model="closeToTray"
-                @change="handleCloseToTrayChange"
-              />
+              <el-switch v-model="closeToTray" @change="handleCloseToTrayChange" />
             </div>
           </div>
 
@@ -316,10 +312,7 @@
               <span class="label-desc">通过快捷键或托盘唤出窗口时，自动聚焦搜索框并展开推荐</span>
             </div>
             <div class="setting-control">
-              <el-switch
-                v-model="focusSearchOnShow"
-                @change="handleFocusSearchOnShowChange"
-              />
+              <el-switch v-model="focusSearchOnShow" @change="handleFocusSearchOnShowChange" />
             </div>
           </div>
         </div>
@@ -341,10 +334,7 @@
               <span class="label-desc">窗口激活时自动检测剪贴板内容类型，提供一键跳转</span>
             </div>
             <div class="setting-control">
-              <el-switch
-                v-model="clipboardDetection"
-                @change="handleClipboardDetectionChange"
-              />
+              <el-switch v-model="clipboardDetection" @change="handleClipboardDetectionChange" />
             </div>
           </div>
         </div>
@@ -365,10 +355,7 @@
               <span class="label-desc">应用运行期间记录最近复制内容，可随时关闭</span>
             </div>
             <div class="setting-control">
-              <el-switch
-                v-model="inboxCaptureEnabled"
-                @change="handleInboxCaptureEnabledChange"
-              />
+              <el-switch v-model="inboxCaptureEnabled" @change="handleInboxCaptureEnabledChange" />
             </div>
           </div>
 
@@ -434,16 +421,9 @@
             </div>
             <div class="setting-control setting-control-column">
               <div class="data-dir-input">
-                <el-input
-                  :model-value="dataDirPath"
-                  readonly
-                  placeholder="加载中..."
-                />
+                <el-input :model-value="dataDirPath" readonly placeholder="加载中..." />
                 <el-button @click="handleChangeDataDir">更改</el-button>
-                <el-button
-                  v-if="dataDirIsCustom"
-                  @click="handleResetDataDir"
-                >恢复默认</el-button>
+                <el-button v-if="dataDirIsCustom" @click="handleResetDataDir">恢复默认</el-button>
               </div>
             </div>
           </div>
@@ -483,7 +463,13 @@
 import { computed, reactive, ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
+import {
+  registerHotkey,
+  unregisterHotkey,
+  registerNamedHotkey,
+  unregisterNamedHotkey,
+  invokeToolByChannel,
+} from "../bridge/tauri";
 import {
   getSetting,
   getVaultLockSettings,
@@ -574,7 +560,7 @@ const HOTKEY_FIELDS = [
   { key: "spotlightHotkeyInput" as const, label: "Spotlight" },
 ] as const;
 
-function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
+function makeConflictChecker(selfKey: (typeof HOTKEY_FIELDS)[number]["key"]) {
   return (shortcut: string): string | undefined => {
     for (const f of HOTKEY_FIELDS) {
       if (f.key !== selfKey && props[f.key] === shortcut) return f.label;

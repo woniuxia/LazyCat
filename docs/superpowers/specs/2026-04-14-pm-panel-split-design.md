@@ -39,19 +39,19 @@ PmPanel.vue (编排层)
 
 ### Props
 
-| Prop | 类型 | 说明 |
-|------|------|------|
+| Prop    | 类型                | 说明                     |
+| ------- | ------------------- | ------------------------ |
 | project | `PmProject \| null` | 所属项目（显示项目芯片） |
-| item | `PmItem \| null` | 当前工作项 |
+| item    | `PmItem \| null`    | 当前工作项               |
 
 ### Emits
 
-| Emit | Payload | 说明 |
-|------|---------|------|
-| close | - | 关闭详情面板 |
-| toggle-pin | item | 置顶/取消置顶 |
-| advance-status | item | 推进状态 |
-| delete | item | 删除工作项 |
+| Emit           | Payload | 说明          |
+| -------------- | ------- | ------------- |
+| close          | -       | 关闭详情面板  |
+| toggle-pin     | item    | 置顶/取消置顶 |
+| advance-status | item    | 推进状态      |
+| delete         | item    | 删除工作项    |
 
 ### Inject
 
@@ -66,11 +66,13 @@ PmPanel.vue (编排层)
 以下需在子组件中自行导入或从 PmPanel 迁入：
 
 **从外部模块导入：**
+
 - `PM_STATUS_COLUMNS`、`PM_ITEM_TYPE_MAP`、`PM_PRIORITY_MAP` — 状态/类型/优先级常量
 - `getPmLightTagStyle` — 标签样式计算
 - `formatPmDateRangeForDisplay` — 日期范围格式化
 
 **从 PmPanel 迁入：**
+
 - `isOverdue(item: PmItem)` — 判断工作项是否逾期（注意：接收 PmItem 对象，不是 date）
 - `nextStatusLabel(status)` — 获取下一状态标签
 - `formatDateTime(date)` — 格式化时间
@@ -100,6 +102,7 @@ PmPanel.vue (编排层)
 ### 样式迁移
 
 从 PmPanel 的 `<style scoped>` 和 `<style>` 中迁移：
+
 - `.pm-detail` 及内部所有样式（~200 行）
 - 详情面板相关的新版视觉覆盖样式
 
@@ -158,6 +161,7 @@ PmPanel.vue (编排层)
 ### 样式迁移
 
 从 PmPanel 的 `<style>` 全局样式中迁移：
+
 - `.siyuan-drawer` 及内部所有样式
 - `.siyuan-config-card`、`.siyuan-page-list`、`.siyuan-picker` 等
 - `.siyuan-tree`、`.siyuan-error-alert` 等
@@ -182,8 +186,8 @@ PmPanel.vue (编排层)
 
 无 props。对话框的打开/关闭由内部状态管理。
 
-| Emit | Payload | 说明 |
-|------|---------|------|
+| Emit             | Payload                     | 说明                                                                  |
+| ---------------- | --------------------------- | --------------------------------------------------------------------- |
 | projects-changed | `{ newProjectId?: string }` | 项目列表变更，通知父组件刷新。`newProjectId` 用于新建后自动选中新项目 |
 
 ### Inject
@@ -203,11 +207,11 @@ PmPanel.vue (编排层)
 
 ### defineExpose
 
-| 方法 | 参数 | 说明 |
-|------|------|------|
-| showCreate() | - | 打开新建项目对话框 |
-| showEdit(project) | PmProject | 打开编辑项目对话框 |
-| handleContext(action, project) | `'archive' \| 'restore' \| 'delete'`, PmProject | 处理右键菜单动作 |
+| 方法                           | 参数                                            | 说明               |
+| ------------------------------ | ----------------------------------------------- | ------------------ |
+| showCreate()                   | -                                               | 打开新建项目对话框 |
+| showEdit(project)              | PmProject                                       | 打开编辑项目对话框 |
+| handleContext(action, project) | `'archive' \| 'restore' \| 'delete'`, PmProject | 处理右键菜单动作   |
 
 ### 内部函数
 
@@ -250,7 +254,7 @@ PmPanel.vue (编排层)
 ### Key
 
 ```typescript
-const PM_SIYUAN_KEY: InjectionKey<ReturnType<typeof usePmSiyuan>> = Symbol('pmSiyuan')
+const PM_SIYUAN_KEY: InjectionKey<ReturnType<typeof usePmSiyuan>> = Symbol("pmSiyuan");
 ```
 
 ### Provider（PmPanel.vue）
@@ -263,7 +267,7 @@ provide(PM_SIYUAN_KEY, siyuan)
 ### Consumer（PmDetailPanel.vue、PmSiyuanDrawer.vue、PmProjectDialog.vue）
 
 ```typescript
-const siyuan = inject(PM_SIYUAN_KEY)!
+const siyuan = inject(PM_SIYUAN_KEY)!;
 ```
 
 导出 key 的位置：`apps/desktop/src/composables/pmSiyuanKey.ts`（新建小文件，仅导出 InjectionKey）。
@@ -278,23 +282,23 @@ const siyuan = inject(PM_SIYUAN_KEY)!
 
 ### 样式归属
 
-| PmPanel 全局样式区域 | 归属 | 说明 |
-|---------------------|------|------|
-| `.pm-siyuan-drawer .el-drawer__body` 等 | PmSiyuanDrawer | 思源抽屉专属 |
-| `.siyuan-config-card`、`.siyuan-page-list`、`.siyuan-picker`、`.siyuan-tree`、`.siyuan-error-alert` | PmSiyuanDrawer | 思源配置 UI |
-| `.pm-form-item-top` | 共享 | 项目对话框和 PmItemDialog 都使用 |
-| `.pm-item-dialog-form`、`.pm-item-section` | 留在 PmPanel | 属于 PmItemDialog slots |
-| PM-Todo Linking 样式 | 留在 PmPanel | 详情面板和 item dialog slots 共用 |
+| PmPanel 全局样式区域                                                                                | 归属           | 说明                              |
+| --------------------------------------------------------------------------------------------------- | -------------- | --------------------------------- |
+| `.pm-siyuan-drawer .el-drawer__body` 等                                                             | PmSiyuanDrawer | 思源抽屉专属                      |
+| `.siyuan-config-card`、`.siyuan-page-list`、`.siyuan-picker`、`.siyuan-tree`、`.siyuan-error-alert` | PmSiyuanDrawer | 思源配置 UI                       |
+| `.pm-form-item-top`                                                                                 | 共享           | 项目对话框和 PmItemDialog 都使用  |
+| `.pm-item-dialog-form`、`.pm-item-section`                                                          | 留在 PmPanel   | 属于 PmItemDialog slots           |
+| PM-Todo Linking 样式                                                                                | 留在 PmPanel   | 详情面板和 item dialog slots 共用 |
 
 ## 行数预估
 
-| 文件 | 变化前 | 变化后 |
-|------|--------|--------|
-| PmPanel.vue | 4809 | ~3100（含剩余样式） |
-| PmDetailPanel.vue | 新建 | ~600 |
-| PmSiyuanDrawer.vue | 新建 | ~650 |
-| PmProjectDialog.vue | 新建 | ~380 |
-| pmSiyuanKey.ts | 新建 | ~5 |
+| 文件                | 变化前 | 变化后              |
+| ------------------- | ------ | ------------------- |
+| PmPanel.vue         | 4809   | ~3100（含剩余样式） |
+| PmDetailPanel.vue   | 新建   | ~600                |
+| PmSiyuanDrawer.vue  | 新建   | ~650                |
+| PmProjectDialog.vue | 新建   | ~380                |
+| pmSiyuanKey.ts      | 新建   | ~5                  |
 
 ## 验证计划
 

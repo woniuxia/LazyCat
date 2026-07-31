@@ -20,26 +20,13 @@
     </el-dropdown>
 
     <div class="nav-toolbar">
-      <el-input
-        v-model="searchQuery"
-        placeholder="搜索工具..."
-        clearable
-        :prefix-icon="Search"
-      />
+      <el-input v-model="searchQuery" placeholder="搜索工具..." clearable :prefix-icon="Search" />
       <div class="nav-toolbar-actions">
-        <button
-          class="nav-toolbar-btn"
-          title="全部折叠"
-          @click="collapseAll"
-        >
+        <button class="nav-toolbar-btn" title="全部折叠" @click="collapseAll">
           <el-icon><Fold /></el-icon>
           <span>折叠</span>
         </button>
-        <button
-          class="nav-toolbar-btn"
-          title="全部展开"
-          @click="expandAll"
-        >
+        <button class="nav-toolbar-btn" title="全部展开" @click="expandAll">
           <el-icon><Expand /></el-icon>
           <span>展开</span>
         </button>
@@ -62,31 +49,22 @@
     >
       <el-menu-item v-if="showHome" index="home">首页</el-menu-item>
       <template v-if="filteredItems.length">
-        <template v-for="item in filteredItems" :key="item.kind === 'group' ? item.group.id : item.tool.id">
-          <el-menu-item
-            v-if="item.kind === 'tool'"
-            :index="item.tool.id"
-            class="nav-top-tool"
-          >
+        <template
+          v-for="item in filteredItems"
+          :key="item.kind === 'group' ? item.group.id : item.tool.id"
+        >
+          <el-menu-item v-if="item.kind === 'tool'" :index="item.tool.id" class="nav-top-tool">
             {{ item.tool.name }}
           </el-menu-item>
-          <el-sub-menu
-            v-else
-            :index="item.group.id"
-          >
+          <el-sub-menu v-else :index="item.group.id">
             <template #title>{{ item.group.name }}</template>
-            <el-menu-item
-              v-for="tool in item.group.tools"
-              :key="tool.id"
-              :index="tool.id"
-            >
+            <el-menu-item v-for="tool in item.group.tools" :key="tool.id" :index="tool.id">
               {{ tool.name }}
             </el-menu-item>
           </el-sub-menu>
         </template>
       </template>
-      <div v-else-if="searchQuery.trim()" class="nav-empty">
-        无匹配工具      </div>
+      <div v-else-if="searchQuery.trim()" class="nav-empty">无匹配工具</div>
     </el-menu>
 
     <div class="nav-bottom">
@@ -141,9 +119,7 @@ const filteredItems = computed(() => {
         return item;
       }
       const matched = group.tools.filter(
-        (tool) =>
-          tool.name.toLowerCase().includes(q) ||
-          tool.desc.toLowerCase().includes(q)
+        (tool) => tool.name.toLowerCase().includes(q) || tool.desc.toLowerCase().includes(q),
       );
       if (matched.length === 0) return null;
       return { kind: "group", group: { ...group, tools: matched } };
@@ -152,11 +128,13 @@ const filteredItems = computed(() => {
 });
 
 const groupItems = computed(() =>
-  props.items.filter((item): item is SidebarItem & { kind: "group" } => item.kind === "group")
+  props.items.filter((item): item is SidebarItem & { kind: "group" } => item.kind === "group"),
 );
 
 const filteredGroupItems = computed(() =>
-  filteredItems.value.filter((item): item is SidebarItem & { kind: "group" } => item.kind === "group")
+  filteredItems.value.filter(
+    (item): item is SidebarItem & { kind: "group" } => item.kind === "group",
+  ),
 );
 
 function collapseAll() {
@@ -181,9 +159,7 @@ function locateCurrentTool() {
 
   searchQuery.value = "";
 
-  const targetGroup = groupItems.value.find((item) =>
-    item.group.tools.some((t) => t.id === tool)
-  );
+  const targetGroup = groupItems.value.find((item) => item.group.tools.some((t) => t.id === tool));
   if (!targetGroup) return;
 
   const menu = menuRef.value;
@@ -220,5 +196,3 @@ watch(searchQuery, () => {
   });
 });
 </script>
-
-

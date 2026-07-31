@@ -231,13 +231,14 @@
    - 其他情况返回 `none`
 9. 上述分支只决定候选类型，不直接等于最终识别结果；最终返回 `standard`、`url-safe`、`ambiguous` 前，还必须通过与当前 Rust `STANDARD` / `URL_SAFE_NO_PAD` 语义一致的轻量可解码性校验。
 10. 最终判定规则如下：
-   - Standard 候选仅在 Standard 校验通过时返回 `standard`，否则返回 `none`
-   - URL-safe 候选仅在 URL-safe 校验通过时返回 `url-safe`，否则返回 `none`
-   - 共享字符集、无 `=`、且 `len % 4 == 0` 的候选：
-      - 两侧校验都通过时返回 `ambiguous`
-      - 仅 Standard 通过时返回 `standard`
-      - 仅 URL-safe 通过时返回 `url-safe`
-      - 两侧都失败时返回 `none`
+
+- Standard 候选仅在 Standard 校验通过时返回 `standard`，否则返回 `none`
+- URL-safe 候选仅在 URL-safe 校验通过时返回 `url-safe`，否则返回 `none`
+- 共享字符集、无 `=`、且 `len % 4 == 0` 的候选：
+  - 两侧校验都通过时返回 `ambiguous`
+  - 仅 Standard 通过时返回 `standard`
+  - 仅 URL-safe 通过时返回 `url-safe`
+  - 两侧都失败时返回 `none`
 
 轻量可解码性校验的实现约束如下：
 

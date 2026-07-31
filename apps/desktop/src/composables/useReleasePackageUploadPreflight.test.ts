@@ -93,7 +93,11 @@ describe("useReleasePackageUploadPreflight", () => {
       .mockRejectedValueOnce(new Error("认证失败"));
     const preflight = useReleasePackageUploadPreflight();
     await preflight.probe(41);
-    await preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "secret" });
+    await preflight.check({
+      environmentId: 41,
+      targets: ["frontend"],
+      privateKeyPassphrase: "secret",
+    });
 
     await expect(
       preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "wrong" }),
@@ -115,9 +119,12 @@ describe("useReleasePackageUploadPreflight", () => {
   it("discards a probe token returned after reset invalidates the request", async () => {
     let resolveProbe!: (value: unknown) => void;
     invokeMock
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolveProbe = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveProbe = resolve;
+          }),
+      )
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
 
@@ -151,9 +158,12 @@ describe("useReleasePackageUploadPreflight", () => {
         fingerprintSha256: "SHA256:key",
         trust: "trusted",
       })
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolveDiscard = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDiscard = resolve;
+          }),
+      )
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
     await preflight.probe(41);
@@ -185,13 +195,20 @@ describe("useReleasePackageUploadPreflight", () => {
         expiresAt: "2026-07-22T12:00:00Z",
         targets: [],
       })
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolveDiscard = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDiscard = resolve;
+          }),
+      )
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
     await preflight.probe(41);
-    await preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "secret" });
+    await preflight.check({
+      environmentId: 41,
+      targets: ["frontend"],
+      privateKeyPassphrase: "secret",
+    });
 
     const pendingCheck = preflight.check({
       environmentId: 41,
@@ -220,9 +237,12 @@ describe("useReleasePackageUploadPreflight", () => {
         fingerprintSha256: "SHA256:old",
         trust: "trusted",
       })
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolveDiscard = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDiscard = resolve;
+          }),
+      )
       .mockResolvedValueOnce({
         probeToken: "new-probe",
         host: "new.example",

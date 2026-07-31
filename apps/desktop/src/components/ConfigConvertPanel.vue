@@ -4,9 +4,7 @@
       <el-select v-model="fromFormat" style="width: 140px">
         <el-option v-for="f in formats" :key="f.value" :label="f.label" :value="f.value" />
       </el-select>
-      <el-button text @click="swapFormats">
-        &#8644;
-      </el-button>
+      <el-button text @click="swapFormats"> &#8644; </el-button>
       <el-select v-model="toFormat" style="width: 140px">
         <el-option v-for="f in formats" :key="f.value" :label="f.label" :value="f.value" />
       </el-select>

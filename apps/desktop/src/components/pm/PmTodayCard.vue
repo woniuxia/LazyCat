@@ -28,27 +28,13 @@
         <span v-if="item.pinned" class="card-flag" title="已置顶">📌</span>
       </div>
       <div class="card-title" :title="cardTitleTooltip">{{ item.title }}</div>
-      <span
-        v-if="dateChipText"
-        class="card-date-chip"
-        :class="{ 'is-overdue': overdue }"
-      >
+      <span v-if="dateChipText" class="card-date-chip" :class="{ 'is-overdue': overdue }">
         {{ dateChipText }}
       </span>
     </div>
     <div class="card-actions">
-      <button
-        v-if="showStart"
-        class="card-action"
-        @click.stop="emit('start', item)"
-      >
-        开始做
-      </button>
-      <button
-        v-if="showPostpone"
-        class="card-action"
-        @click.stop="emit('postpone', item)"
-      >
+      <button v-if="showStart" class="card-action" @click.stop="emit('start', item)">开始做</button>
+      <button v-if="showPostpone" class="card-action" @click.stop="emit('postpone', item)">
         推到明天
       </button>
       <button
@@ -58,12 +44,7 @@
       >
         标记完成
       </button>
-      <button
-        class="card-action"
-        @click.stop="emit('detail', item)"
-      >
-        详情
-      </button>
+      <button class="card-action" @click.stop="emit('detail', item)">详情</button>
     </div>
   </div>
 </template>
@@ -122,7 +103,10 @@ const showComplete = computed(() => props.item.status !== "done");
   align-items: center;
   gap: 12px;
   cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s,
+    transform 0.18s;
 }
 
 .pm-today-card:hover {
@@ -229,7 +213,10 @@ const showComplete = computed(() => props.item.status !== "done");
   padding: 2px 8px;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
   white-space: nowrap;
 }
 .card-action:hover {

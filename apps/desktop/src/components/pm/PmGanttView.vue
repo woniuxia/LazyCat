@@ -10,18 +10,16 @@
       </div>
       <div class="gantt-toolbar-meta">
         <span class="gantt-toolbar-summary">已排期 {{ ganttTasks.length }} 项</span>
-        <span v-if="unscheduledCount > 0" class="gantt-toolbar-hint">另有 {{ unscheduledCount }} 项未设置日期</span>
+        <span v-if="unscheduledCount > 0" class="gantt-toolbar-hint"
+          >另有 {{ unscheduledCount }} 项未设置日期</span
+        >
       </div>
     </div>
     <div v-if="ganttTasks.length === 0" class="gantt-empty">
       <el-empty :description="emptyDescription" />
     </div>
     <template v-else>
-      <div
-        ref="ganttRef"
-        class="gantt-wrapper"
-        @contextmenu="onGanttContextMenu"
-      />
+      <div ref="ganttRef" class="gantt-wrapper" @contextmenu="onGanttContextMenu" />
     </template>
   </div>
 </template>
@@ -42,14 +40,17 @@ import {
 } from "../../utils/pmGantt";
 import type { PmGanttTask } from "../../utils/pmGantt";
 
-const props = withDefaults(defineProps<{
-  items: PmItem[];
-  selectedItemId?: number | null;
-  showProjectMeta?: boolean;
-}>(), {
-  selectedItemId: null,
-  showProjectMeta: false,
-});
+const props = withDefaults(
+  defineProps<{
+    items: PmItem[];
+    selectedItemId?: number | null;
+    showProjectMeta?: boolean;
+  }>(),
+  {
+    selectedItemId: null,
+    showProjectMeta: false,
+  },
+);
 
 const emit = defineEmits<{
   (e: "select", item: PmItem): void;
@@ -272,7 +273,12 @@ function applyInitialScroll(attempt = 0) {
 function scrollTodayToPreferredOffset(): boolean {
   const viewport = getGanttViewport();
   const highlight = getCurrentHighlight();
-  if (!viewport || !highlight || viewport.clientWidth <= 0 || viewport.scrollWidth <= viewport.clientWidth) {
+  if (
+    !viewport ||
+    !highlight ||
+    viewport.clientWidth <= 0 ||
+    viewport.scrollWidth <= viewport.clientWidth
+  ) {
     return false;
   }
 
@@ -418,9 +424,10 @@ function renderGantt() {
     language: "zh",
     popup_on: "hover",
     scroll_to: "start",
-    popup: (context) => buildPmGanttPopupHtml(context.task as PmGanttTask, {
-      showProjectMeta: props.showProjectMeta,
-    }),
+    popup: (context) =>
+      buildPmGanttPopupHtml(context.task as PmGanttTask, {
+        showProjectMeta: props.showProjectMeta,
+      }),
     on_click: (task) => {
       if (isDragging) return;
       if (clickTimer) return;

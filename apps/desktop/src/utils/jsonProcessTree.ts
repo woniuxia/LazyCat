@@ -1,9 +1,7 @@
 /** 树形模式体积闸门：1MB（1_000_000 字符）。 */
 export const JSON_TREE_TEXT_LIMIT = 1_000_000;
 
-export type JsonTreeGateResult =
-  | { ok: true; value: unknown }
-  | { ok: false; reason: string };
+export type JsonTreeGateResult = { ok: true; value: unknown } | { ok: false; reason: string };
 
 /** 文本进入 JSON 树形模式的闸门:先查体积(避免超大文本白解析),再严格 JSON.parse。 */
 export function canEnterJsonTree(text: string): JsonTreeGateResult {

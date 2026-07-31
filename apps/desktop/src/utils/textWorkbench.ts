@@ -63,7 +63,7 @@ export function fileNameFromPath(path: string): string {
 export function detectMonacoLanguage(path: string): string {
   const fileName = fileNameFromPath(path).toLowerCase();
   if (fileName === "dockerfile") return "dockerfile";
-  const extension = fileName.includes(".") ? fileName.split(".").at(-1) ?? "" : "";
+  const extension = fileName.includes(".") ? (fileName.split(".").at(-1) ?? "") : "";
   return EXTENSION_LANGUAGE_MAP[extension] ?? "plaintext";
 }
 

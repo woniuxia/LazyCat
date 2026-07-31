@@ -13,6 +13,7 @@
 ### Task 1: Frontend Types And Pure Functions
 
 **Files:**
+
 - Create: `apps/desktop/src/types/api-mock.ts`
 - Modify: `apps/desktop/src/types/index.ts`
 - Create: `apps/desktop/src/utils/apiMock.ts`
@@ -21,6 +22,7 @@
 **Step 1: Write failing tests**
 
 Cover:
+
 - `validateMockPathPattern` accepts exact, parameter, wildcard patterns and rejects invalid ones.
 - `validateMockCorsConfig` rejects `allowCredentials=true` with `allowOrigin="*"`.
 - `normalizeMockHeaderRows` trims keys, drops blank disabled rows, preserves enabled values.
@@ -43,6 +45,7 @@ Expected: PASS.
 ### Task 2: Rust Schema, Validation, Matching, And File Safety Tests
 
 **Files:**
+
 - Create: `apps/desktop/src-tauri/src/tools/api_mock.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/helpers.rs`
 - Modify: `apps/desktop/src-tauri/src/tools/mod.rs`
@@ -50,6 +53,7 @@ Expected: PASS.
 **Step 1: Write failing Rust tests**
 
 Cover:
+
 - schema creates `api_mock_projects`, `api_mock_files`, `api_mock_routes`.
 - path pattern validation for exact/param/wildcard and invalid patterns.
 - matching priority exact > param > wildcard, same level by `sort_order`, then `id`.
@@ -73,12 +77,14 @@ Expected: PASS for the new backend pure/storage tests.
 ### Task 3: Rust CRUD IPC Actions
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/api_mock.rs`
 - Modify: `apps/desktop/src/bridge/tauri.ts`
 
 **Step 1: Write failing Rust action tests**
 
 Cover:
+
 - `project_create/list/update/reorder/delete`.
 - `route_save/list/get/reorder/delete`.
 - route save validates method, status code, CORS and path pattern.
@@ -100,11 +106,13 @@ Expected: PASS.
 ### Task 4: Runtime HTTP Services And Smoke Tests
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/tools/api_mock.rs`
 
 **Step 1: Write failing runtime tests**
 
 Cover:
+
 - service refuses to start with no enabled routes.
 - service start/stop updates runtime status.
 - static route returns status, content type, custom header and body.
@@ -129,6 +137,7 @@ Expected: PASS, including local HTTP smoke coverage.
 ### Task 5: Frontend Tool Registration And Panel
 
 **Files:**
+
 - Modify: `apps/desktop/src/composables/toolCatalog.ts`
 - Modify: `apps/desktop/src/tool-registry.ts`
 - Create: `apps/desktop/src/components/ApiMockPanel.vue`
@@ -136,6 +145,7 @@ Expected: PASS, including local HTTP smoke coverage.
 **Step 1: Build panel against existing IPC contract**
 
 Implement a three-column, light, utilitarian panel:
+
 - left project list with host/port, runtime badge, start/stop buttons;
 - middle route list with method, pattern, status, response kind and enabled state;
 - right project/route editor plus recent logs.
@@ -154,11 +164,13 @@ Expected: PASS.
 ### Task 6: Final Validation And Process Note
 
 **Files:**
+
 - Modify: `process.md` if the implementation yields reusable project experience.
 
 **Step 1: Run required validation**
 
 Run:
+
 - `cargo test api_mock -- --nocapture`
 - `pnpm test src/utils/apiMock.test.ts`
 - `pnpm typecheck`

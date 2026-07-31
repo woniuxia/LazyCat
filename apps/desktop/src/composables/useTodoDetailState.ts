@@ -36,9 +36,18 @@ export interface TodoDetailStateDeps {
   } | null>;
   todoPmLinkItemId: Ref<number | null>;
   todoPmCandidates: Ref<PmCandidateItem[]>;
-  todoLinkedPmItem: Ref<{ id: number; title: string; status: string; projectId: number | null } | null>;
+  todoLinkedPmItem: Ref<{
+    id: number;
+    title: string;
+    status: string;
+    projectId: number | null;
+  } | null>;
   skipProjectWatch: Ref<boolean>;
-  loadTodoPmCandidates: (projectId: number, linkedPmItemId?: number | null, keyword?: string) => Promise<void>;
+  loadTodoPmCandidates: (
+    projectId: number,
+    linkedPmItemId?: number | null,
+    keyword?: string,
+  ) => Promise<void>;
   submitItemChanges: (showSuccess?: boolean) => Promise<{ ok: boolean; id: number | null }>;
   syncSimpleDraftFromRule: (rule: TodoRule) => void;
   itemKindOf: (item: TodoItem) => TodoKind;
@@ -188,7 +197,8 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     await nextTick();
     titleFocusTimer = setTimeout(() => {
       titleFocusTimer = null;
-      if (detailMode.value !== expectedDetailMode || itemDialogMode.value !== expectedDialogMode) return;
+      if (detailMode.value !== expectedDetailMode || itemDialogMode.value !== expectedDialogMode)
+        return;
       todoDetailEditRef.value?.focusTitleInput();
     }, 0);
   }
@@ -347,7 +357,9 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     }
     // Ensure skipProjectWatch is consumed: if projectId didn't change (e.g. both null),
     // the watcher won't fire, so we reset here after the scheduler flushes.
-    nextTick(() => { skipProjectWatch.value = false; });
+    nextTick(() => {
+      skipProjectWatch.value = false;
+    });
   }
 
   async function enterEditMode(item?: TodoItem | null, options: { focusTitle?: boolean } = {}) {

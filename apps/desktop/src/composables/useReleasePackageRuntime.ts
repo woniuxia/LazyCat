@@ -88,9 +88,7 @@ const environmentRuntimes = reactive(new Map<number, MutableReleasePackageEnviro
 const logs = computed(() => {
   if (state.activeEnvironmentId === null) return [];
   const runtime = environmentRuntimes.get(state.activeEnvironmentId);
-  return runtime
-    ? [...runtime.frontendLogs, ...runtime.backendLogs, ...runtime.uploadLogs]
-    : [];
+  return runtime ? [...runtime.frontendLogs, ...runtime.backendLogs, ...runtime.uploadLogs] : [];
 });
 let listenerPromise: Promise<UnlistenFn[]> | null = null;
 
@@ -127,7 +125,9 @@ function createEnvironmentRuntime(
   };
 }
 
-function getMutableEnvironmentRuntime(environmentId: number): MutableReleasePackageEnvironmentRuntime {
+function getMutableEnvironmentRuntime(
+  environmentId: number,
+): MutableReleasePackageEnvironmentRuntime {
   let runtime = environmentRuntimes.get(environmentId);
   if (!runtime) {
     environmentRuntimes.set(environmentId, createEnvironmentRuntime());
@@ -147,12 +147,12 @@ function applyEnvironmentStatus(event: ReleasePackageStatusEvent): void {
   runtime.environment = event.environment;
   if (event.phase === "frontend" || event.phase === "backend") {
     if (
-      event.status !== "partially_succeeded"
-      && event.status !== "prechecking"
-      && event.status !== "uploading"
-      && event.status !== "package_succeeded_upload_failed"
-      && event.status !== "upload_succeeded_command_failed"
-      && event.status !== "deployed_health_check_failed"
+      event.status !== "partially_succeeded" &&
+      event.status !== "prechecking" &&
+      event.status !== "uploading" &&
+      event.status !== "package_succeeded_upload_failed" &&
+      event.status !== "upload_succeeded_command_failed" &&
+      event.status !== "deployed_health_check_failed"
     ) {
       runtime.targetStatus[event.phase] = event.status;
     }
@@ -185,9 +185,11 @@ function acceptPendingEvent(runId: string, environmentId: number): boolean {
     state.activeRunId = runId;
     getMutableEnvironmentRuntime(environmentId).runId = runId;
   }
-  return state.activeEnvironmentId !== null
-    && state.activeEnvironmentId === environmentId
-    && acceptReleasePackageEvent(state.activeRunId, { runId });
+  return (
+    state.activeEnvironmentId !== null &&
+    state.activeEnvironmentId === environmentId &&
+    acceptReleasePackageEvent(state.activeRunId, { runId })
+  );
 }
 
 function ensureListeners(): Promise<void> {
@@ -200,11 +202,12 @@ function ensureListeners(): Promise<void> {
         const runtime = getMutableEnvironmentRuntime(payload.environmentId);
         runtime.projectId = payload.projectId;
         runtime.environment = payload.environment;
-        const key = payload.phase === "frontend"
-          ? "frontendLogs"
-          : payload.phase === "backend"
-            ? "backendLogs"
-            : "uploadLogs";
+        const key =
+          payload.phase === "frontend"
+            ? "frontendLogs"
+            : payload.phase === "backend"
+              ? "backendLogs"
+              : "uploadLogs";
         runtime[key] = appendReleasePackageLog(runtime[key], payload, 1_000);
       }),
       listen<ReleasePackageStatusEvent>(APP_EVENTS.RELEASE_PACKAGE_STATUS, ({ payload }) => {
@@ -217,7 +220,10 @@ function ensureListeners(): Promise<void> {
   return listenerPromise.then(() => undefined);
 }
 
-function beginStart(environmentId: number, targets: readonly ReleasePackageTarget[] = ["frontend", "backend"]): void {
+function beginStart(
+  environmentId: number,
+  targets: readonly ReleasePackageTarget[] = ["frontend", "backend"],
+): void {
   Object.assign(state, createReleasePackageRuntimeState(), {
     activeEnvironmentId: environmentId,
     pendingEnvironmentId: environmentId,

@@ -34,12 +34,13 @@ hljs.registerLanguage("html", xml);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("yaml", yaml);
 
-const escapeHtml = (text: string): string => text
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#39;");
+const escapeHtml = (text: string): string =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 
 const markdownRenderer: MarkdownIt = new MarkdownIt({
   breaks: false,
@@ -55,7 +56,13 @@ const markdownRenderer: MarkdownIt = new MarkdownIt({
   },
 }).use(taskLists, { enabled: false, label: true, labelAfter: true });
 
-const linkOpenRule: NonNullable<typeof markdownRenderer.renderer.rules.link_open> = (tokens, index, options, _env, self) => {
+const linkOpenRule: NonNullable<typeof markdownRenderer.renderer.rules.link_open> = (
+  tokens,
+  index,
+  options,
+  _env,
+  self,
+) => {
   tokens[index].attrSet("target", "_blank");
   tokens[index].attrSet("rel", "noopener noreferrer");
   return self.renderToken(tokens, index, options);

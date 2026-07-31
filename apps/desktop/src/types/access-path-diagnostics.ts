@@ -18,12 +18,7 @@ export type AccessPathConclusionSeverity = "info" | "warning" | "error";
 
 export type AccessPathRunStatus = "running" | "completed" | "cancelled" | "timed_out" | "failed";
 
-export type AccessPathProxyProfile =
-  | "auto"
-  | "environment"
-  | "windows_user"
-  | "winhttp"
-  | "direct";
+export type AccessPathProxyProfile = "auto" | "environment" | "windows_user" | "winhttp" | "direct";
 
 export type AccessPathJsonValue =
   | null
