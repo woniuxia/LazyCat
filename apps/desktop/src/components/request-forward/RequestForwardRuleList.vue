@@ -301,27 +301,6 @@ function targetEndpoint(rule: RequestForwardRule): string {
           </button>
 
           <div class="rule-row__controls" role="group" aria-label="规则运行控制" @click.stop>
-            <el-button
-              v-if="canStart(stateOf(rule.id))"
-              class="rule-row__runtime-action"
-              type="primary"
-              plain
-              size="small"
-              :icon="VideoPlay"
-              :disabled="busy"
-              :aria-label="`启动规则${rule.name}`"
-              @click="emit('start', rule.id)"
-            >启动</el-button>
-            <el-button
-              v-else
-              class="rule-row__runtime-action"
-              plain
-              size="small"
-              :icon="VideoPause"
-              :disabled="busy || !canStop(stateOf(rule.id))"
-              :aria-label="`停止规则${rule.name}`"
-              @click="emit('stop', rule.id)"
-            >{{ stateOf(rule.id) === "stopping" ? "停止中" : "停止" }}</el-button>
             <el-tooltip :content="autoStartTooltip(rule)" placement="bottom">
               <span class="rule-row__auto-start">
                 <span>应用启动时</span>
@@ -337,6 +316,25 @@ function targetEndpoint(rule: RequestForwardRule): string {
                 />
               </span>
             </el-tooltip>
+            <el-button
+              v-if="canStart(stateOf(rule.id))"
+              class="rule-row__runtime-action"
+              size="small"
+              :icon="VideoPlay"
+              :disabled="busy"
+              :aria-label="`启动规则${rule.name}`"
+              @click="emit('start', rule.id)"
+            >启动</el-button>
+            <el-button
+              v-else
+              class="rule-row__runtime-action"
+              type="primary"
+              size="small"
+              :icon="VideoPause"
+              :disabled="busy || !canStop(stateOf(rule.id))"
+              :aria-label="`停止规则${rule.name}`"
+              @click="emit('stop', rule.id)"
+            >{{ stateOf(rule.id) === "stopping" ? "停止中" : "停止" }}</el-button>
           </div>
 
           <div class="rule-row__menu">
@@ -487,7 +485,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
 .rule-row__controls { justify-content: space-between; gap: 8px; margin: 0 5px 9px 8px; padding-top: 7px; border-top: 1px solid #e2e7ec; }
 .rule-row__controls :deep(.el-button) { margin: 0; }
 .rule-row__runtime-action { width: 68px; flex: none; }
-.rule-row__auto-start { min-width: 0; justify-content: flex-end; gap: 6px; color: #526275; font-size: 12px; white-space: nowrap; }
+.rule-row__auto-start { min-width: 0; gap: 6px; color: #526275; font-size: 12px; white-space: nowrap; }
 .rule-row__auto-start :deep(.el-switch) { flex: none; }
 .rule-row__menu { position: absolute; z-index: 2; top: 5px; right: 3px; }
 .rule-row__menu :deep(.el-button) { width: 26px; height: 26px; margin: 0; }

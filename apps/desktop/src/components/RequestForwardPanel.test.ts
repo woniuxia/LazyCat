@@ -385,6 +385,22 @@ describe("RequestForwardPanel source structure", () => {
     expect(listSource).not.toContain('command="stop-cancel-auto"');
   });
 
+  it("places the startup policy before the runtime action and highlights only active runtime states", () => {
+    const startButton = listSource.match(
+      /<el-button\s+v-if="canStart\(stateOf\(rule\.id\)\)"[^>]*>/,
+    )?.[0] ?? "";
+    const stopButton = listSource.match(
+      /<el-button\s+v-else[^>]*class="rule-row__runtime-action"[^>]*>/,
+    )?.[0] ?? "";
+
+    expect(listSource).toMatch(
+      /class="rule-row__controls"[\s\S]*?class="rule-row__auto-start"[\s\S]*?v-if="canStart\(stateOf\(rule\.id\)\)"/,
+    );
+    expect(startButton).toContain('class="rule-row__runtime-action"');
+    expect(startButton).not.toContain('type="primary"');
+    expect(stopButton).toContain('type="primary"');
+  });
+
   it("exposes explicit auto-start intent controls", () => {
     expect(source).toContain("auto-start-update");
     expect(source).toContain("仅本次启动");
