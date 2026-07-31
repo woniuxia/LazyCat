@@ -401,6 +401,16 @@ describe("RequestForwardPanel source structure", () => {
     expect(stopButton).toContain('type="primary"');
   });
 
+  it("shows runtime status by default and the available action on hover or focus", () => {
+    expect(listSource.match(/class="rule-row__runtime-status"/g)).toHaveLength(2);
+    expect(listSource).toContain("{{ stateLabel(stateOf(rule.id)) }}");
+    expect(listSource).toContain('<span class="rule-row__runtime-intent">启动</span>');
+    expect(listSource).toContain('<span class="rule-row__runtime-intent">暂停</span>');
+    expect(listSource).toContain(':aria-label="`暂停规则${rule.name}`"');
+    expect(listSource).toContain(".rule-row__runtime-action:not(.is-disabled):hover");
+    expect(listSource).toContain(".rule-row__runtime-action:not(.is-disabled):focus-visible");
+  });
+
   it("exposes explicit auto-start intent controls", () => {
     expect(source).toContain("auto-start-update");
     expect(source).toContain("仅本次启动");

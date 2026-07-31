@@ -324,7 +324,12 @@ function targetEndpoint(rule: RequestForwardRule): string {
               :disabled="busy"
               :aria-label="`启动规则${rule.name}`"
               @click="emit('start', rule.id)"
-            >启动</el-button>
+            >
+              <span class="rule-row__runtime-label">
+                <span class="rule-row__runtime-status">{{ stateLabel(stateOf(rule.id)) }}</span>
+                <span class="rule-row__runtime-intent">启动</span>
+              </span>
+            </el-button>
             <el-button
               v-else
               class="rule-row__runtime-action"
@@ -332,9 +337,14 @@ function targetEndpoint(rule: RequestForwardRule): string {
               size="small"
               :icon="VideoPause"
               :disabled="busy || !canStop(stateOf(rule.id))"
-              :aria-label="`停止规则${rule.name}`"
+              :aria-label="`暂停规则${rule.name}`"
               @click="emit('stop', rule.id)"
-            >{{ stateOf(rule.id) === "stopping" ? "停止中" : "停止" }}</el-button>
+            >
+              <span class="rule-row__runtime-label">
+                <span class="rule-row__runtime-status">{{ stateLabel(stateOf(rule.id)) }}</span>
+                <span class="rule-row__runtime-intent">暂停</span>
+              </span>
+            </el-button>
           </div>
 
           <div class="rule-row__menu">
@@ -485,6 +495,14 @@ function targetEndpoint(rule: RequestForwardRule): string {
 .rule-row__controls { justify-content: space-between; gap: 8px; margin: 0 5px 9px 8px; padding-top: 7px; border-top: 1px solid #e2e7ec; }
 .rule-row__controls :deep(.el-button) { margin: 0; }
 .rule-row__runtime-action { width: 68px; flex: none; }
+.rule-row__runtime-label { display: inline-grid; width: 3em; }
+.rule-row__runtime-status,
+.rule-row__runtime-intent { grid-area: 1 / 1; }
+.rule-row__runtime-intent { visibility: hidden; }
+.rule-row__runtime-action:not(.is-disabled):hover .rule-row__runtime-status,
+.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-status { visibility: hidden; }
+.rule-row__runtime-action:not(.is-disabled):hover .rule-row__runtime-intent,
+.rule-row__runtime-action:not(.is-disabled):focus-visible .rule-row__runtime-intent { visibility: visible; }
 .rule-row__auto-start { min-width: 0; gap: 6px; color: #526275; font-size: 12px; white-space: nowrap; }
 .rule-row__auto-start :deep(.el-switch) { flex: none; }
 .rule-row__menu { position: absolute; z-index: 2; top: 5px; right: 3px; }
