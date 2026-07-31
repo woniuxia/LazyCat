@@ -1304,6 +1304,10 @@ pub(crate) mod integration_tests {
     use openssl::x509::{X509NameBuilder, X509};
     use rustls::pki_types::CertificateDer;
     use rustls::{ClientConfig, RootCertStore};
+    use tungstenite::handshake::server::{
+        Request as WebSocketRequest, Response as WebSocketResponse,
+    };
+    use tungstenite::{accept_hdr, connect as connect_websocket, Message};
 
     use super::super::model::{ForwardProtocol, ForwardRule};
     use super::super::observability::{HttpEventKind, ObservationCursor, HTTP_BODY_PREVIEW_LIMIT};
@@ -2203,6 +2207,84 @@ pub(crate) mod integration_tests {
             })
             .expect("wait for completed WebSocket event");
         assert_eq!(snapshot.error_count, 0);
+        runner.stop(handle).expect("stop WebSocket HTTP rule");
+    }
+
+    #[test]
+    fn http_forwards_real_websocket_client_and_server() {
+        const CLIENT_MESSAGE: &str = "hello through request forward";
+        const SERVER_MESSAGE: &str = "echo: hello through request forward";
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind WebSocket server");
+        let server_addr = listener
+            .local_addr()
+            .expect("read WebSocket server address");
+        let (request_tx, request_rx) = mpsc::sync_channel(1);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept WebSocket connection");
+            stream
+                .set_read_timeout(Some(SOCKET_TIMEOUT))
+                .expect("set WebSocket server read timeout");
+            stream
+                .set_write_timeout(Some(SOCKET_TIMEOUT))
+                .expect("set WebSocket server write timeout");
+            let mut socket = accept_hdr(
+                stream,
+                |request: &WebSocketRequest, response: WebSocketResponse| {
+                    request_tx
+                        .send((
+                            request.uri().to_string(),
+                            request
+                                .headers()
+                                .get("x-forwarded-proto")
+                                .and_then(|value| value.to_str().ok())
+                                .map(str::to_owned),
+                        ))
+                        .expect("record forwarded WebSocket request");
+                    Ok(response)
+                },
+            )
+            .expect("complete WebSocket server handshake");
+
+            assert_eq!(
+                socket.read().expect("server reads WebSocket message"),
+                Message::Text(CLIENT_MESSAGE.into())
+            );
+            socket
+                .send(Message::Text(SERVER_MESSAGE.into()))
+                .expect("server sends WebSocket response");
+            socket
+                .close(None)
+                .expect("server closes WebSocket connection");
+        });
+
+        let rule = http_rule(81, format!("http://{server_addr}/api"), true, false);
+        let runner = HttpRuleRunner::new();
+        let handle = runner.start(&rule).expect("start WebSocket HTTP rule");
+        let listener_addr = runner.listener_addr(handle).expect("read listener address");
+        let (mut client, response) =
+            connect_websocket(format!("ws://{listener_addr}/socket?room=real-client"))
+                .expect("connect real WebSocket client through HTTP rule");
+
+        assert_eq!(response.status().as_u16(), 101);
+        client
+            .send(Message::Text(CLIENT_MESSAGE.into()))
+            .expect("client sends WebSocket message");
+        assert_eq!(
+            client.read().expect("client reads WebSocket response"),
+            Message::Text(SERVER_MESSAGE.into())
+        );
+        client
+            .close(None)
+            .expect("client closes WebSocket connection");
+
+        let (uri, forwarded_proto) = request_rx
+            .recv_timeout(SOCKET_TIMEOUT)
+            .expect("receive forwarded WebSocket request metadata");
+        assert_eq!(uri, "/api/socket?room=real-client");
+        assert_eq!(forwarded_proto.as_deref(), Some("ws"));
+
+        server.join().expect("join WebSocket server");
         runner.stop(handle).expect("stop WebSocket HTTP rule");
     }
 
