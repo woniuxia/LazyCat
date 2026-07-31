@@ -6,120 +6,13 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 
+mod model;
+mod path;
+
+use model::*;
+use path::*;
+
 type SqlParam = Box<dyn ToSql>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FlattenedField {
-    path: String,
-    value_text: String,
-    type_hint: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FieldStat {
-    path: String,
-    type_hint: String,
-    sample_value: String,
-    present_count: i64,
-    sort_order: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecordValue {
-    record_id: i64,
-    dictionary_id: i64,
-    field_path: String,
-    value_type: String,
-    value_text: String,
-    normalized_value: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct IndexedRecord {
-    source_row_index: i64,
-    value: Value,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct PrimaryPartition {
-    accepted_records: Vec<IndexedRecord>,
-    skipped_invalid_count: usize,
-    skipped_duplicate_count: usize,
-}
-
-impl PrimaryPartition {
-    fn skipped_record_count(&self) -> usize {
-        self.skipped_invalid_count + self.skipped_duplicate_count
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RebuildStats {
-    record_count: usize,
-    value_count: usize,
-    skipped_invalid_count: usize,
-    skipped_duplicate_count: usize,
-}
-
-impl RebuildStats {
-    fn skipped_record_count(&self) -> usize {
-        self.skipped_invalid_count + self.skipped_duplicate_count
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RelationDraft {
-    source_field_path: String,
-    target_dictionary_id: i64,
-    relation_name: String,
-    reverse_name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FieldConfig {
-    field_path: String,
-    display_name: String,
-    meaning: String,
-    searchable: bool,
-    visible: bool,
-    sort_order: i64,
-    type_hint: String,
-    sample_value: String,
-    present_count: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SearchScope {
-    Current(i64),
-    All,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SortDirection {
-    Asc,
-    Desc,
-}
-
-#[derive(Debug, Clone)]
-struct RecordRow {
-    id: i64,
-    dictionary_id: i64,
-    dictionary_name: String,
-    title_field_path: Option<String>,
-    row_index: i64,
-    raw_json: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RelationConfig {
-    id: i64,
-    source_dictionary_id: i64,
-    source_field_path: String,
-    target_dictionary_id: i64,
-    target_primary_field_path: Option<String>,
-    relation_name: String,
-    reverse_name: String,
-}
 
 const ACTIONS: &[&str] = &[
     "list",
@@ -1060,66 +953,6 @@ fn flatten_object(map: &serde_json::Map<String, Value>, prefix: &str, fields: &m
     }
 }
 
-fn escape_path_segment(segment: &str) -> String {
-    let mut out = String::new();
-    for ch in segment.chars() {
-        match ch {
-            '\\' => out.push_str(r#"\\ "#.trim()),
-            '.' => out.push_str(r#"\."#),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
-fn unescape_path_segment(segment: &str) -> String {
-    let mut out = String::new();
-    let mut escaped = false;
-    for ch in segment.chars() {
-        if escaped {
-            out.push(ch);
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else {
-            out.push(ch);
-        }
-    }
-    if escaped {
-        out.push('\\');
-    }
-    out
-}
-
-fn default_display_name(field_path: &str) -> String {
-    let mut current = String::new();
-    let mut last = String::new();
-    let mut escaped = false;
-    for ch in field_path.chars() {
-        if escaped {
-            current.push(ch);
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' => escaped = true,
-            '.' => {
-                last = current;
-                current = String::new();
-            }
-            _ => current.push(ch),
-        }
-    }
-    if escaped {
-        current.push('\\');
-    }
-    if current.is_empty() {
-        unescape_path_segment(&last)
-    } else {
-        current
-    }
-}
-
 fn value_to_search_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -1875,42 +1708,6 @@ fn sort_record_rows(rows: &mut [RecordRow], sort_config: Option<(&str, SortDirec
 fn record_sort_value(raw_json: &str, field_path: &str) -> Option<Value> {
     let record = serde_json::from_str::<Value>(raw_json).ok()?;
     get_value_by_field_path(&record, field_path).cloned()
-}
-
-fn get_value_by_field_path<'a>(source: &'a Value, field_path: &str) -> Option<&'a Value> {
-    let mut current = source;
-    for part in split_escaped_path(field_path) {
-        current = current.as_object()?.get(&part)?;
-    }
-    Some(current)
-}
-
-fn split_escaped_path(field_path: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut escaped = false;
-    for ch in field_path.chars() {
-        if escaped {
-            current.push(ch);
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        if ch == '.' {
-            parts.push(current);
-            current = String::new();
-            continue;
-        }
-        current.push(ch);
-    }
-    if escaped {
-        current.push('\\');
-    }
-    parts.push(current);
-    parts
 }
 
 fn compare_sort_values(
