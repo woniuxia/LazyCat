@@ -3,13 +3,16 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts};
-use hickory_resolver::error::{ResolveError, ResolveErrorKind};
-use hickory_resolver::proto::error::ProtoErrorKind;
+use hickory_resolver::config::{
+    ConnectionConfig, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts,
+};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::net::{DnsError as HickoryDnsError, NetError};
+use hickory_resolver::proto::ProtoError;
 use hickory_resolver::proto::op::ResponseCode;
-use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::system_conf::read_system_conf;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::TokioResolver;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -219,7 +222,11 @@ fn read_system_resolver_info() -> SystemResolverInfo {
             let name_servers = config
                 .name_servers()
                 .iter()
-                .map(|server| server.socket_addr.to_string())
+                .flat_map(|server| {
+                    server.connections.iter().map(move |connection| {
+                        SocketAddr::new(server.ip, connection.port).to_string()
+                    })
+                })
                 .filter(|server| seen_servers.insert(server.clone()))
                 .collect();
             let mut search_suffixes = config
@@ -354,7 +361,17 @@ async fn query_bypass_server(
         };
     }
 
-    let resolver = resolver_for_endpoint(endpoint, timeout);
+    let resolver = match resolver_for_endpoint(endpoint, timeout) {
+        Ok(resolver) => resolver,
+        Err(error) => {
+            return BypassDnsResult {
+                requested_server,
+                endpoint: Some(endpoint.to_string()),
+                queries: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
     let queries = if target.target_kind == AccessPathTargetKind::Hostname {
         let name = absolute_name(&target.hostname);
         let (a, aaaa, cname) = tokio::join!(
@@ -403,20 +420,27 @@ async fn query_bypass_server(
     }
 }
 
-fn resolver_for_endpoint(endpoint: SocketAddr, timeout: Duration) -> TokioAsyncResolver {
-    let group = NameServerConfigGroup::from_ips_clear(&[endpoint.ip()], endpoint.port(), true);
-    let config = ResolverConfig::from_parts(None, Vec::new(), group);
+fn resolver_for_endpoint(endpoint: SocketAddr, timeout: Duration) -> Result<TokioResolver, DnsError> {
+    let mut udp = ConnectionConfig::udp();
+    udp.port = endpoint.port();
+    let mut tcp = ConnectionConfig::tcp();
+    tcp.port = endpoint.port();
+    let name_server = NameServerConfig::new(endpoint.ip(), true, vec![udp, tcp]);
+    let config = ResolverConfig::from_parts(None, Vec::new(), vec![name_server]);
     let mut options = ResolverOpts::default();
     options.timeout = timeout;
     options.attempts = 1;
-    options.use_hosts_file = false;
+    options.use_hosts_file = ResolveHosts::Never;
     options.try_tcp_on_error = true;
     options.preserve_intermediates = true;
-    TokioAsyncResolver::tokio(config, options)
+    TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
+        .with_options(options)
+        .build()
+        .map_err(|error| classify_resolve_error(&error))
 }
 
 async fn query_record(
-    resolver: &TokioAsyncResolver,
+    resolver: &TokioResolver,
     name: &str,
     record_type: DnsRecordType,
     timeout: Duration,
@@ -453,17 +477,18 @@ async fn query_record(
                     }
                 }
                 Ok(Ok(lookup)) => {
-                    let records = lookup.record_iter().filter_map(|record| {
-                        let value = match record_type {
-                            DnsRecordType::A => record.data()?.as_a()?.0.to_string(),
-                            DnsRecordType::Aaaa => record.data()?.as_aaaa()?.0.to_string(),
-                            DnsRecordType::Cname => record.data()?.as_cname()?.0.to_string(),
-                            DnsRecordType::Ptr => record.data()?.as_ptr()?.0.to_string(),
+                    let records = lookup.answers().iter().filter_map(|record| {
+                        let value = match (record_type, &record.data) {
+                            (DnsRecordType::A, RData::A(value)) => value.0.to_string(),
+                            (DnsRecordType::Aaaa, RData::AAAA(value)) => value.0.to_string(),
+                            (DnsRecordType::Cname, RData::CNAME(value)) => value.0.to_string(),
+                            (DnsRecordType::Ptr, RData::PTR(value)) => value.0.to_string(),
+                            _ => return None,
                         };
                         Some(DnsRecord {
-                            name: record.name().to_string(),
+                            name: record.name.to_string(),
                             value,
-                            ttl: record.ttl(),
+                            ttl: record.ttl,
                         })
                     }).collect::<Vec<_>>();
                     if records.is_empty() {
@@ -506,41 +531,39 @@ fn parse_dns_server(value: &str) -> Result<SocketAddr, DnsError> {
         .map_err(|error| invalid_server_error(value, format!("无效的 DNS 服务器地址: {error}")))
 }
 
-fn classify_resolve_error(error: &ResolveError) -> DnsError {
+fn classify_resolve_error(error: &NetError) -> DnsError {
     let raw_error = error.to_string();
-    match error.kind() {
-        ResolveErrorKind::NoRecordsFound {
-            response_code,
-            negative_ttl,
-            ..
-        } => classify_response_code(*response_code, *negative_ttl, raw_error),
-        ResolveErrorKind::Timeout => timeout_error_with_raw("DNS 查询超时", raw_error),
-        ResolveErrorKind::Io(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+    match error {
+        NetError::Dns(HickoryDnsError::NoRecordsFound(no_records)) => classify_response_code(
+            no_records.response_code,
+            no_records.negative_ttl,
+            raw_error,
+        ),
+        NetError::Dns(HickoryDnsError::ResponseCode(response_code)) => {
+            classify_response_code(*response_code, None, raw_error)
+        }
+        NetError::Timeout => timeout_error_with_raw("DNS 查询超时", raw_error),
+        NetError::Io(error) if error.kind() == std::io::ErrorKind::TimedOut => {
             timeout_error_with_raw("DNS 传输超时", raw_error)
         }
-        ResolveErrorKind::Proto(error) => match error.kind() {
-            ProtoErrorKind::Timeout | ProtoErrorKind::Timer => {
-                timeout_error_with_raw("DNS 协议查询超时", raw_error)
-            }
-            ProtoErrorKind::FormError { .. }
-            | ProtoErrorKind::IncorrectRDataLengthRead { .. }
-            | ProtoErrorKind::LabelOverlapsWithOther { .. }
-            | ProtoErrorKind::DomainNameTooLong(_)
-            | ProtoErrorKind::LabelBytesTooLong(_)
-            | ProtoErrorKind::PointerNotPriorToLabel { .. }
-            | ProtoErrorKind::UnrecognizedLabelCode(_) => new_error(
-                DnsErrorCode::MalformedResponse,
-                "DNS 响应格式错误",
-                raw_error,
-                false,
-            ),
-            _ => new_error(
-                DnsErrorCode::TransportError,
-                "DNS 协议传输失败",
-                raw_error,
-                true,
-            ),
-        },
+        NetError::Proto(
+            ProtoError::CharacterDataTooLong { .. }
+            | ProtoError::Decode(_)
+            | ProtoError::FormError { .. }
+            | ProtoError::MaxBufferSizeExceeded(_)
+            | ProtoError::NotAResponse,
+        ) => new_error(
+            DnsErrorCode::MalformedResponse,
+            "DNS 响应格式错误",
+            raw_error,
+            false,
+        ),
+        NetError::Proto(_) => new_error(
+            DnsErrorCode::TransportError,
+            "DNS 协议传输失败",
+            raw_error,
+            true,
+        ),
         _ => new_error(
             DnsErrorCode::TransportError,
             "DNS 查询传输失败",

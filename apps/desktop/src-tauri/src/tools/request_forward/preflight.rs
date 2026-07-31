@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::system_conf::read_system_conf;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::TokioResolver;
 use hyper_rustls::ConfigBuilderExt;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
@@ -209,7 +210,10 @@ fn resolve_target_addrs(host: String, port: u16) -> Result<Vec<SocketAddr>, Stri
         port,
         || read_system_conf().map_err(|error| error.to_string()),
         |config, options, host| async move {
-            TokioAsyncResolver::tokio(config, options)
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
+                .with_options(options)
+                .build()
+                .map_err(|error| error.to_string())?
                 .lookup_ip(host)
                 .await
                 .map(|lookup| lookup.iter().collect())

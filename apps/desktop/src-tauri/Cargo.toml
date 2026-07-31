@@ -10,13 +10,13 @@ name = "lazycat_lib"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "devtools", "protocol-asset"] }
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-notification = "2"
+tauri = { version = "2.11.5", features = ["tray-icon", "devtools", "protocol-asset"] }
+tauri-plugin-global-shortcut = "2.3.2"
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-notification = "2.3.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
@@ -29,10 +29,10 @@ chrono-tz = "0.10"
 cron = "0.12"
 regex = "1"
 csv = "1"
-calamine = "0.26"
-serde_yml = "0.0.12"
+calamine = "0.36.1"
+serde_norway = "0.9.42"
 toml = "0.8"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.41.0", features = ["serialize"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
@@ -40,16 +40,16 @@ tempfile = "3"
 qrcode = "0.14"
 image = { version = "0.25", default-features = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
-dirs = "5"
+dirs = "6"
 blake3 = "1.5"
 walkdir = "2.5"
 openssl = { version = "0.10", features = ["vendored"] }
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 ureq = { version = "2", features = ["tls"] }
-tauri-plugin-dialog = "2"
+tauri-plugin-dialog = "2.7.2"
 encoding_rs = "0.8"
 hex = "0.4"
-hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
+hickory-resolver = { version = "0.26.1", default-features = false, features = ["system-config", "tokio"] }
 bytes = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["http1", "server"] }
@@ -59,17 +59,17 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-jsonschema = "0.18"
+jsonschema = { version = "0.18", default-features = false }
 roxmltree = "0.20"
 bcrypt = "0.15"
-lopdf = "0.34"
+lopdf = { version = "0.44.0", default-features = false }
 open = "5"
 url = "2"
 zeroize = "1"
 lnk = "0.5"
 local-ip-address = "0.6"
 [target.'cfg(windows)'.dependencies]
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = "2.4.3"
 windows-sys = { version = "0.59", features = [
   "Win32_Globalization",
   "Win32_UI_Input_KeyboardAndMouse",
@@ -85,9 +85,6 @@ windows-sys = { version = "0.59", features = [
 ] }
 windows-icons = "0.3"
 winping = "0.10"
-# wallpaper PoC (B1 spike): WebView2 CapturePreview + COM stream
-# 与 wry 0.54 间接依赖的版本对齐，避免 ICoreWebView2 类型重复
-webview2-com = "0.38"
 windows = { version = "0.61", features = [
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
@@ -102,3 +99,7 @@ windows = { version = "0.61", features = [
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_Registry",
 ] }
+
+[patch.crates-io]
+# Keep auto-launch 0.5.0 behavior while aligning its non-Windows dirs dependency.
+auto-launch = { path = "vendor/auto-launch" }

@@ -11,6 +11,7 @@ export default [
       "**/dist-renderer/**",
       "**/dist-ts/**",
       "**/node_modules/**",
+      ".worktrees/**",
       "**/.tauri/**",
       "**/src-tauri/**",
       "resources/**",

@@ -25,12 +25,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import type { JSONContent } from '@tiptap/vue-3';
-import { renderToHTMLString } from '@tiptap/static-renderer/pm/html-string';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { ElMessage } from 'element-plus';
 
-import { buildExtensions } from '../rich/extensions';
 import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from '../rich/legacy';
+import { renderRichDescription } from '../rich/render';
 import { ensureDataDir } from '../rich/data-dir';
 import type { FileRefKind } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
@@ -78,10 +77,7 @@ const rewrittenDoc = computed<JSONContent | null>(() => {
 const html = computed(() => {
   if (!rewrittenDoc.value) return '';
   try {
-    return renderToHTMLString({
-      extensions: buildExtensions(),
-      content: rewrittenDoc.value,
-    });
+    return renderRichDescription(rewrittenDoc.value);
   } catch {
     return '';
   }

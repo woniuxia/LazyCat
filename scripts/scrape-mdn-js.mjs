@@ -10,10 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const puppeteer = require('../node_modules/puppeteer/lib/cjs/puppeteer/puppeteer.js');
+import puppeteer from 'puppeteer-core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.resolve(__dirname, '../resources/manuals/mdn-js');
@@ -92,7 +89,7 @@ async function main() {
   console.log('输出目录:', OUTPUT_DIR);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const browser = await puppeteer.default.launch({
+  const browser = await puppeteer.launch({
     executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--lang=zh-CN,zh'],

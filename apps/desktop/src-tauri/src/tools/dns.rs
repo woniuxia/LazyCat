@@ -1,7 +1,8 @@
-use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
-use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::system_conf::read_system_conf;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::TokioResolver;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -42,6 +43,13 @@ fn get_system_resolver_config() -> (ResolverConfig, ResolverOpts) {
     read_system_conf().unwrap_or_else(|_| (ResolverConfig::default(), ResolverOpts::default()))
 }
 
+fn build_resolver(config: ResolverConfig, options: ResolverOpts) -> Result<TokioResolver, String> {
+    TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
+        .with_options(options)
+        .build()
+        .map_err(|error| format!("create DNS resolver failed: {error}"))
+}
+
 /// 判断是否为 Windows 虚拟 DNS 占位地址（fec0:0:0:ffff::*），这类地址不可用
 fn is_windows_virtual_dns(ip: &IpAddr) -> bool {
     match ip {
@@ -60,7 +68,7 @@ fn system_dns() -> Result<Value, String> {
     let mut seen = HashSet::<String>::new();
 
     for ns in config.name_servers() {
-        let ip = ns.socket_addr.ip();
+        let ip = ns.ip;
         if is_windows_virtual_dns(&ip) {
             continue;
         }
@@ -130,14 +138,13 @@ fn resolve(payload: &Value) -> Result<Value, String> {
     let result = rt.block_on(async move {
         let resolver = if server.is_empty() {
             let (sys_config, sys_opts) = get_system_resolver_config();
-            TokioAsyncResolver::tokio(sys_config, sys_opts)
+            build_resolver(sys_config, sys_opts)?
         } else {
             let ip: IpAddr = IpAddr::from_str(&server)
                 .map_err(|e| format!("invalid DNS server address: {e}"))?;
-            let ns = NameServerConfig::new(std::net::SocketAddr::new(ip, 53), Protocol::Udp);
-            let mut config = ResolverConfig::new();
-            config.add_name_server(ns);
-            TokioAsyncResolver::tokio(config, ResolverOpts::default())
+            let config =
+                ResolverConfig::from_parts(None, Vec::new(), vec![NameServerConfig::udp(ip)]);
+            build_resolver(config, ResolverOpts::default())?
         };
 
         let domain_name = format!("{}.", domain_owned.trim_end_matches('.'));
@@ -216,21 +223,20 @@ fn compare(payload: &Value) -> Result<Value, String> {
                     s.clone()
                 };
 
-                let resolver_result: Result<TokioAsyncResolver, String> = if s.is_empty() {
+                let resolver_result: Result<TokioResolver, String> = if s.is_empty() {
                     let (sys_config, sys_opts) = get_system_resolver_config();
-                    Ok(TokioAsyncResolver::tokio(sys_config, sys_opts))
+                    build_resolver(sys_config, sys_opts)
                 } else {
                     IpAddr::from_str(&s)
                         .map_err(|e| format!("invalid server: {e}"))
                         .map(|ip| {
-                            let ns = NameServerConfig::new(
-                                std::net::SocketAddr::new(ip, 53),
-                                Protocol::Udp,
-                            );
-                            let mut cfg = ResolverConfig::new();
-                            cfg.add_name_server(ns);
-                            TokioAsyncResolver::tokio(cfg, ResolverOpts::default())
+                            ResolverConfig::from_parts(
+                                None,
+                                Vec::new(),
+                                vec![NameServerConfig::udp(ip)],
+                            )
                         })
+                        .and_then(|config| build_resolver(config, ResolverOpts::default()))
                 };
 
                 match resolver_result {
@@ -246,9 +252,11 @@ fn compare(payload: &Value) -> Result<Value, String> {
                         match resolver.lookup(&domain_name, RecordType::A).await {
                             Ok(lookup) => {
                                 let addrs: Vec<String> = lookup
-                                    .record_iter()
-                                    .filter_map(|r| {
-                                        r.data().and_then(|d| d.as_a()).map(|a| a.0.to_string())
+                                    .answers()
+                                    .iter()
+                                    .filter_map(|r| match &r.data {
+                                        RData::A(a) => Some(a.0.to_string()),
+                                        _ => None,
                                     })
                                     .collect();
                                 let elapsed = started.elapsed().as_millis() as u64;
@@ -295,19 +303,18 @@ fn compare(payload: &Value) -> Result<Value, String> {
     Ok(serde_json::Value::Array(results))
 }
 
-async fn query_a(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_a(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::A).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(a) = data.as_a() {
-                            return Some(json!({
-                                "address": a.0.to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::A(a) = &r.data {
+                        return Some(json!({
+                            "address": a.0.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -318,19 +325,18 @@ async fn query_a(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_aaaa(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_aaaa(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::AAAA).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(aaaa) = data.as_aaaa() {
-                            return Some(json!({
-                                "address": aaaa.0.to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::AAAA(aaaa) = &r.data {
+                        return Some(json!({
+                            "address": aaaa.0.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -341,19 +347,18 @@ async fn query_aaaa(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_cname(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_cname(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::CNAME).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(cname) = data.as_cname() {
-                            return Some(json!({
-                                "target": cname.0.to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::CNAME(cname) = &r.data {
+                        return Some(json!({
+                            "target": cname.0.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -364,20 +369,19 @@ async fn query_cname(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_mx(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_mx(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::MX).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(mx) = data.as_mx() {
-                            return Some(json!({
-                                "preference": mx.preference(),
-                                "exchange": mx.exchange().to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::MX(mx) = &r.data {
+                        return Some(json!({
+                            "preference": mx.preference,
+                            "exchange": mx.exchange.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -388,19 +392,18 @@ async fn query_mx(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_ns(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_ns(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::NS).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(ns) = data.as_ns() {
-                            return Some(json!({
-                                "host": ns.0.to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::NS(ns) = &r.data {
+                        return Some(json!({
+                            "host": ns.0.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -411,24 +414,24 @@ async fn query_ns(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_txt(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_txt(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::TXT).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(txt) = data.as_txt() {
-                            let text = txt
-                                .iter()
-                                .map(|bytes| String::from_utf8_lossy(bytes).to_string())
-                                .collect::<Vec<_>>()
-                                .join("");
-                            return Some(json!({
-                                "text": text,
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::TXT(txt) = &r.data {
+                        let text = txt
+                            .txt_data
+                            .iter()
+                            .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+                            .collect::<Vec<_>>()
+                            .join("");
+                        return Some(json!({
+                            "text": text,
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -439,25 +442,24 @@ async fn query_txt(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_soa(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_soa(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::SOA).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(soa) = data.as_soa() {
-                            return Some(json!({
-                                "mname": soa.mname().to_string(),
-                                "rname": soa.rname().to_string(),
-                                "serial": soa.serial(),
-                                "refresh": soa.refresh(),
-                                "retry": soa.retry(),
-                                "expire": soa.expire(),
-                                "minimum": soa.minimum(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::SOA(soa) = &r.data {
+                        return Some(json!({
+                            "mname": soa.mname.to_string(),
+                            "rname": soa.rname.to_string(),
+                            "serial": soa.serial,
+                            "refresh": soa.refresh,
+                            "retry": soa.retry,
+                            "expire": soa.expire,
+                            "minimum": soa.minimum,
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -468,22 +470,21 @@ async fn query_soa(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_srv(resolver: &TokioAsyncResolver, name: &str) -> Value {
+async fn query_srv(resolver: &TokioResolver, name: &str) -> Value {
     match resolver.lookup(name, RecordType::SRV).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(srv) = data.as_srv() {
-                            return Some(json!({
-                                "priority": srv.priority(),
-                                "weight": srv.weight(),
-                                "port": srv.port(),
-                                "target": srv.target().to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::SRV(srv) = &r.data {
+                        return Some(json!({
+                            "priority": srv.priority,
+                            "weight": srv.weight,
+                            "port": srv.port,
+                            "target": srv.target.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })
@@ -494,22 +495,21 @@ async fn query_srv(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
-async fn query_ptr(resolver: &TokioAsyncResolver, ptr_name: &str) -> Value {
+async fn query_ptr(resolver: &TokioResolver, ptr_name: &str) -> Value {
     if ptr_name.is_empty() {
         return json!([]);
     }
     match resolver.lookup(ptr_name, RecordType::PTR).await {
         Ok(lookup) => {
             let records: Vec<Value> = lookup
-                .record_iter()
+                .answers()
+                .iter()
                 .filter_map(|r| {
-                    if let Some(data) = r.data() {
-                        if let Some(ptr) = data.as_ptr() {
-                            return Some(json!({
-                                "hostname": ptr.0.to_string(),
-                                "ttl": r.ttl(),
-                            }));
-                        }
+                    if let RData::PTR(ptr) = &r.data {
+                        return Some(json!({
+                            "hostname": ptr.0.to_string(),
+                            "ttl": r.ttl,
+                        }));
                     }
                     None
                 })

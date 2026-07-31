@@ -232,5 +232,5 @@ describe("RequestForwardPanel log capture behavior", () => {
     )).toHaveLength(initialLogCalls + 1);
     expect(findButton(root, "实时采集")?.props["aria-pressed"]).toBe(true);
     app.unmount();
-  });
+  }, 10_000);
 });

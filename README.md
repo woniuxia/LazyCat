@@ -209,7 +209,7 @@ scripts/                   构建与发布脚本
 
 ## 开发
 
-环境要求：Node.js >= 18、pnpm >= 9、Rust 工具链（`cargo`、`rustc`）、MSVC + Windows SDK、Perl（建议 Strawberry Perl，用于 OpenSSL vendored 构建）。
+环境要求：Node.js >= 22.12、pnpm >= 10.18.1、Rust 工具链（`cargo`、`rustc`）、MSVC + Windows SDK、Perl（建议 Strawberry Perl，用于 OpenSSL vendored 构建）。
 
 ```bash
 pnpm install

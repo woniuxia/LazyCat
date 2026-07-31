@@ -3,7 +3,11 @@
   "version": "0.7.2",
   "private": true,
   "description": "Lazycat - offline developer toolbox desktop app",
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.18.1",
+  "engines": {
+    "node": ">=22.12",
+    "pnpm": ">=10.18.1"
+  },
   "scripts": {
     "dev": "pnpm --filter @lazycat/desktop dev",
     "build": "pnpm -r build",
@@ -18,17 +22,20 @@
     "package:win": "powershell -ExecutionPolicy Bypass -File scripts/package-lite-win.ps1",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "manuals:sync:mdn-js": "node scripts/scrape-mdn-js.mjs",
     "format": "prettier --write \"**/*.{ts,vue,json,md,mjs,cjs}\"",
     "format:check": "prettier --check \"**/*.{ts,vue,json,md,mjs,cjs}\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
-    "eslint": "^10.0.0",
+    "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-vue": "^10.8.0",
+    "eslint-plugin-vue": "^10.10.0",
     "prettier": "^3.4.2",
+    "puppeteer-core": "25.4.0",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.56.0"
+    "typescript-eslint": "^8.65.0",
+    "yaml": "2.8.3"
   }
 }

@@ -1246,7 +1246,7 @@ fn config_convert(payload: &Value) -> Result<Value, String> {
 
     let intermediate: Value = match from {
         "properties" => parse_properties(input)?,
-        "yaml" => serde_yml::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?,
+        "yaml" => serde_norway::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?,
         "toml" => toml::from_str(input).map_err(|e| format!("TOML 解析失败: {e}"))?,
         "env" => parse_env(input)?,
         _ => return Err(format!("不支持的源格式: {from}")),
@@ -1255,7 +1255,7 @@ fn config_convert(payload: &Value) -> Result<Value, String> {
     let output = match to {
         "properties" => serialize_properties(&intermediate),
         "yaml" => {
-            serde_yml::to_string(&intermediate).map_err(|e| format!("YAML 序列化失败: {e}"))?
+            serde_norway::to_string(&intermediate).map_err(|e| format!("YAML 序列化失败: {e}"))?
         }
         "toml" => {
             toml::to_string_pretty(&intermediate).map_err(|e| format!("TOML 序列化失败: {e}"))?
@@ -1269,7 +1269,7 @@ fn config_convert(payload: &Value) -> Result<Value, String> {
 
 fn yaml_validate(payload: &Value) -> Result<Value, String> {
     let input = payload["input"].as_str().unwrap_or_default();
-    match serde_yml::from_str::<Value>(input) {
+    match serde_norway::from_str::<Value>(input) {
         Ok(_) => Ok(json!({ "valid": true, "error": null })),
         Err(e) => {
             let loc = e.location();
@@ -1286,8 +1286,8 @@ fn yaml_validate(payload: &Value) -> Result<Value, String> {
 
 fn yaml_format(payload: &Value) -> Result<Value, String> {
     let input = payload["input"].as_str().unwrap_or_default();
-    let value: Value = serde_yml::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?;
-    let output = serde_yml::to_string(&value).map_err(|e| format!("YAML 序列化失败: {e}"))?;
+    let value: Value = serde_norway::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?;
+    let output = serde_norway::to_string(&value).map_err(|e| format!("YAML 序列化失败: {e}"))?;
     Ok(json!({ "output": output }))
 }
 
@@ -1337,7 +1337,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "json_to_yaml" => {
             let input = payload["input"].as_str().unwrap_or_default();
             let v: Value = serde_json::from_str(input).map_err(|e| format!("invalid json: {e}"))?;
-            let out = serde_yml::to_string(&v).map_err(|e| format!("json->yaml failed: {e}"))?;
+            let out = serde_norway::to_string(&v).map_err(|e| format!("json->yaml failed: {e}"))?;
             Ok(json!(out))
         }
         "csv_to_json" => {
@@ -1696,6 +1696,52 @@ mod tests {
         .unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("key:"));
+    }
+
+    #[test]
+    fn yaml_format_preserves_scalar_and_nested_value_types() {
+        let input = r#"
+integer: 42
+decimal: 1.5
+enabled: true
+missing: null
+items:
+  - 1
+  - false
+  - null
+nested:
+  name: lazycat
+"#;
+        let result = execute("yaml_format", &json!({"input": input})).expect("format YAML");
+        let output = result["output"].as_str().expect("formatted YAML");
+        let value: Value = serde_norway::from_str(output).expect("parse formatted YAML");
+
+        assert_eq!(
+            value,
+            json!({
+                "integer": 42,
+                "decimal": 1.5,
+                "enabled": true,
+                "missing": null,
+                "items": [1, false, null],
+                "nested": { "name": "lazycat" }
+            })
+        );
+    }
+
+    #[test]
+    fn yaml_validate_rejects_multiple_documents_and_invalid_tags() {
+        for input in [
+            "first: document\n---\nsecond: document\n",
+            "value: !<tag:example.com,2026:unterminated tagged\n",
+        ] {
+            let result = execute("yaml_validate", &json!({"input": input}))
+                .expect("validation result");
+            assert_eq!(result["valid"], false, "input must be rejected: {input}");
+            assert!(result["error"]["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()));
+        }
     }
 
     #[test]

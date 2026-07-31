@@ -609,6 +609,41 @@ fn paths_are_same(left: &Path, right: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::dictionary;
+
+    fn write_pdf(path: &Path, page_count: usize, title: &str) {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_ids = (0..page_count)
+            .map(|_| {
+                document.add_object(lopdf::dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+                })
+            })
+            .collect::<Vec<_>>();
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(lopdf::dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_count as i64,
+            }),
+        );
+        let catalog_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        let info_id = document.add_object(lopdf::dictionary! {
+            "Title" => Object::string_literal(title),
+            "Author" => Object::string_literal("LazyCat"),
+            "CreationDate" => Object::string_literal("D:20260730120000Z"),
+        });
+        document.trailer.set("Root", catalog_id);
+        document.trailer.set("Info", info_id);
+        document.save(path).expect("save PDF fixture");
+    }
 
     #[test]
     fn parse_single_page() {
@@ -745,5 +780,59 @@ mod tests {
         let error = ensure_outputs_available(std::iter::once(path), std::iter::once(path), true)
             .unwrap_err();
         assert!(error.contains("不能与源 PDF 相同"));
+    }
+
+    #[test]
+    fn pdf_info_merge_and_split_work_with_real_documents() {
+        let temp = tempfile::tempdir().expect("create PDF temp dir");
+        let first = temp.path().join("first.pdf");
+        let second = temp.path().join("second.pdf");
+        let merged = temp.path().join("merged.pdf");
+        let split_dir = temp.path().join("split");
+        write_pdf(&first, 2, "First document");
+        write_pdf(&second, 1, "Second document");
+
+        let info = execute("info", &json!({"path": first})).expect("read PDF info");
+        assert_eq!(info["pages"], 2);
+        assert_eq!(info["pdfVersion"], "1.7");
+        assert_eq!(info["paperSize"], "A4");
+        assert_eq!(info["title"], "First document");
+        assert_eq!(info["author"], "LazyCat");
+        assert_eq!(info["creationDate"], "2026-07-30 12:00:00 UTC");
+
+        let merge = execute(
+            "merge",
+            &json!({
+                "paths": [first, second],
+                "outputPath": merged,
+                "overwrite": false
+            }),
+        )
+        .expect("merge PDFs");
+        assert_eq!(merge["pages"], 3);
+        assert_eq!(merge["sources"], 2);
+        assert_eq!(Document::load(&merged).expect("load merged PDF").get_pages().len(), 3);
+
+        let split = execute(
+            "split",
+            &json!({
+                "path": merged,
+                "outputDir": split_dir,
+                "ranges": "1-2,3",
+                "overwrite": false
+            }),
+        )
+        .expect("split PDF");
+        assert_eq!(split["totalFiles"], 2);
+        let files = split["files"].as_array().expect("split files");
+        assert_eq!(files[0]["pages"], 2);
+        assert_eq!(files[1]["pages"], 1);
+        for (file, expected_pages) in files.iter().zip([2, 1]) {
+            let path = file["path"].as_str().expect("split path");
+            assert_eq!(
+                Document::load(path).expect("load split PDF").get_pages().len(),
+                expected_pages
+            );
+        }
     }
 }

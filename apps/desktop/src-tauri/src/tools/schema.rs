@@ -432,6 +432,23 @@ mod tests {
     }
 
     #[test]
+    fn validate_should_report_external_ref_without_resolver() {
+        let schema = r#"{"$ref":"https://example.invalid/schema.json"}"#;
+        let out = execute("validate", &json!({ "schema": schema, "document": "{}" }))
+            .expect("external ref should return a validation result");
+
+        assert_eq!(out["valid"], false);
+        assert!(out["errors"]
+            .as_array()
+            .expect("errors")
+            .iter()
+            .any(|error| error["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("`resolve-http` feature or a custom resolver is required")));
+    }
+
+    #[test]
     fn generate_example_resolves_local_ref_and_merges_all_of() {
         let schema = r##"{
           "$defs":{"identity":{"type":"object","properties":{"id":{"type":"integer","minimum":1}},"required":["id"]}},

@@ -1343,6 +1343,10 @@ mod tests {
     use crate::tools::pm_weekly as weekly;
     use chrono::NaiveDate;
     use rusqlite::{params, Connection};
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+    use zip::write::SimpleFileOptions;
 
     fn create_pm_reorder_test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
@@ -2026,6 +2030,110 @@ mod tests {
     fn build_siyuan_deep_link_should_follow_blocks_protocol() {
         let link = crate::tools::pm_siyuan::build_siyuan_deep_link("20260329120000-abc123").expect("deep link");
         assert_eq!(link, "siyuan://blocks/20260329120000-abc123");
+    }
+
+    fn write_xlsx_fixture(path: &Path) {
+        let entries = [
+            (
+                "[Content_Types].xml",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>"#,
+            ),
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"#,
+            ),
+            (
+                "xl/workbook.xml",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Current" sheetId="1" r:id="rId1"/><sheet name="Archive" sheetId="2" r:id="rId2"/></sheets>
+</workbook>"#,
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"#,
+            ),
+            (
+                "xl/styles.xml",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs>
+  <cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs>
+</styleSheet>"#,
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+  <row r="1">
+    <c r="A1" t="inlineStr"><is><t>Title</t></is></c><c r="B1" t="inlineStr"><is><t>Empty</t></is></c>
+    <c r="C1" t="inlineStr"><is><t>Number</t></is></c><c r="D1" t="inlineStr"><is><t>Code</t></is></c>
+    <c r="E1" t="inlineStr"><is><t>Date</t></is></c><c r="F1" t="inlineStr"><is><t>Active</t></is></c>
+  </row>
+  <row r="2">
+    <c r="A2" t="inlineStr"><is><t>Task A</t></is></c><c r="C2"><v>42</v></c>
+    <c r="D2" t="inlineStr"><is><t>0042</t></is></c><c r="E2" s="1"><v>45678</v></c><c r="F2" t="b"><v>1</v></c>
+  </row>
+</sheetData></worksheet>"#,
+            ),
+            (
+                "xl/worksheets/sheet2.xml",
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+  <row r="1"><c r="A1" t="inlineStr"><is><t>Archived</t></is></c></row>
+</sheetData></worksheet>"#,
+            ),
+        ];
+
+        let file = File::create(path).expect("create XLSX fixture");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        for (name, content) in entries {
+            writer.start_file(name, options).expect("start XLSX entry");
+            writer.write_all(content.as_bytes()).expect("write XLSX entry");
+        }
+        writer.finish().expect("finish XLSX fixture");
+    }
+
+    #[test]
+    fn excel_preview_preserves_dates_empty_cells_types_and_sheet_names() {
+        let temp = tempfile::tempdir().expect("create Excel temp dir");
+        let path = temp.path().join("pm-import.xlsx");
+        write_xlsx_fixture(&path);
+
+        let preview = item_import_preview(&json!({"filePath": path}))
+            .expect("read Excel import preview");
+        assert_eq!(preview["sheetNames"], json!(["Current", "Archive"]));
+        assert_eq!(
+            preview["headers"],
+            json!(["Title", "Empty", "Number", "Code", "Date", "Active"])
+        );
+        assert_eq!(preview["sampleRows"][0][0], "Task A");
+        assert_eq!(preview["sampleRows"][0][1], "");
+        assert_eq!(preview["sampleRows"][0][2], "42");
+        assert_eq!(preview["sampleRows"][0][3], "0042");
+        assert_eq!(preview["sampleRows"][0][5], "true");
+        let date = preview["sampleRows"][0][4]
+            .as_str()
+            .and_then(excel_date_to_string);
+        assert_eq!(date.as_deref(), Some("2025-01-21"));
     }
 }
 
