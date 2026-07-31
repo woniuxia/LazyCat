@@ -147,6 +147,7 @@ mod tests {
             &mut headers,
             "203.0.113.7".parse::<IpAddr>().unwrap(),
             original_host.as_ref(),
+            "http",
         )
         .unwrap();
 
@@ -254,6 +255,7 @@ pub(crate) fn rebuild_forward_headers(
     headers: &mut HeaderMap,
     client_ip: IpAddr,
     original_host: Option<&HeaderValue>,
+    forwarded_proto: &str,
 ) -> Result<(), String> {
     let original_host = original_host
         .map(|value| {
@@ -273,7 +275,8 @@ pub(crate) fn rebuild_forward_headers(
         forwarded.push_str(";host=");
         forwarded.push_str(&format_forwarded_parameter(host));
     }
-    forwarded.push_str(";proto=http");
+    forwarded.push_str(";proto=");
+    forwarded.push_str(forwarded_proto);
 
     headers.insert(
         "forwarded",
@@ -291,7 +294,11 @@ pub(crate) fn rebuild_forward_headers(
                 .map_err(|_| "无法构造 X-Forwarded-Host 请求头".to_string())?,
         );
     }
-    headers.insert("x-forwarded-proto", HeaderValue::from_static("http"));
+    headers.insert(
+        "x-forwarded-proto",
+        HeaderValue::from_str(forwarded_proto)
+            .map_err(|_| "无法构造 X-Forwarded-Proto 请求头".to_string())?,
+    );
     Ok(())
 }
 
@@ -869,9 +876,13 @@ async fn forward_request(
     if let Some(upgrade_header) = upgrade_header {
         restore_upgrade_headers(&mut parts.headers, upgrade_header);
     }
-    if let Err(error) =
-        rebuild_forward_headers(&mut parts.headers, client_addr.ip(), original_host.as_ref())
-    {
+    let forwarded_proto = if websocket_upgrade { "ws" } else { "http" };
+    if let Err(error) = rebuild_forward_headers(
+        &mut parts.headers,
+        client_addr.ip(),
+        original_host.as_ref(),
+        forwarded_proto,
+    ) {
         trace.downstream_failed(error.clone());
         return Ok(text_response(StatusCode::BAD_REQUEST, &error));
     }
@@ -2124,6 +2135,13 @@ pub(crate) mod integration_tests {
             assert_eq!(
                 header_value(&head, "sec-websocket-key").as_deref(),
                 Some("fixture-key")
+            );
+            assert_eq!(
+                header_value(&head, "x-forwarded-proto").as_deref(),
+                Some("ws")
+            );
+            assert!(
+                header_value(&head, "forwarded").is_some_and(|value| value.ends_with(";proto=ws"))
             );
             assert!(header_value(&head, "x-remove-me").is_none());
             stream
