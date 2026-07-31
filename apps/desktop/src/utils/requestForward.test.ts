@@ -245,7 +245,7 @@ describe("request forward utilities", () => {
 
   it("does not let a late mutation response overwrite a newer selection or edit", async () => {
     let current = { selectionToken: 7, selectedId: 1, draft: false };
-    let visibleForm = { ...baseForm, name: "规则 A" };
+    let visibleForm: RequestForwardRuleForm;
     const intent = captureRequestForwardMutationIntent(current, 1);
     const response = deferred<RequestForwardRuleForm>();
     const mutation = applyRequestForwardMutationResult(

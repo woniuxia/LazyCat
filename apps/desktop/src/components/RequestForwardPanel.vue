@@ -485,7 +485,8 @@ async function loadLogs(
   const requestToken = ++logRequestToken;
   const offset = append ? logItems.value.length : 0;
   logInFlight = true;
-  append ? (loadingMore.value = true) : (logsLoading.value = true);
+  if (append) loadingMore.value = true;
+  else logsLoading.value = true;
   if (!append) {
     logItems.value = [];
     logTotal.value = 0;
@@ -1034,9 +1035,8 @@ async function checkSelectedTarget() {
     ) return;
     recoveryPreflightResult.value = result;
     recoveryPreflightRuleId.value = ruleId;
-    result.ready
-      ? ElMessage.success("目标检测通过")
-      : ElMessage.warning("目标检测未通过，请查看检测结果或编辑规则");
+    if (result.ready) ElMessage.success("目标检测通过");
+    else ElMessage.warning("目标检测未通过，请查看检测结果或编辑规则");
   } catch (error) {
     if (requestToken === recoveryPreflightRequestToken) {
       ElMessage.error(`检测目标失败：${errorMessage(error)}`);
@@ -1283,7 +1283,8 @@ async function runBatch(operation: "start" | "stop", ids: number[], scopeLabel: 
       failed: result.results.filter((item) => !item.ok).length,
     };
     const message = getRequestForwardBatchMessage(operation, summary);
-    summary.failed ? ElMessage.warning(message) : ElMessage.success(message);
+    if (summary.failed) ElMessage.warning(message);
+    else ElMessage.success(message);
     batchOperation.value = operation;
     batchResults.value = result.results;
     await refreshRules();

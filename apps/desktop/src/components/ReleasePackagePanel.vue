@@ -2021,7 +2021,9 @@ function validateArchiveFolderName(value: string): string | null {
   if (value !== value.trim()) return "归档目录名首尾不能包含空格";
   if (value === "." || value === "..") return "归档目录名不能为 . 或 ..";
   if (value.length > 255) return "归档目录名不能超过 255 个字符";
-  if (/[<>:\"/\\|?*\u0000-\u001f]/.test(value)) return "归档目录名包含 Windows 非法字符";
+  if (Array.from(value).some((char) => char.charCodeAt(0) <= 31 || '<>:"/\\|?*'.includes(char))) {
+    return "归档目录名包含 Windows 非法字符";
+  }
   if (/[. ]$/.test(value)) return "归档目录名不能以点或空格结尾";
   if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(value)) {
     return "归档目录名不能使用 Windows 保留设备名";

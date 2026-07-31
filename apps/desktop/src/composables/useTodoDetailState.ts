@@ -223,7 +223,12 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
 
   function cancelDetailEdit() {
     // 先让 Editor 清理 tmp 附件（编辑场景会静默跳过）
-    try { void todoDetailEditRef.value?.runOnCancel?.(); } catch {}
+    const cleanup = todoDetailEditRef.value?.runOnCancel?.();
+    if (cleanup) {
+      void cleanup.catch((error) => {
+        console.warn("清理取消编辑产生的临时附件失败", error);
+      });
+    }
     resetItemDraft();
     draftBaseline.value = "";
     if (selectedItemId.value !== null && selectedItem.value) {

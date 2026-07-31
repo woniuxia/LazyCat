@@ -577,7 +577,7 @@ async function onPrivacyChoiceChange(choice: string | number | boolean | undefin
 const privacyDurationChoice = computed<number>(() => {
   if (!config.value.privacyMaskUntil) return 0;
   // 触发响应式刷新（每秒）；用 Date.now() 取实际当前时间
-  nowTick.value;
+  void nowTick.value;
   const remainMs = new Date(config.value.privacyMaskUntil).getTime() - Date.now();
   if (remainMs <= 0) return 0;
   const remainMin = remainMs / 60000;
@@ -594,7 +594,7 @@ const privacyChoice = computed<"off" | number>(() => {
 const privacyUntilLabel = computed<string>(() => {
   if (!status.value?.privacyMaskUntil) return "（直到手动关）";
   // 触发响应式刷新
-  nowTick.value;
+  void nowTick.value;
   const remainMs = new Date(status.value.privacyMaskUntil).getTime() - Date.now();
   if (remainMs <= 0) return "（即将关闭）";
   const totalSec = Math.floor(remainMs / 1000);
@@ -605,7 +605,7 @@ const privacyUntilLabel = computed<string>(() => {
 
 const privacyRemainingLabel = computed<string>(() => {
   if (!config.value.privacyMaskUntil) return "";
-  nowTick.value;
+  void nowTick.value;
   const remainMs = new Date(config.value.privacyMaskUntil).getTime() - Date.now();
   if (remainMs <= 0) return "0:00";
   const totalSec = Math.floor(remainMs / 1000);

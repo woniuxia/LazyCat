@@ -65,14 +65,14 @@ let stalenessHandle: ReturnType<typeof setInterval> | null = null;
 /** 如果超过 60s 无数据，显示"刷新中…"提示 */
 const showStaleHint = computed(() => {
   // touch stalenessTick 让 computed 周期性重算
-  stalenessTick.value;
+  void stalenessTick.value;
   if (!data.value) return false;
   return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 60_000;
 });
 
 /** 超过 120s 视为连接异常，显示"重试"按钮 */
 const isStaleLong = computed(() => {
-  stalenessTick.value;
+  void stalenessTick.value;
   if (!data.value) return false;
   return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 120_000;
 });

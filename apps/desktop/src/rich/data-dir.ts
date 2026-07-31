@@ -34,8 +34,8 @@ export function ensureDataDir(): Promise<string> {
 
 /** 拼接附件相对路径为绝对路径（保留原生分隔符，供后端 IPC 使用） */
 export function joinAttachmentPath(dir: string, rel: string): string {
-  const d = dir.replace(/[\/\\]+$/, '');
-  const s = rel.replace(/^[\/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, '');
+  const s = rel.replace(/^[/\\]+/, '');
   return `${d}/${s}`;
 }
 

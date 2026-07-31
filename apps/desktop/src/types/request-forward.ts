@@ -58,7 +58,7 @@ export interface RequestForwardRuleWriteInput {
   captureHttpBody: boolean;
 }
 
-export interface RequestForwardRuleForm extends RequestForwardRuleWriteInput {}
+export type RequestForwardRuleForm = RequestForwardRuleWriteInput;
 
 export interface RequestForwardRule extends RequestForwardRuleWriteInput {
   id: number;

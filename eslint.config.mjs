@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import pluginVue from "eslint-plugin-vue";
 import eslintConfigPrettier from "eslint-config-prettier";
+import globals from "globals";
 
 export default [
   // 全局忽略
@@ -29,39 +30,22 @@ export default [
   // Vue 规则
   ...pluginVue.configs["flat/recommended"],
 
-  // 浏览器 + Node 全局变量（desktop app 两端都用）
+  // 桌面渲染层运行在 WebView 中
   {
+    files: ["apps/desktop/**/*.{ts,vue}"],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
+
+  // 仓库脚本和构建配置运行在 Node.js 中
+  {
+    files: ["scripts/**/*.{js,mjs,cjs}", "*.config.{js,mjs,cjs,ts}"],
     languageOptions: {
       globals: {
-        // Browser
+        ...globals.node,
+        // Puppeteer page.evaluate 回调在浏览器上下文执行
         document: "readonly",
-        window: "readonly",
-        navigator: "readonly",
-        HTMLElement: "readonly",
-        MutationObserver: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        setInterval: "readonly",
-        clearInterval: "readonly",
-        requestAnimationFrame: "readonly",
-        cancelAnimationFrame: "readonly",
-        fetch: "readonly",
-        URL: "readonly",
-        Blob: "readonly",
-        File: "readonly",
-        FileReader: "readonly",
-        FormData: "readonly",
-        Event: "readonly",
-        CustomEvent: "readonly",
-        AbortController: "readonly",
-        console: "readonly",
-        localStorage: "readonly",
-        matchMedia: "readonly",
-        getComputedStyle: "readonly",
-        ResizeObserver: "readonly",
-        IntersectionObserver: "readonly",
-        DOMParser: "readonly",
-        XMLSerializer: "readonly",
       },
     },
   },
@@ -98,6 +82,7 @@ export default [
       // Vue 规则调整
       "vue/multi-word-component-names": "off",
       "vue/no-v-html": "off",
+      "vue/no-mutating-props": ["error", { shallowOnly: true }],
       "vue/attributes-order": "warn",
 
       // 通用

@@ -643,7 +643,7 @@ const groupTableData = computed(() =>
 );
 
 async function createGroup() {
-  let newName = "";
+  let newName: string;
   try {
     const result = await ElMessageBox.prompt("输入分组名称", "新建分组", {
       confirmButtonText: "确定",
@@ -672,7 +672,7 @@ async function createGroup() {
 }
 
 async function startRenameGroup(oldName: string) {
-  let newName = "";
+  let newName: string;
   try {
     const result = await ElMessageBox.prompt("输入新的分组名称", "重命名分组", {
       inputValue: oldName,

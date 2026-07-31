@@ -110,9 +110,9 @@
 </template>
 
 <script lang="ts">
-import type { EnvDetectResponse } from "../utils/envDiagnostics";
+import type { EnvDetectResponse as PersistedEnvDetectResponse } from "../utils/envDiagnostics";
 
-const envPanelState: { result: EnvDetectResponse | null; inspectedAt: string } = {
+const envPanelState: { result: PersistedEnvDetectResponse | null; inspectedAt: string } = {
   result: null,
   inspectedAt: "",
 };

@@ -784,7 +784,7 @@ async function activateHosts() {
   let contentToActivate = hostsContent.value;
 
   if (target && target.content !== hostsContent.value) {
-    let userChoice: "confirm" | "cancel" | "close" = "close";
+    let userChoice: "confirm" | "cancel" | "close";
     try {
       await ElMessageBox({
         title: "未保存的修改",

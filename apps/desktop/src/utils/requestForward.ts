@@ -479,7 +479,9 @@ export function parseRequestForwardRuleBundleText(
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    throw new Error(`请求转发规则包不是有效 JSON：${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`请求转发规则包不是有效 JSON：${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
   if (!parsed || typeof parsed !== "object") {
     throw new Error("请求转发规则包格式无效");
@@ -817,8 +819,10 @@ export function exportRequestForwardLogsCsv(
 }
 
 export function sanitizeRequestForwardLogFileName(value: string): string {
-  const sanitized = value
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+  const sanitized = Array.from(value, (char) =>
+    char.charCodeAt(0) <= 31 || '<>:"/\\|?*'.includes(char) ? "_" : char,
+  )
+    .join("")
     .replace(/[. ]+$/g, "")
     .trim();
   return Array.from(sanitized || "request-forward").slice(0, 80).join("");

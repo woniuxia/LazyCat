@@ -314,7 +314,7 @@ async function promptLink(): Promise<void> {
   const e = editor.value;
   if (!e) return;
   const existing = e.getAttributes('link')?.href ?? '';
-  let input = '';
+  let input: string;
   try {
     const res = await ElMessageBox.prompt('输入链接地址（仅支持 http/https/mailto）', '插入链接', {
       inputValue: String(existing ?? ''),
@@ -444,7 +444,7 @@ async function handlePastedFiles(files: File[], fromPaste: boolean): Promise<voi
   }
 
   const hasPath = paths.some((p) => p && p.length > 0);
-  let mode: 'copy' | 'path' = 'copy';
+  let mode: 'copy' | 'path';
   try {
     await ElMessageBox.confirm(
       hasPath
@@ -747,13 +747,12 @@ async function onMenuAction(action: 'open' | 'reveal' | 'copy-path' | 'delete'):
 function deleteFileRefByDom(el: HTMLElement): void {
   const view = editor.value?.view;
   if (!view) return;
-  let pos: number | null = null;
+  let pos: number;
   try {
     pos = view.posAtDOM(el, 0);
   } catch {
-    pos = null;
+    return;
   }
-  if (pos == null) return;
   const $pos = view.state.doc.resolve(pos);
   // posAtDOM 返回节点内部的位置；向父层找到 fileRef 节点
   for (let depth = $pos.depth; depth >= 0; depth -= 1) {

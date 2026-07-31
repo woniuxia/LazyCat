@@ -498,10 +498,10 @@ export async function invokeToolByChannel(
       message.includes("IPC bridge unavailable") ||
       message.includes("reading 'invoke'")
     ) {
-      throw new Error("IPC bridge 未加载，请在 Tauri 环境运行。请使用 `pnpm dev` 或 `pnpm --filter @lazycat/desktop dev` 启动。");
+      throw new Error("IPC bridge 未加载，请在 Tauri 环境运行。请使用 `pnpm dev` 或 `pnpm --filter @lazycat/desktop dev` 启动。", { cause: error });
     }
     if (channel === "tool:request-forward:preflight" && message) {
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
     throw error;
   }

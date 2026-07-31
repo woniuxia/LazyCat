@@ -224,10 +224,10 @@ async function runUnlockAttempt(source: UnlockAttemptSource, passwordSnapshot: s
   } finally {
     if (isUnmounted || hasUnlocked.value) {
       loading.value = false;
-      return;
+    } else {
+      inFlightCount.value = Math.max(0, inFlightCount.value - 1);
+      loading.value = inFlightCount.value > 0;
     }
-    inFlightCount.value = Math.max(0, inFlightCount.value - 1);
-    loading.value = inFlightCount.value > 0;
   }
 }
 

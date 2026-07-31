@@ -168,9 +168,10 @@ async function runAction(action: () => Promise<unknown>, successText: string) {
 }
 
 async function setDailyEnabled(value: string | number | boolean) {
+  const enabled = Boolean(value);
   await runAction(
-    () => invokeToolByChannel("tool:pomodoro:set-enabled", { enabled: Boolean(value) }),
-    Boolean(value) ? "已开启工作日自动询问" : "已关闭工作日自动询问",
+    () => invokeToolByChannel("tool:pomodoro:set-enabled", { enabled }),
+    enabled ? "已开启工作日自动询问" : "已关闭工作日自动询问",
   );
 }
 

@@ -261,7 +261,7 @@ async function produceVaultTag(tag: string, filterArg: string): Promise<Spotligh
   if (!tag) {
     return [buildHintItem("vault-tag-empty", "未配置 tag", "前往设置补全 vault-tag 关键字")];
   }
-  let status: VaultStatus | null = null;
+  let status: VaultStatus | null;
   try {
     status = ((await invokeToolByChannel("tool:vault:status", {})) as VaultStatus) ?? null;
   } catch {
@@ -277,7 +277,7 @@ async function produceVaultTag(tag: string, filterArg: string): Promise<Spotligh
       ),
     ];
   }
-  let list: VaultMetaEntry[] = [];
+  let list: VaultMetaEntry[];
   try {
     const raw = (await invokeToolByChannel("tool:vault:meta-list", {})) as VaultMetaEntry[];
     list = Array.isArray(raw) ? raw : [];
@@ -348,7 +348,7 @@ async function produceSnippetTag(tag: string, filterArg: string): Promise<Spotli
       buildHintItem("snippet-tag-empty", "未配置 tag", "前往设置补全 snippet-tag 关键字"),
     ];
   }
-  let list: SnippetEntry[] = [];
+  let list: SnippetEntry[];
   try {
     const raw = (await invokeToolByChannel("tool:snippets:v2:list", { tag })) as
       | SnippetEntry[]

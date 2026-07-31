@@ -147,15 +147,15 @@ watch(
 );
 
 function joinPath(dir: string, sub: string): string {
-  const d = dir.replace(/[\/\\]+$/, '');
-  const s = sub.replace(/^[\/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, '');
+  const s = sub.replace(/^[/\\]+/, '');
   // convertFileSrc 对斜杠不敏感，统一正斜杠可读性更好
   return `${d}/${s}`.replace(/\\/g, '/');
 }
 
 function joinLocalPath(dir: string, sub: string): string {
-  const d = dir.replace(/[\/\\]+$/, '');
-  const s = sub.replace(/^[\/\\]+/, '');
+  const d = dir.replace(/[/\\]+$/, '');
+  const s = sub.replace(/^[/\\]+/, '');
   return `${d}/${s}`;
 }
 

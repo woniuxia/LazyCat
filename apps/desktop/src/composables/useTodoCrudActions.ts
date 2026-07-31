@@ -259,7 +259,11 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
         payload.id = itemDraft.id;
         if (itemDraft.rootId) payload.rootId = itemDraft.rootId;
         // 编辑：update 前按当前 doc attIds 清理被删图的附件
-        try { await todoDetailEditRef.value?.runBeforeSubmit?.(); } catch {}
+        try {
+          await todoDetailEditRef.value?.runBeforeSubmit?.();
+        } catch (error) {
+          console.warn("清理已移除的待办附件失败", error);
+        }
         response = await invokeToolByChannel("tool:todo:item-update", payload);
       }
 
@@ -268,7 +272,11 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
         (itemDialogMode.value === "edit_item" ? itemDraft.id : null);
       // 新建：把 tmp owner 改写为 savedId
       if (itemDialogMode.value === "create" && typeof savedId === "number") {
-        try { await todoDetailEditRef.value?.runAfterSubmit?.(savedId); } catch {}
+        try {
+          await todoDetailEditRef.value?.runAfterSubmit?.(savedId);
+        } catch (error) {
+          console.warn("迁移新建待办的临时附件失败", error);
+        }
       }
       await loadItems();
       if (showSuccess) ElMessage.success("保存成功");

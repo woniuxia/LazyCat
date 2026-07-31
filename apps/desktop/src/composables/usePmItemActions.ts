@@ -155,7 +155,11 @@ export function usePmItemActions(deps: PmItemActionsDeps) {
           ...payload,
         });
         // 编辑：保存完成后按当前 doc 的 attIds 清理被删除的附件
-        try { await runDialogBeforeSubmit(); } catch {}
+        try {
+          await runDialogBeforeSubmit();
+        } catch (error) {
+          console.warn("清理已移除的项目附件失败", error);
+        }
       } else {
         const projectId = isOverview.value ? itemFormProjectId.value : selectedProjectId.value;
         if (!projectId || projectId === "overview") {
@@ -168,7 +172,11 @@ export function usePmItemActions(deps: PmItemActionsDeps) {
         });
         try {
           // 新建：把 tmp-<uuid> 下的附件 rebind 到 realId
-          try { await runDialogAfterSubmit(result.id); } catch {}
+          try {
+            await runDialogAfterSubmit(result.id);
+          } catch (error) {
+            console.warn("迁移新建项目的临时附件失败", error);
+          }
           // Process pending todo data for newly created item
           if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
             const tempTodo = usePmTodoLinking(() => result.id);

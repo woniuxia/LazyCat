@@ -94,8 +94,6 @@ export function useReleasePackageUploadPreflight() {
       }
       probeResult.value = result;
       return result;
-    } catch (error) {
-      throw error;
     } finally {
       if (token === requestToken) checking.value = false;
     }
@@ -123,8 +121,6 @@ export function useReleasePackageUploadPreflight() {
       preflightResult.value = result;
       preflightToken.value = result.preflightToken;
       return result;
-    } catch (error) {
-      throw error;
     } finally {
       if (token === requestToken) checking.value = false;
     }

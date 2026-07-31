@@ -78,7 +78,7 @@ async function loadProjectMap(): Promise<Map<number, PmProject>> {
 
 async function prefetchPm(): Promise<SpotlightItem[]> {
   const projectMap = await loadProjectMap();
-  let list: PmListItem[] = [];
+  let list: PmListItem[];
   try {
     const raw = (await invokeToolByChannel("tool:pm:item-list", {})) as PmListItem[];
     list = Array.isArray(raw) ? raw : [];

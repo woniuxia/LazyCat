@@ -34,7 +34,7 @@ function firstCommentLine(content: string): string {
 }
 
 async function prefetchHosts(): Promise<SpotlightItem[]> {
-  let list: HostsProfile[] = [];
+  let list: HostsProfile[];
   try {
     const raw = (await invokeToolByChannel("tool:hosts:list", {})) as HostsProfile[];
     list = Array.isArray(raw) ? raw : [];

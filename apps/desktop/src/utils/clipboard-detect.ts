@@ -86,7 +86,7 @@ function isWindowsAbsolutePath(text: string): boolean {
 }
 
 function isUncPath(text: string): boolean {
-  return /^\\\\[^\\\/]+\\[^\\\/]+/.test(text);
+  return /^\\\\[^\\/]+\\[^\\/]+/.test(text);
 }
 
 function inferRevealFromPath(text: string): boolean {

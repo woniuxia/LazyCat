@@ -280,7 +280,9 @@ function initSortable() {
           try {
             const refNode = fromEl.children[oldIndex] ?? null;
             fromEl.insertBefore(evt.item, refNode);
-          } catch {}
+          } catch (rollbackError) {
+            console.warn("看板卡片 DOM 回滚失败", rollbackError);
+          }
           ElMessage.error((e as Error).message);
           emit("items-changed");
         }
