@@ -11,8 +11,8 @@ use flate2::Compression;
 use tar::{Builder, EntryType, Header};
 use tempfile::{Builder as TempBuilder, TempDir};
 
-use super::release_package::ReleaseTarget;
-use super::release_package_deploy::{ArtifactEntry, ArtifactManifest};
+use super::release_package_artifact::{ArtifactEntry, ArtifactManifest};
+use super::release_package_model::ReleaseTarget;
 
 pub(crate) const PREFLIGHT_PROBE_ENTRY: &str = "lazycat-probe.txt";
 pub(crate) const PREFLIGHT_PROBE_CONTENT: &[u8] = b"lazycat-tar-gzip-probe\n";

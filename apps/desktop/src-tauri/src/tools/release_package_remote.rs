@@ -16,11 +16,11 @@ use ssh2::{ErrorCode, FileType, HostKeyType, Session, Sftp};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::release_package::ReleasePackageEnvironmentKind;
 use super::release_package_deploy::{
     DeployError, RemoteCommandOutputDecoder, RemoteCommandResult, RemoteDirEntry, RemoteFs,
     RemoteKind, RemoteMetadata,
 };
+use super::release_package_model::ReleasePackageEnvironmentKind;
 use super::release_package_transfer::{
     create_preflight_probe_archive, PREFLIGHT_PROBE_CONTENT, PREFLIGHT_PROBE_ENTRY,
 };
@@ -1286,11 +1286,12 @@ mod tests {
         validate_target_relationships, AuthSecret, HostTrust, PreflightBinding, PreflightStore,
         ProbeSnapshot, RemoteEndpoint, RemoteTarget, SftpRemoteFs, SshSocketRegistry,
     };
-    use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleaseTarget};
+    use crate::tools::release_package_artifact::ArtifactManifest;
     use crate::tools::release_package_deploy::{
-        deploy, deploy_parallel, ArtifactManifest, DeployError, DeploymentPlan, DeploymentRequest,
-        DeploymentTarget, RemoteFs, RemoteKind,
+        deploy, deploy_parallel, DeployError, DeploymentPlan, DeploymentRequest, DeploymentTarget,
+        RemoteFs, RemoteKind,
     };
+    use crate::tools::release_package_model::{ReleasePackageEnvironmentKind, ReleaseTarget};
     use std::fs;
     use std::net::{SocketAddr, ToSocketAddrs};
     use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};

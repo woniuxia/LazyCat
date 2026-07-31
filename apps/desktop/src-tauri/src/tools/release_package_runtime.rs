@@ -10,17 +10,18 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
-use super::release_package::{
+use super::release_package_model::{
     ReleasePackageEnvironmentConfig, ReleasePackageEnvironmentKind, ReleaseTarget,
 };
 #[cfg(test)]
-use super::release_package::ReleasePackageType;
+use super::release_package_model::ReleasePackageType;
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
+use super::release_package_artifact::{ArchivedTarget, ArtifactManifest};
 use super::release_package_deploy::{
-    deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeployEvent, DeploymentPlan,
+    deploy_parallel, DeployError, DeployEvent, DeploymentPlan,
     DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
 use super::release_package_remote::CommandRemoteFs;
