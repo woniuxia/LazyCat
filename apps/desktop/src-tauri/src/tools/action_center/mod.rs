@@ -14,7 +14,10 @@ pub(crate) use bindings::{
     ensure_todo_can_become_recurring, parse_binding_patch, todo_reminder_action_summary,
     BindingPatch,
 };
-pub(crate) use combination_runs::{CombinationRunDetail, CombinationRunStep};
+pub(crate) use combination_runs::CombinationRunDetail;
+#[cfg(test)]
+pub(crate) use combination_runs::CombinationRunStep;
+#[cfg(test)]
 pub(crate) use combinations::ExecutionMode;
 #[cfg(not(test))]
 pub(crate) use dispatches::finish_release_package_run;

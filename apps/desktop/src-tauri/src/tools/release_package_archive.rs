@@ -61,6 +61,7 @@ pub enum ArchiveError {
     },
 }
 
+#[cfg(test)]
 pub struct ArchiveRequest {
     pub frontend_artifact: PathBuf,
     pub frontend_mode: String,
@@ -70,6 +71,7 @@ pub struct ArchiveRequest {
     pub run_id: String,
 }
 
+#[cfg(test)]
 struct StagingGuard {
     path: PathBuf,
     committed: bool,
@@ -246,6 +248,7 @@ impl Drop for TargetGuard {
     }
 }
 
+#[cfg(test)]
 impl Drop for StagingGuard {
     fn drop(&mut self) {
         if !self.committed {
@@ -626,6 +629,7 @@ pub fn validate_artifact_target_collision(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn archive_artifacts(
     request: &ArchiveRequest,
     cancelled: &AtomicBool,

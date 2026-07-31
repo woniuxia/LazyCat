@@ -1383,6 +1383,7 @@ pub(crate) fn load_action_target_row(
     .transpose()
 }
 
+#[cfg(test)]
 pub(crate) fn load_action_target_label(
     conn: &Connection,
     environment_id: i64,

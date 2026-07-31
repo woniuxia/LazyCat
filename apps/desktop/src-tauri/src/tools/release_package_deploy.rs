@@ -296,6 +296,7 @@ impl DeploymentPlan {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn request(&self) -> &DeploymentRequest {
         &self.request
     }
@@ -304,6 +305,7 @@ impl DeploymentPlan {
         self.request.targets.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn frontend_directories(&self) -> &[String] {
         &self.frontend_directories
     }
@@ -796,6 +798,7 @@ fn rollback(remote: &mut dyn RemoteFs, transactions: &[TransactionTarget]) -> Ve
     recovery_paths
 }
 
+#[cfg(test)]
 pub fn deploy(
     remote: &mut dyn RemoteFs,
     request: &DeploymentRequest,

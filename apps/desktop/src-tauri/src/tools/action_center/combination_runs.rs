@@ -125,6 +125,7 @@ fn active_run_error_with_conn(
     .map_err(|error| format!("read active combination run failed: {error}"))
 }
 
+#[cfg(test)]
 pub(crate) fn create_run_with_conn<F>(
     conn: &mut Connection,
     combination_id: i64,
@@ -437,6 +438,7 @@ fn step_status_with_conn(conn: &Connection, run_step_id: i64) -> Result<String, 
     .ok_or_else(|| format!("combination run step not found: {run_step_id}"))
 }
 
+#[cfg(test)]
 pub(crate) fn finish_run_with_conn(
     conn: &Connection,
     run_id: &str,

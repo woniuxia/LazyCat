@@ -867,7 +867,6 @@ impl CommandSnapshot {
 struct PipelineSummary {
     status: &'static str,
     archive_path: Option<PathBuf>,
-    archived_targets: Vec<ArchivedTarget>,
     manifests: Vec<ArtifactManifest>,
     error: Option<String>,
     retry_descriptor: Option<RetryDescriptor>,
@@ -889,6 +888,7 @@ struct RetryJob {
 }
 
 impl RetryJob {
+    #[cfg(test)]
     fn from_manifests(environment_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
         Self {
             environment_id,
@@ -1141,7 +1141,6 @@ fn build_upload_summary(summary: BuildSummary) -> Result<PipelineSummary, Pipeli
     Ok(PipelineSummary {
         status: summary.status,
         archive_path: None,
-        archived_targets: Vec::new(),
         manifests,
         error: summary.error,
         retry_descriptor: None,
@@ -1903,7 +1902,6 @@ fn run_retry_deployment_phase(
     let summary = PipelineSummary {
         status: "succeeded",
         archive_path: None,
-        archived_targets: Vec::new(),
         manifests: retry.descriptor.manifests.clone(),
         error: None,
         retry_descriptor: None,
@@ -2096,7 +2094,6 @@ where
         return Ok(PipelineSummary {
             status: summary.status,
             archive_path: None,
-            archived_targets: Vec::new(),
             manifests: Vec::new(),
             error: summary.error,
             retry_descriptor: None,
@@ -2243,7 +2240,6 @@ where
         return Ok(PipelineSummary {
             status: "failed",
             archive_path: None,
-            archived_targets,
             manifests: Vec::new(),
             error: (!errors.is_empty()).then(|| errors.join("；")),
             retry_descriptor: None,
@@ -2288,7 +2284,6 @@ where
             "partially_succeeded"
         },
         archive_path: Some(archive_path),
-        archived_targets,
         manifests: Vec::new(),
         error: (!errors.is_empty()).then(|| errors.join("；")),
         retry_descriptor: None,
@@ -2629,7 +2624,6 @@ pub fn command_retry(
                     PipelineSummary {
                         status: "succeeded",
                         archive_path: None,
-                        archived_targets: Vec::new(),
                         manifests: Vec::new(),
                         error: None,
                         retry_descriptor: None,
@@ -2646,7 +2640,6 @@ pub fn command_retry(
                     PipelineSummary {
                         status: "cancelled",
                         archive_path: None,
-                        archived_targets: Vec::new(),
                         manifests: Vec::new(),
                         error: Some(
                             "服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into(),
@@ -2660,7 +2653,6 @@ pub fn command_retry(
                 Err(error) => PipelineSummary {
                     status: "upload_succeeded_command_failed",
                     archive_path: None,
-                    archived_targets: Vec::new(),
                     manifests: Vec::new(),
                     error: Some(format!(
                         "服务器文件已上传，但上传后命令未全部成功：{}",
@@ -3112,7 +3104,6 @@ mod pipeline_tests {
         PipelineSummary {
             status: "succeeded",
             archive_path: None,
-            archived_targets: Vec::new(),
             manifests: Vec::new(),
             error: None,
             retry_descriptor: None,
@@ -3730,7 +3721,6 @@ mod pipeline_tests {
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("D:\\release\\target")),
-                archived_targets: Vec::new(),
                 manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
@@ -4006,7 +3996,6 @@ mod pipeline_tests {
             PipelineSummary {
                 status: "succeeded",
                 archive_path: None,
-                archived_targets: Vec::new(),
                 manifests: vec![manifest.clone()],
                 error: None,
                 retry_descriptor: None,
@@ -4036,7 +4025,6 @@ mod pipeline_tests {
         let summary = PipelineSummary {
             status: "succeeded",
             archive_path: None,
-            archived_targets: Vec::new(),
             manifests: vec![manifest],
             error: None,
             retry_descriptor: None,
@@ -4072,7 +4060,6 @@ mod pipeline_tests {
             PipelineSummary {
                 status: "succeeded",
                 archive_path: None,
-                archived_targets: Vec::new(),
                 manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
@@ -4168,7 +4155,6 @@ mod pipeline_tests {
         let package = PipelineSummary {
             status: "succeeded",
             archive_path: None,
-            archived_targets: Vec::new(),
             manifests: vec![ArtifactManifest {
                 target: ReleaseTarget::Backend,
                 source_path: PathBuf::from(r"D:\build\app.jar"),
@@ -4209,7 +4195,6 @@ mod pipeline_tests {
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: None,
-                archived_targets: Vec::new(),
                 manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
@@ -4228,7 +4213,6 @@ mod pipeline_tests {
         let summary = PipelineSummary {
             status: "partially_succeeded",
             archive_path: Some(PathBuf::from(r"D:\release\portal")),
-            archived_targets: Vec::new(),
             manifests: Vec::new(),
             error: Some("frontend failed".into()),
             retry_descriptor: None,
@@ -4246,7 +4230,6 @@ mod pipeline_tests {
             PipelineSummary {
                 status: "succeeded",
                 archive_path: None,
-                archived_targets: Vec::new(),
                 manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
@@ -4279,7 +4262,6 @@ mod pipeline_tests {
                 PipelineSummary {
                     status: "succeeded",
                     archive_path: None,
-                    archived_targets: Vec::new(),
                     manifests: Vec::new(),
                     error: None,
                     retry_descriptor: None,
@@ -4396,7 +4378,6 @@ mod pipeline_tests {
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("archive")),
-                archived_targets: Vec::new(),
                 manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
@@ -4425,11 +4406,6 @@ mod pipeline_tests {
         let package = PipelineSummary {
             status: "succeeded",
             archive_path: Some(PathBuf::from("archive")),
-            archived_targets: vec![ArchivedTarget {
-                target: ReleaseTarget::Backend,
-                archive_entry_name: "app.jar".into(),
-                artifact_mode: "file".into(),
-            }],
             manifests: Vec::new(),
             error: None,
             retry_descriptor: None,
@@ -4994,13 +4970,6 @@ mod pipeline_tests {
             sink.clone(),
         )
         .unwrap();
-        assert_eq!(result.archived_targets.len(), 2);
-        assert!(result.archived_targets.iter().any(|target| {
-            target.target == ReleaseTarget::Frontend && target.archive_entry_name == "dist"
-        }));
-        assert!(result.archived_targets.iter().any(|target| {
-            target.target == ReleaseTarget::Backend && target.archive_entry_name == "app.jar"
-        }));
         let archive_path = result.archive_path.unwrap();
         assert!(archive_path.join("dist/index.html").is_file());
         assert!(archive_path.join("app.jar").is_file());

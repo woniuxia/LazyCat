@@ -252,6 +252,7 @@ impl RuntimeManager {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn start(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
         self.with_rule_lock(rule.id, || self.start_locked(rule))
     }
@@ -288,6 +289,7 @@ impl RuntimeManager {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn stop(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
         self.with_rule_lock(rule.id, || self.stop_locked(rule))
     }

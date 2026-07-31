@@ -47,14 +47,17 @@ pub(crate) trait ExecutionObserver: Send + Sync + 'static {
     fn step_finished(&self, result: &ExecutedStep);
 }
 
+#[cfg(test)]
 struct NoopExecutionObserver;
 
+#[cfg(test)]
 impl ExecutionObserver for NoopExecutionObserver {
     fn step_started(&self, _run_step_id: i64) {}
 
     fn step_finished(&self, _result: &ExecutedStep) {}
 }
 
+#[cfg(test)]
 pub(crate) fn execute_plan(
     mode: ExecutionMode,
     steps: Vec<PlannedStep>,

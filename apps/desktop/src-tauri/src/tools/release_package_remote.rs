@@ -1227,6 +1227,7 @@ pub fn load_probe(token: &str) -> Result<ProbeSnapshot, String> {
         .map(|probe| probe.snapshot.clone())
         .ok_or_else(|| "SSH 探测令牌无效或已过期".to_string())
 }
+#[cfg(test)]
 pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
     let mut probes = PROBES
         .get_or_init(|| Mutex::new(HashMap::new()))
