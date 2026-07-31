@@ -180,7 +180,7 @@ function update<K extends keyof RequestForwardRuleForm>(
           @update:model-value="update('captureHttpHeaders', Boolean($event))"
         >
           <span class="capture-option-label">采集请求与响应头
-            <el-tooltip content="在日志详情中保留脱敏后的 HTTP 请求头和响应头。" placement="top">
+            <el-tooltip content="在日志详情中保留 HTTP 请求头和响应头原值。" placement="top">
               <el-icon class="field-tip" tabindex="0" aria-label="HTTP 头采集提示" @click.stop><QuestionFilled /></el-icon>
             </el-tooltip>
           </span>

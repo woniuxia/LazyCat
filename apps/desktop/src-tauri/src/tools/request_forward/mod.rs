@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
@@ -25,6 +26,8 @@ mod validation;
 
 const ACTIONS: &[&str] = &[
     "preflight",
+    "bundle_export",
+    "bundle_import",
     "list",
     "get",
     "create",
@@ -42,6 +45,19 @@ const ACTIONS: &[&str] = &[
     "stats_get",
     "stats_reset",
 ];
+
+const RULE_BUNDLE_FORMAT: &str = "lazycat.request-forward.rules";
+const RULE_BUNDLE_VERSION: u8 = 1;
+const RULE_BUNDLE_LIMIT: usize = 500;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RuleBundle {
+    format: String,
+    version: u8,
+    exported_at: String,
+    rules: Vec<RuleWriteInput>,
+}
 
 pub fn encode_preflight_task_error(message: &str) -> String {
     encode_request_forward_error_with_code(
@@ -172,12 +188,50 @@ mod action_contract_tests {
 
     use super::{
         parse_auto_start_enabled, parse_batch_rule_ids, parse_log_capture_enabled,
-        resolve_batch_rule_ids, supported_actions,
+        parse_rule_bundle, resolve_batch_rule_ids, supported_actions,
     };
 
     #[test]
     fn supports_explicit_auto_start_update_action() {
         assert!(supported_actions().contains(&"auto_start_update"));
+    }
+
+    #[test]
+    fn supports_versioned_rule_bundle_actions() {
+        assert!(supported_actions().contains(&"bundle_export"));
+        assert!(supported_actions().contains(&"bundle_import"));
+
+        let bundle = parse_rule_bundle(&json!({
+            "bundle": {
+                "format": "lazycat.request-forward.rules",
+                "version": 1,
+                "exportedAt": "2026-07-31T08:00:00Z",
+                "rules": [{
+                    "name": "HTTP API",
+                    "protocol": "http",
+                    "bindHost": "127.0.0.1",
+                    "listenPort": 8080,
+                    "targetUrl": "http://example.com/api",
+                    "targetHost": null,
+                    "targetPort": null,
+                    "captureHttpHeaders": true,
+                    "captureHttpBody": true
+                }]
+            }
+        }))
+        .unwrap();
+        assert_eq!(bundle.rules.len(), 1);
+        assert_eq!(bundle.rules[0].name, "HTTP API");
+
+        assert!(parse_rule_bundle(&json!({
+            "bundle": {
+                "format": "lazycat.request-forward.rules",
+                "version": 2,
+                "exportedAt": "2026-07-31T08:00:00Z",
+                "rules": []
+            }
+        }))
+        .is_err());
     }
 
     #[test]
@@ -247,6 +301,41 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
         "preflight" => {
             let input = parse_rule_input(payload)?;
             Ok(json!(preflight::preflight(input)?))
+        }
+        "bundle_export" => {
+            let conn = db_conn()?;
+            let ids = resolve_batch_rule_ids(payload, || {
+                Ok(repository::list_with_conn(&conn)?
+                    .into_iter()
+                    .map(|rule| rule.id)
+                    .collect())
+            })?;
+            if ids.is_empty() {
+                return Err("没有可导出的转发规则".into());
+            }
+            if ids.len() > RULE_BUNDLE_LIMIT {
+                return Err(format!(
+                    "单次最多导出 {RULE_BUNDLE_LIMIT} 条请求转发规则"
+                ));
+            }
+            let rules = ids
+                .into_iter()
+                .map(|id| repository::get_with_conn(&conn, id).map(|rule| rule.write_input()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "bundle": RuleBundle {
+                    format: RULE_BUNDLE_FORMAT.into(),
+                    version: RULE_BUNDLE_VERSION,
+                    exported_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    rules,
+                }
+            }))
+        }
+        "bundle_import" => {
+            let bundle = parse_rule_bundle(payload)?;
+            let mut conn = db_conn()?;
+            let items = repository::create_many_with_conn(&mut conn, bundle.rules)?;
+            Ok(json!({ "imported": items.len(), "items": items }))
         }
         "list" => {
             let conn = db_conn()?;
@@ -420,6 +509,28 @@ fn resolve_batch_rule_ids(
 
 fn parse_rule_input(payload: &Value) -> Result<RuleWriteInput, String> {
     serde_json::from_value(payload.clone()).map_err(|e| format!("转发规则参数无效: {e}"))
+}
+
+fn parse_rule_bundle(payload: &Value) -> Result<RuleBundle, String> {
+    let bundle = payload
+        .get("bundle")
+        .cloned()
+        .ok_or_else(|| "缺少请求转发规则包".to_string())?;
+    let bundle: RuleBundle = serde_json::from_value(bundle)
+        .map_err(|error| format!("请求转发规则包格式无效: {error}"))?;
+    if bundle.format != RULE_BUNDLE_FORMAT {
+        return Err("所选文件不是 LazyCat 请求转发规则包".into());
+    }
+    if bundle.version != RULE_BUNDLE_VERSION {
+        return Err(format!("不支持的请求转发规则包版本: {}", bundle.version));
+    }
+    if bundle.rules.is_empty() {
+        return Err("请求转发规则包中没有规则".into());
+    }
+    if bundle.rules.len() > RULE_BUNDLE_LIMIT {
+        return Err(format!("单次最多导入 {RULE_BUNDLE_LIMIT} 条请求转发规则"));
+    }
+    Ok(bundle)
 }
 
 fn parse_update_rule_input(payload: &Value) -> Result<RuleWriteInput, String> {

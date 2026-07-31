@@ -167,6 +167,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:network:chmod-calc": { domain: "network", action: "chmod_calc" },
   "tool:request-forward:list": { domain: "request_forward", action: "list" },
   "tool:request-forward:preflight": { domain: "request_forward", action: "preflight" },
+  "tool:request-forward:bundle-export": { domain: "request_forward", action: "bundle_export" },
+  "tool:request-forward:bundle-import": { domain: "request_forward", action: "bundle_import" },
   "tool:request-forward:get": { domain: "request_forward", action: "get" },
   "tool:request-forward:create": { domain: "request_forward", action: "create" },
   "tool:request-forward:update": { domain: "request_forward", action: "update" },

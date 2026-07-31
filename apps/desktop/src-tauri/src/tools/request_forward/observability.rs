@@ -8,12 +8,12 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        redact_headers, should_capture_body, HttpObservability, ObservationCursor, PreviewTap,
+        capture_headers, should_capture_body, HttpObservability, ObservationCursor, PreviewTap,
         TcpObservability, UdpObservability, HTTP_BODY_PREVIEW_LIMIT,
     };
 
     #[test]
-    fn redacts_all_sensitive_headers_case_insensitively() {
+    fn captures_sensitive_headers_without_redaction() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
         headers.insert(
@@ -24,19 +24,15 @@ mod tests {
         headers.insert("set-cookie", HeaderValue::from_static("session=secret"));
         headers.insert("x-request-id", HeaderValue::from_static("safe"));
 
-        let redacted = redact_headers(&headers)
+        let captured = capture_headers(&headers)
             .into_iter()
             .collect::<BTreeMap<_, _>>();
 
-        for name in [
-            "authorization",
-            "proxy-authorization",
-            "cookie",
-            "set-cookie",
-        ] {
-            assert_eq!(redacted[name], "[REDACTED]");
-        }
-        assert_eq!(redacted["x-request-id"], "safe");
+        assert_eq!(captured["authorization"], "Bearer secret");
+        assert_eq!(captured["proxy-authorization"], "Basic secret");
+        assert_eq!(captured["cookie"], "session=secret");
+        assert_eq!(captured["set-cookie"], "session=secret");
+        assert_eq!(captured["x-request-id"], "safe");
     }
 
     #[test]
@@ -247,14 +243,6 @@ use hyper::http::HeaderMap;
 use super::repository::StatsDelta;
 
 pub(crate) const HTTP_BODY_PREVIEW_LIMIT: usize = 64 * 1024;
-
-const REDACTED_VALUE: &str = "[REDACTED]";
-const SENSITIVE_HEADERS: [&str; 4] = [
-    "authorization",
-    "proxy-authorization",
-    "cookie",
-    "set-cookie",
-];
 
 const TCP_EVENT_BUFFER_LIMIT: usize = 256;
 
@@ -1095,14 +1083,14 @@ impl HttpObservability {
         method: String,
         path: String,
         request_headers: &HeaderMap,
-        capture_headers: bool,
+        capture_http_headers: bool,
         capture_body: bool,
     ) -> Arc<HttpRequestTrace> {
         let log_capture_epoch = self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
             enabled_capture_epoch(state.log_capture_epoch)
         });
-        let capture_headers = capture_headers && log_capture_epoch.is_some();
+        let should_capture_headers = capture_http_headers && log_capture_epoch.is_some();
         let capture_body = capture_body && log_capture_epoch.is_some();
         let request_body_preview = (capture_body && should_capture_body(request_headers))
             .then(|| Arc::new(Mutex::new(PreviewTap::new())));
@@ -1119,7 +1107,7 @@ impl HttpObservability {
             upload_bytes: AtomicU64::new(0),
             download_bytes: AtomicU64::new(0),
             started_at: Instant::now(),
-            request_headers: capture_headers.then(|| redact_headers(request_headers)),
+            request_headers: should_capture_headers.then(|| capture_headers(request_headers)),
             response_headers: Mutex::new(None),
             request_body_preview,
             response_body_preview: Mutex::new(None),
@@ -1127,7 +1115,7 @@ impl HttpObservability {
         Arc::new(HttpRequestTrace {
             observability: Arc::clone(self),
             record,
-            capture_response_headers: capture_headers,
+            capture_response_headers: should_capture_headers,
             capture_response_body: capture_body,
             log_capture_epoch,
         })
@@ -1255,7 +1243,7 @@ impl HttpRequestTrace {
                 .record
                 .response_headers
                 .lock()
-                .expect("HTTP response headers lock poisoned") = Some(redact_headers(headers));
+                .expect("HTTP response headers lock poisoned") = Some(capture_headers(headers));
         }
         if self.capture_response_body && should_capture_body(headers) {
             *self
@@ -1496,19 +1484,14 @@ impl PreviewTap {
     }
 }
 
-pub(crate) fn redact_headers(headers: &HeaderMap) -> Vec<(String, String)> {
+pub(crate) fn capture_headers(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
         .map(|(name, value)| {
-            let value = if SENSITIVE_HEADERS
-                .iter()
-                .any(|sensitive| name.as_str().eq_ignore_ascii_case(sensitive))
-            {
-                REDACTED_VALUE.to_string()
-            } else {
-                String::from_utf8_lossy(value.as_bytes()).into_owned()
-            };
-            (name.as_str().to_string(), value)
+            (
+                name.as_str().to_string(),
+                String::from_utf8_lossy(value.as_bytes()).into_owned(),
+            )
         })
         .collect()
 }

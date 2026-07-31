@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRequestForwardPreflight } from "../composables/useRequestForwardPreflight";
 import { getSetting, setSetting } from "../composables/useSettings";
@@ -13,6 +13,7 @@ import type {
   RequestForwardLogRow,
   RequestForwardPreflightResult,
   RequestForwardRule,
+  RequestForwardRuleBundle,
   RequestForwardRuleForm,
   RequestForwardRuntimeState,
   RequestForwardRuntimeStatus,
@@ -21,6 +22,7 @@ import type {
 import {
   applyRequestForwardMutationResult,
   buildRequestForwardLogExportFileName,
+  buildRequestForwardRuleBundleFileName,
   buildRequestForwardLogQuery,
   clampRequestForwardInspectorWidth,
   clampRequestForwardRuleListWidth,
@@ -45,7 +47,9 @@ import {
   MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
   MIN_REQUEST_FORWARD_RULE_LIST_WIDTH,
   parseRequestForwardError,
+  parseRequestForwardRuleBundleText,
   retainRequestForwardSelectedLogId,
+  serializeRequestForwardRuleBundle,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "../utils/requestForward";
@@ -63,6 +67,8 @@ type RuleEnvelope = { item: RequestForwardRule };
 type StatusEnvelope = { item: RequestForwardRuntimeStatus };
 type BatchEnvelope = { results: RequestForwardBatchOperationResult[] };
 type StatsEnvelope = { item: RequestForwardStats };
+type RuleBundleEnvelope = { bundle: RequestForwardRuleBundle };
+type RuleBundleImportEnvelope = { imported: number; items: RequestForwardRule[] };
 type LogQueryContext = {
   ruleId: number;
   intentToken: number;
@@ -147,6 +153,7 @@ const logRangeDefaultTime: [Date, Date] = [
 ];
 const logCaptureUpdating = ref(false);
 const exportLoading = ref(false);
+const bundleBusy = ref(false);
 const logsLoading = ref(false);
 const loadingMore = ref(false);
 const logError = ref("");
@@ -222,7 +229,8 @@ const interactionBusy = computed(
     preflighting.value ||
     recoveryPreflighting.value ||
     observabilityMutating.value ||
-    logCaptureUpdating.value,
+    logCaptureUpdating.value ||
+    bundleBusy.value,
 );
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
@@ -678,6 +686,69 @@ async function exportLogs(format: string) {
     ElMessage.error("导出日志失败：" + errorMessage(error));
   } finally {
     exportLoading.value = false;
+  }
+}
+
+async function exportRuleBundle(ids: number[], scopeLabel: string) {
+  if (!ids.length || bundleBusy.value) return;
+  bundleBusy.value = true;
+  try {
+    const path = await save({
+      defaultPath: buildRequestForwardRuleBundleFileName(),
+      filters: [{ name: "LazyCat 请求转发规则包", extensions: ["json"] }],
+    });
+    if (!path) return;
+    const result = await invoke<RuleBundleEnvelope>(
+      "tool:request-forward:bundle-export",
+      { ids },
+    );
+    await invoke("tool:file:write-text", {
+      path,
+      content: serializeRequestForwardRuleBundle(result.bundle),
+    });
+    ElMessage.success(`已导出规则包（${scopeLabel}）`);
+  } catch (error) {
+    ElMessage.error(`导出规则包失败：${errorMessage(error)}`);
+  } finally {
+    bundleBusy.value = false;
+  }
+}
+
+async function importRuleBundle() {
+  if (bundleBusy.value) return;
+  bundleBusy.value = true;
+  try {
+    const path = await open({
+      multiple: false,
+      filters: [{ name: "LazyCat 请求转发规则包", extensions: ["json"] }],
+    });
+    if (typeof path !== "string") return;
+    const file = await invoke<{ content: string }>("tool:file:read-text", { path });
+    const bundle = parseRequestForwardRuleBundleText(file.content);
+    try {
+      await ElMessageBox.confirm(
+        `将导入 ${bundle.rules.length} 条规则。导入后规则均为已停止状态，不会自动启动。`,
+        "导入请求转发规则包",
+        { type: "warning", confirmButtonText: "导入", cancelButtonText: "取消" },
+      );
+    } catch {
+      return;
+    }
+    const result = await invoke<RuleBundleImportEnvelope>(
+      "tool:request-forward:bundle-import",
+      { bundle },
+    );
+    await refreshRules({ showLoading: false });
+    const firstImported = result.items[0];
+    if (firstImported) {
+      selectionIntentToken += 1;
+      selectedId.value = firstImported.id;
+    }
+    ElMessage.success(`已导入 ${result.imported} 条规则`);
+  } catch (error) {
+    ElMessage.error(`导入规则包失败：${errorMessage(error)}`);
+  } finally {
+    bundleBusy.value = false;
   }
 }
 
@@ -1482,6 +1553,8 @@ onUnmounted(() => {
       @delete="deleteRule"
       @batch-start="runBatchStart"
       @batch-stop="runBatchStop"
+      @bundle-export="exportRuleBundle"
+      @bundle-import="importRuleBundle"
     />
 
     <div
@@ -1834,6 +1907,7 @@ onUnmounted(() => {
     >
       <RequestForwardLogInspector
         :log="selectedLog"
+        :rule="selectedRule"
         @close="selectedLogId = null"
       />
     </aside>

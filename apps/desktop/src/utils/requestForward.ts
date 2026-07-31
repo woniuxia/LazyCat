@@ -7,6 +7,7 @@ import type {
   RequestForwardLogRow,
   RequestForwardProtocol,
   RequestForwardRule,
+  RequestForwardRuleBundle,
   RequestForwardRuleForm,
   RequestForwardRuleWriteInput,
   RequestForwardRuntimeState,
@@ -372,6 +373,18 @@ export interface RequestForwardCommandExamples {
   curl: string;
 }
 
+export interface RequestForwardLogCommandExamples extends RequestForwardCommandExamples {
+  warnings: string[];
+}
+
+function quotePowerShell(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function quoteShell(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 export function getRequestForwardLocalEndpoint(
   form: RequestForwardRuleForm,
 ): string {
@@ -403,6 +416,104 @@ export function getRequestForwardCommandExamples(
     powershell: `Invoke-WebRequest -UseBasicParsing -Uri '${powershellUrl}'`,
     curl: `curl --url '${shellUrl}'`,
   };
+}
+
+export function buildRequestForwardLogCommandExamples(
+  form: RequestForwardRuleForm,
+  log: RequestForwardLogRow,
+): RequestForwardLogCommandExamples | null {
+  const localUrl = getRequestForwardLocalUrl(form);
+  if (!localUrl || log.protocol !== "http") return null;
+
+  const method = log.method?.trim().toUpperCase() || "GET";
+  const path = log.path?.trim() || "/";
+  const requestUrl = `${localUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  const headers = log.requestHeaders ?? [];
+  const warnings: string[] = [];
+  if (log.requestHeaders == null) warnings.push("本条日志未采集请求头");
+  if (log.requestBodyTruncated) {
+    warnings.push("请求体预览已截断，命令仅包含已采集部分");
+  } else if (log.uploadBytes > 0 && log.requestBodyPreview == null) {
+    warnings.push("本条日志未采集请求体，命令不包含原始请求体");
+  }
+
+  const curl = [
+    "curl",
+    "--request",
+    quoteShell(method),
+    "--url",
+    quoteShell(requestUrl),
+    ...headers.flatMap(([name, value]) => ["--header", quoteShell(`${name}: ${value}`)]),
+    ...(log.requestBodyPreview == null
+      ? []
+      : ["--data-raw", quoteShell(log.requestBodyPreview)]),
+  ].join(" ");
+
+  const powershell = [
+    "Invoke-WebRequest -UseBasicParsing",
+    `-Method ${quotePowerShell(method)}`,
+    `-Uri ${quotePowerShell(requestUrl)}`,
+    ...(headers.length
+      ? [`-Headers @{ ${headers
+          .map(([name, value]) => `${quotePowerShell(name)} = ${quotePowerShell(value)}`)
+          .join("; ")} }`]
+      : []),
+    ...(log.requestBodyPreview == null
+      ? []
+      : [`-Body ${quotePowerShell(log.requestBodyPreview)}`]),
+  ].join(" ");
+
+  return { curl, powershell, warnings };
+}
+
+export function serializeRequestForwardRuleBundle(
+  bundle: RequestForwardRuleBundle,
+): string {
+  return JSON.stringify(bundle, null, 2);
+}
+
+export function parseRequestForwardRuleBundleText(
+  content: string,
+): RequestForwardRuleBundle {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`请求转发规则包不是有效 JSON：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("请求转发规则包格式无效");
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.format !== "lazycat.request-forward.rules") {
+    throw new Error("所选文件不是 LazyCat 请求转发规则包");
+  }
+  if (candidate.version !== 1) {
+    throw new Error(`不支持的请求转发规则包版本：${String(candidate.version)}`);
+  }
+  if (typeof candidate.exportedAt !== "string" || !Array.isArray(candidate.rules)) {
+    throw new Error("请求转发规则包格式无效");
+  }
+  if (candidate.rules.length === 0) {
+    throw new Error("请求转发规则包中没有规则");
+  }
+  if (candidate.rules.length > 500) {
+    throw new Error("单次最多导入 500 条请求转发规则");
+  }
+  return candidate as unknown as RequestForwardRuleBundle;
+}
+
+export function buildRequestForwardRuleBundleFileName(now = new Date()): string {
+  const timestamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    "-",
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `request-forward-rules-${timestamp}.json`;
 }
 
 export function formatRequestForwardRuleSummary(form: RequestForwardRuleForm): string {

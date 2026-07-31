@@ -6,6 +6,7 @@ import type {
   RequestForwardLogPage,
   RequestForwardLogQuery,
   RequestForwardLogRow,
+  RequestForwardRuleBundle,
   RequestForwardRestoreResult,
   RequestForwardRule,
   RequestForwardRuleForm,
@@ -14,6 +15,8 @@ import type {
 import {
   applyRequestForwardMutationResult,
   buildRequestForwardLogExportFileName,
+  buildRequestForwardLogCommandExamples,
+  buildRequestForwardRuleBundleFileName,
   buildRequestForwardLogQuery,
   clampRequestForwardInspectorWidth,
   clampRequestForwardRuleListWidth,
@@ -44,9 +47,11 @@ import {
   isRequestForwardRuleReadonly,
   normalizeRequestForwardRuleForm,
   parseRequestForwardError,
+  parseRequestForwardRuleBundleText,
   parseRequestForwardLogTimestamp,
   retainRequestForwardSelectedLogId,
   sanitizeRequestForwardLogFileName,
+  serializeRequestForwardRuleBundle,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "./requestForward";
@@ -599,6 +604,83 @@ describe("request forward utilities", () => {
         targetPort: 53,
       }),
     ).toBeNull();
+  });
+
+  it("builds reproducible commands from an HTTP log without removing sensitive headers", () => {
+    const log: RequestForwardLogRow = {
+      id: 20,
+      ruleId: 7,
+      protocol: "http",
+      clientAddr: "127.0.0.1:50000",
+      targetAddr: "example.com:80",
+      method: "POST",
+      path: "/items?q=one",
+      statusCode: 201,
+      durationMs: 12,
+      uploadBytes: 18,
+      downloadBytes: 2,
+      requestHeaders: [
+        ["Authorization", "Bearer top-secret"],
+        ["Cookie", "session=private"],
+        ["Content-Type", "application/json"],
+      ],
+      responseHeaders: null,
+      requestBodyPreview: "{\"name\":\"O'Reilly\"}",
+      responseBodyPreview: null,
+      requestBodyTruncated: false,
+      responseBodyTruncated: false,
+      error: null,
+      createdAt: "2026-07-31 08:00:00",
+    };
+
+    expect(buildRequestForwardLogCommandExamples(baseForm, log)).toEqual({
+      curl:
+        `curl --request 'POST' --url 'http://127.0.0.1:8080/items?q=one' --header 'Authorization: Bearer top-secret' --header 'Cookie: session=private' --header 'Content-Type: application/json' --data-raw '{"name":"O'"'"'Reilly"}'`,
+      powershell:
+        `Invoke-WebRequest -UseBasicParsing -Method 'POST' -Uri 'http://127.0.0.1:8080/items?q=one' -Headers @{ 'Authorization' = 'Bearer top-secret'; 'Cookie' = 'session=private'; 'Content-Type' = 'application/json' } -Body '{"name":"O''Reilly"}'`,
+      warnings: [],
+    });
+  });
+
+  it("marks generated requests when captured data is incomplete", () => {
+    const result = buildRequestForwardLogCommandExamples(baseForm, {
+      ...baseLog,
+      method: "PUT",
+      path: "/upload",
+      uploadBytes: 70_000,
+      requestHeaders: null,
+      requestBodyPreview: "partial",
+      requestBodyTruncated: true,
+    });
+
+    expect(result?.warnings).toEqual([
+      "本条日志未采集请求头",
+      "请求体预览已截断，命令仅包含已采集部分",
+    ]);
+  });
+
+  it("serializes and parses the versioned request-forward rule bundle", () => {
+    const bundle: RequestForwardRuleBundle = {
+      format: "lazycat.request-forward.rules",
+      version: 1,
+      exportedAt: "2026-07-31T08:00:00Z",
+      rules: [toRequestForwardRuleWriteInput(baseForm)],
+    };
+    const text = serializeRequestForwardRuleBundle(bundle);
+
+    expect(parseRequestForwardRuleBundleText(text)).toEqual(bundle);
+    expect(text).not.toContain("autoStart");
+    expect(() => parseRequestForwardRuleBundleText('{"format":"other","version":1,"rules":[]}'))
+      .toThrow("不是 LazyCat 请求转发规则包");
+    expect(() => parseRequestForwardRuleBundleText('{"format":"lazycat.request-forward.rules","version":2,"rules":[]}'))
+      .toThrow("不支持的请求转发规则包版本");
+    expect(() => parseRequestForwardRuleBundleText(JSON.stringify({
+      ...bundle,
+      rules: Array.from({ length: 501 }, () => bundle.rules[0]),
+    }))).toThrow("单次最多导入 500 条");
+    expect(buildRequestForwardRuleBundleFileName(new Date(2026, 6, 31, 8, 9, 5))).toBe(
+      "request-forward-rules-20260731-080905.json",
+    );
   });
 
   it("formats protocol-specific event labels", () => {

@@ -212,7 +212,7 @@ impl ForwardProtocol {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuleWriteInput {
     pub name: String,
@@ -242,6 +242,22 @@ pub(crate) struct ForwardRule {
     pub auto_start: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl ForwardRule {
+    pub(crate) fn write_input(&self) -> RuleWriteInput {
+        RuleWriteInput {
+            name: self.name.clone(),
+            protocol: self.protocol,
+            bind_host: self.bind_host.clone(),
+            listen_port: self.listen_port,
+            target_url: self.target_url.clone(),
+            target_host: self.target_host.clone(),
+            target_port: self.target_port,
+            capture_http_headers: self.capture_http_headers,
+            capture_http_body: self.capture_http_body,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

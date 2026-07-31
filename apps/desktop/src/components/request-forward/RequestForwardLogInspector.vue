@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { Close, CopyDocument } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-import type { RequestForwardLogRow } from "../../types/request-forward";
+import type { RequestForwardLogRow, RequestForwardRule } from "../../types/request-forward";
 import {
+  buildRequestForwardLogCommandExamples,
   formatRequestForwardLogBody,
   getRequestForwardLogCopyText,
   parseRequestForwardLogTimestamp,
 } from "../../utils/requestForward";
 import type { RequestForwardLogCopySection } from "../../utils/requestForward";
 
-defineProps<{ log: RequestForwardLogRow | null }>();
+const props = defineProps<{
+  log: RequestForwardLogRow | null;
+  rule: RequestForwardRule | null;
+}>();
 defineEmits<{ close: [] }>();
 
 function formatBytes(value: number): string {
@@ -43,6 +47,26 @@ async function copyLogSection(
     ElMessage.error(`复制${label}失败：${errorMessage(error)}`);
   }
 }
+
+async function copyRequestCommand(command: "curl" | "powershell") {
+  if (!props.log || !props.rule) return;
+  const commands = buildRequestForwardLogCommandExamples(props.rule, props.log);
+  if (!commands) {
+    ElMessage.error("当前日志不能生成 HTTP 请求命令");
+    return;
+  }
+  const label = command === "curl" ? "cURL 请求" : "PowerShell 请求";
+  try {
+    await navigator.clipboard.writeText(commands[command]);
+    if (commands.warnings.length) {
+      ElMessage.warning(`已复制${label}；${commands.warnings.join("；")}`);
+    } else {
+      ElMessage.success(`已复制${label}`);
+    }
+  } catch (error) {
+    ElMessage.error(`复制${label}失败：${errorMessage(error)}`);
+  }
+}
 </script>
 
 <template>
@@ -57,6 +81,19 @@ async function copyLogSection(
         <div class="log-inspector__header-top">
           <p>{{ log.protocol.toUpperCase() }} · LOG #{{ log.id }}</p>
           <div class="log-inspector__header-actions">
+            <el-dropdown
+              v-if="log.protocol === 'http' && rule"
+              trigger="click"
+              @command="copyRequestCommand"
+            >
+              <el-button size="small" :icon="CopyDocument">复制请求</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="curl">复制为 cURL</el-dropdown-item>
+                  <el-dropdown-item command="powershell">复制为 PowerShell</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button
               size="small"
               :icon="CopyDocument"
@@ -102,7 +139,7 @@ async function copyLogSection(
         <template v-if="log.protocol === 'http'">
           <section v-if="log.requestHeaders?.length" class="detail-section">
             <div class="detail-section__heading">
-              <h3>请求头（已脱敏）</h3>
+              <h3>请求头</h3>
               <el-tooltip content="复制请求头" placement="left">
                 <el-button
                   text
@@ -121,7 +158,7 @@ async function copyLogSection(
           </section>
           <section v-if="log.responseHeaders?.length" class="detail-section">
             <div class="detail-section__heading">
-              <h3>响应头（已脱敏）</h3>
+              <h3>响应头</h3>
               <el-tooltip content="复制响应头" placement="left">
                 <el-button
                   text

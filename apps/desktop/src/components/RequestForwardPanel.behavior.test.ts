@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { createRenderer, defineComponent, h, nextTick, ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ElMessageBox } from "element-plus";
 import type {
   RequestForwardRule,
   RequestForwardRuntimeStatus,
@@ -9,8 +10,12 @@ import type {
 const panelHarness = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
+const dialogHarness = vi.hoisted(() => ({
+  open: vi.fn(),
+  save: vi.fn(),
+}));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => dialogHarness);
 vi.mock("../composables/useSettings", () => ({
   getSetting: vi.fn(() => null),
   setSetting: vi.fn(),
@@ -130,6 +135,18 @@ function findButton(root: HostNode, text: string): HostNode | null {
   return result;
 }
 
+function findButtonByAriaLabel(root: HostNode, label: string): HostNode | null {
+  let result: HostNode | null = null;
+  const visit = (node: HostNode) => {
+    if (!result && node.type === "button" && node.props["aria-label"] === label) {
+      result = node;
+    }
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
 async function flushPanel(): Promise<void> {
   for (let index = 0; index < 8; index += 1) {
     await Promise.resolve();
@@ -156,6 +173,7 @@ const rule: RequestForwardRule = {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("RequestForwardPanel log capture behavior", () => {
@@ -231,6 +249,88 @@ describe("RequestForwardPanel log capture behavior", () => {
       ([channel]) => channel === "tool:request-forward:log-list",
     )).toHaveLength(initialLogCalls + 1);
     expect(findButton(root, "实时采集")?.props["aria-pressed"]).toBe(true);
+    app.unmount();
+  }, 10_000);
+
+  it("imports a validated bundle atomically and selects the first imported rule", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    const importedRule = { ...rule, id: 8, name: "导入规则" };
+    let imported = false;
+    dialogHarness.open.mockReset();
+    dialogHarness.open.mockResolvedValue("E:\\tmp\\request-forward-rules.json");
+    vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string, payload: unknown) => {
+      if (channel === "tool:request-forward:list") {
+        return { items: imported ? [rule, importedRule] : [rule] };
+      }
+      if (channel === "tool:request-forward:status") {
+        const statusFor = (id: number): RequestForwardRuntimeStatus => ({
+          ruleId: id,
+          state: "stopped",
+          lastError: null,
+          lastObservabilityError: null,
+          logCaptureEnabled: false,
+        });
+        return { items: (imported ? [rule, importedRule] : [rule]).map((item) => statusFor(item.id)) };
+      }
+      if (channel === "tool:request-forward:stats-get") {
+        const id = (payload as { id: number }).id;
+        return { item: { ruleId: id, eventCount: 0, uploadBytes: 0, downloadBytes: 0, errorCount: 0, updatedAt: "" } };
+      }
+      if (channel === "tool:request-forward:log-list") return { items: [], total: 0 };
+      if (channel === "tool:file:read-text") {
+        return {
+          content: JSON.stringify({
+            format: "lazycat.request-forward.rules",
+            version: 1,
+            exportedAt: "2026-07-31T08:00:00Z",
+            rules: [{
+              name: "导入规则",
+              protocol: "http",
+              bindHost: "127.0.0.1",
+              listenPort: 8081,
+              targetUrl: "http://127.0.0.1:3001",
+              targetHost: null,
+              targetPort: null,
+              captureHttpHeaders: true,
+              captureHttpBody: true,
+            }],
+          }),
+        };
+      }
+      if (channel === "tool:request-forward:bundle-import") {
+        imported = true;
+        return { imported: 1, items: [importedRule] };
+      }
+      throw new Error(`unexpected invoke: ${channel}`);
+    });
+
+    const { default: RequestForwardPanel } = await import("./RequestForwardPanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(RequestForwardPanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushPanel();
+
+    const importButton = findButtonByAriaLabel(root, "导入规则包");
+    await (importButton?.props.onClick as (() => Promise<void>))();
+    await flushPanel();
+
+    expect(dialogHarness.open).toHaveBeenCalled();
+    expect(panelHarness.invoke).toHaveBeenCalledWith(
+      "tool:file:read-text",
+      { path: "E:\\tmp\\request-forward-rules.json" },
+    );
+    expect(panelHarness.invoke).toHaveBeenCalledWith(
+      "tool:request-forward:bundle-import",
+      expect.objectContaining({ bundle: expect.objectContaining({ version: 1 }) }),
+    );
+    expect(nodeText(root)).toContain("导入规则");
     app.unmount();
   }, 10_000);
 });

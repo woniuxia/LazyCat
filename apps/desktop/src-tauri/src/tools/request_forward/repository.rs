@@ -152,6 +152,39 @@ pub(crate) fn create_with_conn(
     get_with_conn(conn, id)
 }
 
+pub(crate) fn create_many_with_conn(
+    conn: &mut Connection,
+    inputs: Vec<RuleWriteInput>,
+) -> Result<Vec<ForwardRule>, String> {
+    let inputs = inputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, input)| {
+            validate_rule_input(input)
+                .map_err(|error| format!("规则包第 {} 条规则无效: {error}", index + 1))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|error| format!("导入转发规则失败: {error}"))?;
+    let mut ids = Vec::with_capacity(inputs.len());
+    for input in &inputs {
+        insert_rule(&tx, input)?;
+        let id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO request_forward_stats(rule_id, updated_at) VALUES (?1, CURRENT_TIMESTAMP)",
+            [id],
+        )
+        .map_err(|error| format!("创建转发规则统计失败: {error}"))?;
+        ids.push(id);
+    }
+    tx.commit()
+        .map_err(|error| format!("导入转发规则失败: {error}"))?;
+
+    ids.into_iter().map(|id| get_with_conn(conn, id)).collect()
+}
+
 pub(crate) fn update_with_conn(
     conn: &Connection,
     id: i64,
@@ -590,7 +623,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::{
-        clear_logs_with_conn, get_stats_with_conn, list_logs_with_conn,
+        clear_logs_with_conn, create_many_with_conn, get_stats_with_conn, list_logs_with_conn,
         persist_observability_with_conn, reset_stats_with_conn, ForwardLogWrite, LogOutcome,
         LogQuery, StatsDelta,
     };
@@ -624,6 +657,46 @@ mod tests {
         .id
     }
 
+    #[test]
+    fn bulk_create_validates_every_rule_before_committing() {
+        let mut conn = test_conn();
+        let valid = RuleWriteInput {
+            name: "HTTP API".into(),
+            protocol: ForwardProtocol::Http,
+            bind_host: "127.0.0.1".into(),
+            listen_port: 8080,
+            target_url: Some("http://example.com/api".into()),
+            target_host: None,
+            target_port: None,
+            capture_http_headers: true,
+            capture_http_body: true,
+        };
+        let mut invalid = valid.clone();
+        invalid.name = " ".into();
+
+        let error = create_many_with_conn(&mut conn, vec![valid.clone(), invalid])
+            .expect_err("invalid bundle must not be partially imported");
+        assert!(error.contains("第 2 条"));
+        assert!(super::list_with_conn(&conn).unwrap().is_empty());
+
+        let mut tcp = valid;
+        tcp.name = "TCP 数据库".into();
+        tcp.protocol = ForwardProtocol::Tcp;
+        tcp.listen_port = 5432;
+        tcp.target_url = None;
+        tcp.target_host = Some("db.internal".into());
+        tcp.target_port = Some(5432);
+        let imported = create_many_with_conn(&mut conn, vec![tcp]).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert!(!imported[0].auto_start);
+        assert_eq!(
+            get_stats_with_conn(&conn, imported[0].id)
+                .unwrap()
+                .event_count,
+            0
+        );
+    }
+
     fn http_log(index: usize, error: Option<&str>) -> ForwardLogWrite {
         ForwardLogWrite {
             protocol: ForwardProtocol::Http,
@@ -636,10 +709,10 @@ mod tests {
             upload_bytes: index as u64,
             download_bytes: (index * 2) as u64,
             request_headers: Some(vec![
-                ("authorization".into(), "[REDACTED]".into()),
+                ("authorization".into(), "Bearer secret".into()),
                 ("x-request-id".into(), format!("request-{index}")),
             ]),
-            response_headers: Some(vec![("set-cookie".into(), "[REDACTED]".into())]),
+            response_headers: Some(vec![("set-cookie".into(), "session=secret".into())]),
             request_body_preview: Some(format!("request {index}")),
             response_body_preview: Some(format!("response {index}")),
             request_body_truncated: index == 64,
@@ -919,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn http_redaction_and_preview_truncation_persist() {
+    fn http_sensitive_headers_and_preview_truncation_persist() {
         let mut conn = test_conn();
         let rule_id = create_rule(&mut conn, "http capture");
         persist_observability_with_conn(
@@ -940,9 +1013,8 @@ mod tests {
             )
             .expect("read persisted capture");
 
-        assert!(stored.0.contains("[REDACTED]"));
-        assert!(!stored.0.contains("Bearer"));
-        assert!(stored.1.contains("[REDACTED]"));
+        assert!(stored.0.contains("Bearer secret"));
+        assert!(stored.1.contains("session=secret"));
         assert_eq!(stored.2, 1);
         assert_eq!(stored.3, 0);
     }

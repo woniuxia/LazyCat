@@ -158,6 +158,7 @@ export type {
   RequestForwardRuleWriteInput,
   RequestForwardRuleForm,
   RequestForwardRule,
+  RequestForwardRuleBundle,
   RequestForwardRuntimeStatus,
   RequestForwardBatchOperationResult,
   RequestForwardRestoreResult,

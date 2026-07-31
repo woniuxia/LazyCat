@@ -1885,9 +1885,8 @@ mod tests {
                 },
             )
             .expect("read HTTP log");
-        assert!(stored.0.contains("[REDACTED]"));
-        assert!(!stored.0.contains("Bearer secret"));
-        assert!(stored.1.contains("[REDACTED]"));
+        assert!(stored.0.contains("Bearer secret"));
+        assert!(stored.1.contains("session=secret"));
         assert_eq!((stored.2, stored.3), (1, 1));
         assert_eq!(
             (stored.4.as_str(), stored.5.as_str(), stored.6),

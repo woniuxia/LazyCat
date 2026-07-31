@@ -3,10 +3,12 @@ import { computed, ref, watch } from "vue";
 import {
   CopyDocument,
   Delete,
+  Download,
   Edit,
   MoreFilled,
   Plus,
   Search,
+  Upload,
   VideoPause,
   VideoPlay,
 } from "@element-plus/icons-vue";
@@ -42,6 +44,8 @@ const emit = defineEmits<{
   delete: [id: number];
   "batch-start": [ids: number[], scopeLabel: string];
   "batch-stop": [ids: number[], scopeLabel: string];
+  "bundle-export": [ids: number[], scopeLabel: string];
+  "bundle-import": [];
 }>();
 
 type RuleMenuHandle = { handleOpen: () => void };
@@ -170,16 +174,36 @@ function targetEndpoint(rule: RequestForwardRule): string {
         <h2>转发规则</h2>
         <span>{{ rules.length }} 条 · {{ runningCount }} 条运行中</span>
       </div>
-      <el-tooltip content="新建规则" placement="bottom">
-        <el-button
-          type="primary"
-          circle
-          :icon="Plus"
-          :disabled="busy"
-          aria-label="新建规则"
-          @click="emit('add')"
-        />
-      </el-tooltip>
+      <div class="rule-list__header-actions">
+        <el-tooltip content="导入规则包" placement="bottom">
+          <el-button
+            circle
+            :icon="Upload"
+            :disabled="busy"
+            aria-label="导入规则包"
+            @click="emit('bundle-import')"
+          />
+        </el-tooltip>
+        <el-tooltip :content="`导出${batchScope.label}`" placement="bottom">
+          <el-button
+            circle
+            :icon="Download"
+            :disabled="busy || !batchScope.ids.length"
+            :aria-label="`导出${batchScope.label}`"
+            @click="emit('bundle-export', batchScope.ids, batchScope.label)"
+          />
+        </el-tooltip>
+        <el-tooltip content="新建规则" placement="bottom">
+          <el-button
+            type="primary"
+            circle
+            :icon="Plus"
+            :disabled="busy"
+            aria-label="新建规则"
+            @click="emit('add')"
+          />
+        </el-tooltip>
+      </div>
     </div>
 
     <div class="rule-list__filters">
@@ -397,6 +421,9 @@ function targetEndpoint(rule: RequestForwardRule): string {
   color: var(--text-secondary, #64748b);
   font-size: 12px;
 }
+
+.rule-list__header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.rule-list__header-actions :deep(.el-button) { margin-left: 0; }
 
 .rule-list__filters { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 6px; }
 .rule-list__batch { display: grid; gap: 5px; }

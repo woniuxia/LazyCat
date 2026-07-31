@@ -499,7 +499,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("selectedStatus.value?.state");
   });
 
-  it("renders HTTP-only expandable masked details and summary rows", () => {
+  it("renders HTTP-only expandable original header details and summary rows", () => {
     expect(logListSource).toContain("clientAddr");
     expect(logListSource).toContain("targetAddr");
     expect(logListSource).toContain("statusCode");
@@ -513,6 +513,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("requestBodyPreview");
     expect(inspectorSource).toContain("responseBodyPreview");
     expect(inspectorSource).toContain("内容已截断");
+    expect(inspectorSource).not.toContain("已脱敏");
   });
 
   it("uses a direct date-time range picker with a local default window", () => {
@@ -718,13 +719,28 @@ describe("RequestForwardPanel source structure", () => {
   });
 
   it("exports the current filtered query with an explicit 1000-row cap", () => {
-    expect(source).toContain('import { save } from "@tauri-apps/plugin-dialog"');
+    expect(source).toContain('import { open, save } from "@tauri-apps/plugin-dialog"');
     expect(source).toContain("buildRequestForwardLogExportFileName");
     expect(source).toContain("queryLogs(context, 0, 1000)");
     expect(source).toContain("exportRequestForwardLogsJson");
     expect(source).toContain("exportRequestForwardLogsCsv");
     expect(source).toContain('"tool:file:write-text"');
     expect(source).toContain("已截断，最多导出 1000 条");
+  });
+
+  it("imports and exports versioned rule bundles through the rule-list scope", () => {
+    expect(bridgeSource).toContain('"tool:request-forward:bundle-export"');
+    expect(bridgeSource).toContain('"tool:request-forward:bundle-import"');
+    expect(source).toContain("parseRequestForwardRuleBundleText");
+    expect(source).toContain("serializeRequestForwardRuleBundle");
+    expect(source).toContain('"tool:file:read-text"');
+    expect(source).toContain('"tool:file:write-text"');
+    expect(source).toContain('"tool:request-forward:bundle-export"');
+    expect(source).toContain('"tool:request-forward:bundle-import"');
+    expect(source).toContain('@bundle-export="exportRuleBundle"');
+    expect(source).toContain('@bundle-import="importRuleBundle"');
+    expect(listSource).toContain('aria-label="导入规则包"');
+    expect(listSource).toContain("batchScope.ids");
   });
 
   it("supports keyboard log navigation and detail copy actions", () => {
@@ -736,5 +752,8 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("formatRequestForwardLogBody");
     expect(inspectorSource).toContain("getRequestForwardLogCopyText");
     expect(inspectorSource).toContain("复制完整日志");
+    expect(inspectorSource).toContain("buildRequestForwardLogCommandExamples");
+    expect(inspectorSource).toContain("复制为 cURL");
+    expect(inspectorSource).toContain("复制为 PowerShell");
   });
 });

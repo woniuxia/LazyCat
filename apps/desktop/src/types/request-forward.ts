@@ -67,6 +67,13 @@ export interface RequestForwardRule extends RequestForwardRuleWriteInput {
   updatedAt: string;
 }
 
+export interface RequestForwardRuleBundle {
+  format: "lazycat.request-forward.rules";
+  version: 1;
+  exportedAt: string;
+  rules: RequestForwardRuleWriteInput[];
+}
+
 export interface RequestForwardAutoStartUpdate {
   id: number;
   enabled: boolean;
