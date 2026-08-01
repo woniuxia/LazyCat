@@ -389,7 +389,10 @@ async function pickFile() {
       title: "选择要检查的文件",
     });
     const selectedPath = dialogPath(selected);
-    if (selectedPath) path.value = selectedPath;
+    if (selectedPath) {
+      path.value = selectedPath;
+      await inspect();
+    }
   } catch (error) {
     ElMessage.error(`选择文件失败：${(error as Error).message}`);
   }

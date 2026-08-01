@@ -9,6 +9,8 @@ describe("FileLockPanel source structure", () => {
     expect(panelSource).toContain("await open({");
     expect(panelSource).toContain("directory: false");
     expect(panelSource).toContain("multiple: false");
+    expect(panelSource).toContain("path.value = selectedPath;");
+    expect(panelSource).toContain("await inspect();");
   });
 
   it("keeps the diagnostic read-only and surfaces partial results", () => {
