@@ -17,7 +17,6 @@
         ref="inputRef"
         v-model="query"
         class="spotlight-input"
-        :placeholder="placeholder"
         spellcheck="false"
         autocomplete="off"
         :readonly="executing"
@@ -388,20 +387,6 @@ watch(
   },
   { immediate: false },
 );
-
-const placeholder = computed(() => {
-  if (scope.value) {
-    return `在 ${scopeLabel.value || "该类型"} 中搜索…`;
-  }
-  const v = view.value;
-  const enabledNames = v
-    ? v.providers.filter((p) => p.enabled && !p.hiddenInSettings).map((p) => p.name)
-    : [];
-  if (enabledNames.length === 0) {
-    return "所有数据源已禁用,前往设置启用";
-  }
-  return `搜索 ${enabledNames.join(" / ")} · 试试 ;ip ;uuid ;jwt`;
-});
 
 const footerHint = computed(() => {
   if (unlockState.value) return "输入主密码 · 正确即复制 · Esc 取消";
@@ -1107,10 +1092,6 @@ onBeforeUnmount(() => {
   font-size: 16px;
   color: var(--lc-text);
   background: transparent;
-}
-
-.spotlight-input::placeholder {
-  color: var(--lc-text-muted);
 }
 
 .spotlight-input:read-only {
