@@ -24,17 +24,12 @@ function isDirPath(p: string): boolean {
 }
 
 async function prefetchLauncher(): Promise<SpotlightItem[]> {
-  let list: LauncherEntry[] = [];
-  try {
-    const raw = (await invokeToolByChannel("tool:launcher:list", {})) as
-      | { items?: LauncherEntry[] }
-      | LauncherEntry[]
-      | null;
-    if (Array.isArray(raw)) list = raw;
-    else if (raw && Array.isArray(raw.items)) list = raw.items;
-  } catch {
-    return [];
-  }
+  const raw = (await invokeToolByChannel("tool:launcher:list", {})) as
+    | { items?: LauncherEntry[] }
+    | LauncherEntry[]
+    | null;
+  const list = Array.isArray(raw) ? raw : raw?.items;
+  if (!Array.isArray(list)) throw new Error("快捷启动列表返回格式无效");
 
   return list.map<SpotlightItem>((e) => {
     const isDir = isDirPath(e.exe_path);

@@ -42,20 +42,11 @@ function dueStatus(item: TodoListItem): { text: string; tone: StatusTone } | und
 }
 
 async function prefetchTodo(): Promise<SpotlightItem[]> {
-  let list: TodoListItem[] = [];
-  try {
-    const raw = (await invokeToolByChannel("tool:todo:item-list", {
-      includeInactive: false,
-    })) as { items?: TodoListItem[] } | TodoListItem[] | null;
-    if (Array.isArray(raw)) {
-      list = raw;
-    } else if (raw && Array.isArray(raw.items)) {
-      list = raw.items;
-    }
-  } catch (err) {
-    console.warn("[Spotlight] todo prefetch failed:", err);
-    return [];
-  }
+  const raw = (await invokeToolByChannel("tool:todo:item-list", {
+    includeInactive: false,
+  })) as { items?: TodoListItem[] } | TodoListItem[] | null;
+  const list = Array.isArray(raw) ? raw : raw?.items;
+  if (!Array.isArray(list)) throw new Error("任务列表返回格式无效");
 
   return list.map<SpotlightItem>((todo) => {
     const status = dueStatus(todo);

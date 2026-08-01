@@ -51,7 +51,10 @@
       </div>
       <div v-else-if="results.length === 0" class="spotlight-empty" role="status">
         {{
-          query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目"
+          providerFailureMessage ||
+          (query.trim()
+            ? "没有匹配的结果"
+            : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目")
         }}
       </div>
       <div
@@ -126,9 +129,8 @@ import SpotlightSuccessBar from "./SpotlightSuccessBar.vue";
 import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
 import { APP_EVENTS } from "../bridge/events";
-import { invokeToolByChannel } from "../bridge/tauri";
 import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
-import { rankEmptyItems, usageRefKey } from "../spotlight/ranking";
+import { rankEmptyItems } from "../spotlight/ranking";
 import "../spotlight/providers/tool";
 import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
@@ -140,20 +142,8 @@ import "../spotlight/providers/suggestion";
 import "../spotlight/providers/launcher";
 import "../spotlight/providers/action-center";
 import { listenBrowserProfilesChanged } from "../spotlight/browser-profiles-events";
-import {
-  BROWSER_PROFILES_PROVIDER_ID,
-  beginBrowserProfilesLocalRefresh,
-  canWriteBrowserProfiles,
-  captureBrowserProfilesPrefetchVersion,
-  createBrowserProfilesRefreshGuard,
-  replaceBrowserProfilesItems,
-} from "../spotlight/browser-profiles-refresh";
 import * as configStore from "../spotlight/config-store";
-import {
-  createQueryTimeResultGuard,
-  mergeSpotlightProviderItems,
-  shouldRunQueryProvider,
-} from "../spotlight/search";
+import { createSpotlightEngine } from "../spotlight/engine";
 
 import {
   parseSpotlightQuery,
@@ -182,19 +172,13 @@ import type {
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProviderId,
   SpotlightView,
 } from "../spotlight/types";
-import type { UsageRef, UsageSummary } from "../types/usage";
-
-type ScopedItemsMap = Map<SpotlightProviderId, SpotlightItem[]>;
-const USAGE_SUMMARY_BATCH_SIZE = 256;
 
 const RESULT_LIMIT = 9;
 
 const query = ref("");
 const activeIndex = ref(0);
-const loading = ref(false);
 const executing = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLElement | null>(null);
@@ -221,15 +205,11 @@ let unlistenBrowserProfilesChanged: UnlistenFn | null = null;
 let browserProfilesListenerDisposed = false;
 let unsubConfig: (() => void) | null = null;
 
-const itemsByProvider = ref<ScopedItemsMap>(new Map());
-const queryItemsByProvider = ref<ScopedItemsMap>(new Map());
-const queryLoading = ref(false);
-const queryGuard = createQueryTimeResultGuard();
+const spotlightEngine = createSpotlightEngine();
+const queryLoading = spotlightEngine.queryLoading;
+const loading = spotlightEngine.prefetchLoading;
+const usageSummaries = spotlightEngine.usageSummaries;
 const view = ref<SpotlightView | null>(null);
-const browserProfilesRefreshGuard = createBrowserProfilesRefreshGuard();
-const usageSummaries = ref<Map<string, UsageSummary>>(new Map());
-let usageRequestSeq = 0;
-let lastUsageSignature = "";
 
 const clipboardSuggestionItems = ref<SpotlightItem[]>([]);
 const clipboardSuggestionRefresh = createClipboardSuggestionRefreshCoordinator((items) => {
@@ -274,7 +254,7 @@ const enabledProviderIds = computed(() => {
 });
 
 const searchableItemsByProvider = computed(() => {
-  const merged = mergeSpotlightProviderItems(itemsByProvider.value, queryItemsByProvider.value);
+  const merged = spotlightEngine.mergedItems.value;
   const next = new Map(merged);
   next.set(
     "suggestion",
@@ -283,56 +263,12 @@ const searchableItemsByProvider = computed(() => {
   return next;
 });
 
-async function refreshUsageSummaries(itemsByProvider: ScopedItemsMap) {
-  const refs = new Map<string, UsageRef>();
-  for (const items of itemsByProvider.values()) {
-    for (const item of items) {
-      const usageRef = item.ranking?.usageRef;
-      if (usageRef) refs.set(usageRefKey(usageRef), usageRef);
-    }
-  }
-  const signature = [...refs.keys()].sort().join("\n");
-  if (signature === lastUsageSignature) return;
-  lastUsageSignature = signature;
-  const requestSeq = ++usageRequestSeq;
-  if (refs.size === 0) {
-    usageSummaries.value = new Map();
-    return;
-  }
-  try {
-    const values = [...refs.values()];
-    const batches: UsageRef[][] = [];
-    for (let index = 0; index < values.length; index += USAGE_SUMMARY_BATCH_SIZE) {
-      batches.push(values.slice(index, index + USAGE_SUMMARY_BATCH_SIZE));
-    }
-    const responses = await Promise.all(
-      batches.map((batch) => invokeToolByChannel("tool:usage:summaries", { refs: batch })) as Array<
-        Promise<{ items: Array<UsageRef & { summary: UsageSummary }> }>
-      >,
-    );
-    if (requestSeq !== usageRequestSeq) return;
-    usageSummaries.value = new Map(
-      responses
-        .flatMap((response) => response.items)
-        .map((item) => [usageRefKey(item), item.summary]),
-    );
-  } catch (error) {
-    if (requestSeq === usageRequestSeq) {
-      console.warn("[Spotlight] load usage summaries failed:", error);
-      usageSummaries.value = new Map();
-    }
-  }
-}
-
-watch(
-  searchableItemsByProvider,
-  (items) => {
-    void refreshUsageSummaries(items);
-  },
-  { immediate: true },
-);
-
 const isLoadingView = computed(() => loading.value || keywordLoading.value || queryLoading.value);
+const providerFailureMessage = computed(() => {
+  const errors = [...spotlightEngine.providerErrors.value.values()];
+  if (errors.length === 0) return "";
+  return errors.length === 1 ? "部分数据源暂时不可用" : `${errors.length} 个数据源暂时不可用`;
+});
 
 // ── keyword 命令异步结果缓存 ─────────────────────────────────────────
 //
@@ -393,6 +329,7 @@ const footerHint = computed(() => {
   if (actionMenuOpen.value) return "↑↓ 选择 · Enter 执行 · Esc 收起";
   if (executing.value) return "执行中… · Esc 隐藏";
   if (errorMessage.value) return "Ctrl+R 重试 · Esc 关闭";
+  if (providerFailureMessage.value) return `${providerFailureMessage.value} · Enter 执行可用结果`;
   return "Enter 执行 · Tab 备选动作 · Alt+1-9 直选 · Esc 关闭";
 });
 
@@ -551,121 +488,36 @@ watch([query, scope], ([nextQuery, nextScope], [prevQuery, prevScope]) => {
 });
 
 async function prefetchAll() {
-  // 保留 itemsByProvider 旧数据,渲染基于旧数据继续可用;只在首次加载时显示 loading
-  const hadAnyData = itemsByProvider.value.size > 0;
-  if (!hadAnyData) loading.value = true;
   const v = view.value;
   const providers = v ? v.providers.filter((p) => p.enabled) : listProviders();
-  await Promise.allSettled(
-    providers.map(async (provider) => {
-      const browserProfilesPrefetchVersion =
-        provider.id === BROWSER_PROFILES_PROVIDER_ID
-          ? captureBrowserProfilesPrefetchVersion(browserProfilesRefreshGuard)
-          : null;
-      try {
-        const items = await provider.prefetch();
-        if (
-          provider.id === BROWSER_PROFILES_PROVIDER_ID &&
-          !canWriteBrowserProfiles(browserProfilesRefreshGuard, browserProfilesPrefetchVersion!)
-        ) {
-          return;
-        }
-        // 单 provider 完成后立即写回,渐进式更新而非等所有 provider
-        const next = new Map(itemsByProvider.value);
-        next.set(provider.id, items);
-        itemsByProvider.value = next;
-      } catch (err) {
-        console.warn(`[Spotlight] provider ${provider.id} prefetch failed:`, err);
-        if (
-          provider.id === BROWSER_PROFILES_PROVIDER_ID &&
-          !canWriteBrowserProfiles(browserProfilesRefreshGuard, browserProfilesPrefetchVersion!)
-        ) {
-          return;
-        }
-        // 失败时保留上一次该 provider 的数据,而不是覆盖为空
-        if (!itemsByProvider.value.has(provider.id)) {
-          const next = new Map(itemsByProvider.value);
-          next.set(provider.id, []);
-          itemsByProvider.value = next;
-        }
-      }
-    }),
-  );
-  // 清理已禁用的 provider 残留数据,避免空查询合并时露出
-  const enabledIds = new Set(providers.map((p) => p.id));
-  if ([...itemsByProvider.value.keys()].some((id) => !enabledIds.has(id))) {
-    const next = new Map<SpotlightProviderId, SpotlightItem[]>();
-    for (const [id, items] of itemsByProvider.value) {
-      if (enabledIds.has(id)) next.set(id, items);
-    }
-    itemsByProvider.value = next;
-  }
-  loading.value = false;
+  await spotlightEngine.refreshAll(providers);
 }
 
 async function refreshBrowserProfilesProvider() {
-  const version = beginBrowserProfilesLocalRefresh(browserProfilesRefreshGuard);
-  try {
-    const items = await browserProfilesProvider.prefetch();
-    if (!canWriteBrowserProfiles(browserProfilesRefreshGuard, version)) return;
-    itemsByProvider.value = replaceBrowserProfilesItems(itemsByProvider.value, items);
-    lastUsageSignature = "";
-    void refreshUsageSummaries(searchableItemsByProvider.value);
+  const refreshed = await spotlightEngine.refreshProvider(browserProfilesProvider, {
+    refreshUsage: true,
+  });
+  if (refreshed) {
     activeIndex.value = nextSpotlightActiveIndex({
       currentIndex: activeIndex.value,
       resultCount: results.value.length,
       queryChanged: false,
     });
-  } catch (err) {
-    if (!canWriteBrowserProfiles(browserProfilesRefreshGuard, version)) return;
-    console.warn("[Spotlight] refresh browser profiles failed:", err);
   }
 }
 
-async function refreshQueryProviders() {
+function refreshQueryProviders() {
   if (keywordInvocation.value || quickCommand.value) {
-    queryItemsByProvider.value = new Map();
-    queryLoading.value = false;
+    spotlightEngine.resetQuery();
     return;
   }
 
   const text = parsed.value.query;
   const currentScope = scope.value;
-  const requestSeq = queryGuard.next(text, currentScope);
-  // 远程 provider 的结果只属于当前查询，避免新查询期间展示旧结果。
-  queryItemsByProvider.value = new Map();
   const baseProviders = view.value
     ? view.value.providers.filter((provider) => provider.enabled)
     : listProviders();
-  const providers = baseProviders.filter((provider) => {
-    if (!provider.search) return false;
-    if (currentScope && provider.id !== currentScope) return false;
-    return shouldRunQueryProvider(text, currentScope, provider.id);
-  });
-
-  if (providers.length === 0) {
-    queryItemsByProvider.value = new Map();
-    queryLoading.value = false;
-    return;
-  }
-
-  queryLoading.value = true;
-  const next = new Map<SpotlightProviderId, SpotlightItem[]>();
-  await Promise.allSettled(
-    providers.map(async (provider) => {
-      try {
-        const items = await provider.search!(text, { scope: currentScope });
-        next.set(provider.id, items);
-      } catch (err) {
-        console.warn(`[Spotlight] provider ${provider.id} query search failed:`, err);
-        next.set(provider.id, []);
-      }
-    }),
-  );
-
-  if (!queryGuard.isCurrent(requestSeq, text, currentScope)) return;
-  queryItemsByProvider.value = next;
-  queryLoading.value = false;
+  spotlightEngine.scheduleQueryRefresh(text, currentScope, baseProviders);
 }
 
 function buildContext(): SpotlightExecuteContext {
@@ -985,9 +837,7 @@ onMounted(async () => {
       clearSuccessBar();
       unlockState.value = null;
       actionMenuOpen.value = false;
-      queryItemsByProvider.value = new Map();
-      queryLoading.value = false;
-      lastUsageSignature = "";
+      spotlightEngine.resetQuery();
       // 窗口显示兜底:重新拉取配置,防止跨窗口广播丢失
       void configStore.ensureLoaded(true).then((v) => {
         view.value = v;
@@ -1051,6 +901,7 @@ onBeforeUnmount(() => {
   unlistenBrowserProfilesChanged?.();
   unlistenBrowserProfilesChanged = null;
   unsubConfig?.();
+  spotlightEngine.dispose();
   if (successTimeoutId != null) {
     window.clearTimeout(successTimeoutId);
     successTimeoutId = null;

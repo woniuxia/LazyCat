@@ -19,6 +19,10 @@ import {
 } from "./data-dictionary";
 import type { DataDictionarySearchItem } from "../../types/data-dictionary";
 
+function searchContext(scope: "data-dictionary" | null) {
+  return { scope, signal: new AbortController().signal };
+}
+
 const searchItem: DataDictionarySearchItem = {
   id: 12,
   dictionaryId: 3,
@@ -75,9 +79,10 @@ describe("dataDictionaryProvider search", () => {
   it("requests all dictionaries with includeRawJson disabled", async () => {
     invokeToolByChannel.mockResolvedValue({ items: [searchItem] });
 
-    const results = await dataDictionaryProvider.search?.("张", {
-      scope: "data-dictionary",
-    });
+    const results = await dataDictionaryProvider.search?.(
+      "张",
+      searchContext("data-dictionary"),
+    );
 
     expect(invokeToolByChannel).toHaveBeenCalledWith("tool:data-dictionary:search", {
       scope: "all",
@@ -88,10 +93,12 @@ describe("dataDictionaryProvider search", () => {
     expect(results?.[0].title).toBe("张三");
   });
 
-  it("returns empty array for empty query and provider failures", async () => {
-    expect(await dataDictionaryProvider.search?.("", { scope: null })).toEqual([]);
+  it("keeps empty queries local and exposes provider failures", async () => {
+    expect(await dataDictionaryProvider.search?.("", searchContext(null))).toEqual([]);
     invokeToolByChannel.mockRejectedValue(new Error("boom"));
-    expect(await dataDictionaryProvider.search?.("张三", { scope: null })).toEqual([]);
+    await expect(dataDictionaryProvider.search?.("张三", searchContext(null))).rejects.toThrow(
+      "boom",
+    );
   });
 });
 

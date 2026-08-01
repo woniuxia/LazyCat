@@ -56,20 +56,13 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 async function loadStatus(): Promise<VaultStatus | null> {
-  try {
-    return ((await invokeToolByChannel("tool:vault:status", {})) as VaultStatus | null) ?? null;
-  } catch {
-    return null;
-  }
+  return ((await invokeToolByChannel("tool:vault:status", {})) as VaultStatus | null) ?? null;
 }
 
 async function loadMeta(): Promise<VaultMetaEntry[]> {
-  try {
-    const list = (await invokeToolByChannel("tool:vault:meta-list", {})) as VaultMetaEntry[];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
+  const list = (await invokeToolByChannel("tool:vault:meta-list", {})) as VaultMetaEntry[];
+  if (!Array.isArray(list)) throw new Error("凭据元数据列表返回格式无效");
+  return list;
 }
 
 export function buildSubtitle(entry: VaultMetaEntry): string {

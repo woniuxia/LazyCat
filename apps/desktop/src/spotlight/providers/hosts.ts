@@ -34,13 +34,9 @@ function firstCommentLine(content: string): string {
 }
 
 async function prefetchHosts(): Promise<SpotlightItem[]> {
-  let list: HostsProfile[];
-  try {
-    const raw = (await invokeToolByChannel("tool:hosts:list", {})) as HostsProfile[];
-    list = Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
+  const raw = (await invokeToolByChannel("tool:hosts:list", {})) as HostsProfile[];
+  if (!Array.isArray(raw)) throw new Error("Hosts 列表返回格式无效");
+  const list = raw;
 
   return list.map<SpotlightItem>((profile) => {
     const enabled = !!profile.enabled;

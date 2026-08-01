@@ -65,27 +65,16 @@ function dueStatus(item: PmListItem): { text: string; tone: StatusTone } | undef
 }
 
 async function loadProjectMap(): Promise<Map<number, PmProject>> {
-  try {
-    const list = (await invokeToolByChannel("tool:pm:project-list", {})) as PmProject[];
-    const map = new Map<number, PmProject>();
-    if (Array.isArray(list)) {
-      for (const p of list) map.set(p.id, p);
-    }
-    return map;
-  } catch {
-    return new Map();
-  }
+  const list = (await invokeToolByChannel("tool:pm:project-list", {})) as PmProject[];
+  if (!Array.isArray(list)) throw new Error("项目列表返回格式无效");
+  return new Map(list.map((project) => [project.id, project]));
 }
 
 async function prefetchPm(): Promise<SpotlightItem[]> {
   const projectMap = await loadProjectMap();
-  let list: PmListItem[];
-  try {
-    const raw = (await invokeToolByChannel("tool:pm:item-list", {})) as PmListItem[];
-    list = Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
+  const raw = (await invokeToolByChannel("tool:pm:item-list", {})) as PmListItem[];
+  if (!Array.isArray(raw)) throw new Error("项目工作项列表返回格式无效");
+  const list = raw;
 
   return list.map<SpotlightItem>((it) => {
     const project = projectMap.get(it.projectId);

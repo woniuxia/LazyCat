@@ -43,17 +43,14 @@ export function buildBrowserProfileSpotlightItem(profile: BrowserProfileItem): S
 }
 
 async function prefetchBrowserProfiles(): Promise<SpotlightItem[]> {
-  try {
-    const result = (await invokeToolByChannel(
-      "tool:browser-profiles:list",
-      {},
-    )) as BrowserProfilesListResponse;
-    return (result.profiles ?? [])
-      .filter((profile) => !profile.hidden)
-      .map(buildBrowserProfileSpotlightItem);
-  } catch {
-    return [];
-  }
+  const result = (await invokeToolByChannel(
+    "tool:browser-profiles:list",
+    {},
+  )) as BrowserProfilesListResponse;
+  if (!Array.isArray(result?.profiles)) throw new Error("浏览器身份列表返回格式无效");
+  return result.profiles
+    .filter((profile) => !profile.hidden)
+    .map(buildBrowserProfileSpotlightItem);
 }
 
 function payloadOf(item: SpotlightItem): BrowserProfilePayload | null {

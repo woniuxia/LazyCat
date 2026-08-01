@@ -13,6 +13,7 @@ import type {
   SpotlightAction,
   SpotlightExecuteResult,
   SpotlightItem,
+  SpotlightSearchContext,
 } from "../types";
 
 interface DataDictionaryPayload {
@@ -79,23 +80,22 @@ export function buildDataDictionaryItem(row: DataDictionarySearchItem): Spotligh
   };
 }
 
-async function searchDataDictionary(query: string): Promise<SpotlightItem[]> {
+async function searchDataDictionary(
+  query: string,
+  context: SpotlightSearchContext,
+): Promise<SpotlightItem[]> {
   const keyword = query.trim();
   if (!keyword) return [];
-  try {
-    const result = (await invokeToolByChannel("tool:data-dictionary:search", {
-      scope: "all",
-      keyword,
-      limit: 50,
-      includeRawJson: false,
-    })) as DataDictionarySearchResult;
-    return Array.isArray(result?.items)
-      ? result.items.map((row) => buildDataDictionaryItem(row))
-      : [];
-  } catch (err) {
-    console.warn("[Spotlight] data dictionary search failed:", err);
-    return [];
-  }
+  if (context.signal.aborted) return [];
+  const result = (await invokeToolByChannel("tool:data-dictionary:search", {
+    scope: "all",
+    keyword,
+    limit: 50,
+    includeRawJson: false,
+  })) as DataDictionarySearchResult;
+  if (context.signal.aborted) return [];
+  if (!Array.isArray(result?.items)) throw new Error("数据字典搜索返回格式无效");
+  return result.items.map((row) => buildDataDictionaryItem(row));
 }
 
 async function openRecord(item: SpotlightItem): Promise<SpotlightExecuteResult> {

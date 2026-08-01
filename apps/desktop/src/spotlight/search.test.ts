@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SpotlightItem, SpotlightProviderId } from "./types";
 import {
-  createQueryTimeResultGuard,
   mergeSpotlightProviderItems,
   shouldRunQueryProvider,
 } from "./search";
@@ -48,17 +47,5 @@ describe("mergeSpotlightProviderItems", () => {
     expect(merged.get("tool")?.map((entry) => entry.itemId)).toEqual(["json"]);
     expect(merged.get("todo")?.map((entry) => entry.itemId)).toEqual(["1", "2"]);
     expect(merged.get("data-dictionary")?.map((entry) => entry.itemId)).toEqual(["9"]);
-  });
-});
-
-describe("createQueryTimeResultGuard", () => {
-  it("accepts only the latest query signature", () => {
-    const guard = createQueryTimeResultGuard();
-    const first = guard.next("a", null);
-    const second = guard.next("ab", null);
-
-    expect(guard.isCurrent(first, "a", null)).toBe(false);
-    expect(guard.isCurrent(second, "ab", null)).toBe(true);
-    expect(guard.isCurrent(second, "ab", "data-dictionary")).toBe(false);
   });
 });

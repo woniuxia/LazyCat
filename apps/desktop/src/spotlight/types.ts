@@ -71,6 +71,7 @@ export interface SpotlightExecuteContext {
 
 export interface SpotlightSearchContext {
   scope: SpotlightProviderId | null;
+  signal: AbortSignal;
 }
 
 export interface QuickCommandDescriptor {
