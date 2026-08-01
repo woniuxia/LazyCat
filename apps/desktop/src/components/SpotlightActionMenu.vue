@@ -17,7 +17,7 @@
         :class="{ 'is-active': idx === activeIndex, 'is-danger': action.danger }"
         type="button"
         role="menuitem"
-        @mouseenter="activeIndex = idx"
+        @pointermove="activeIndex = idx"
         @click="select(action)"
       >
         <component

@@ -65,7 +65,7 @@
         role="option"
         :aria-selected="idx === activeIndex"
         :aria-disabled="executing"
-        @mouseenter="activeIndex = idx"
+        @pointermove="activeIndex = idx"
         @click="commitDefault(entry.item)"
       >
         <span class="spotlight-row-index">{{ idx + 1 }}</span>
