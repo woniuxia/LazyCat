@@ -28,6 +28,7 @@ const DOMAINS: &[&str] = &[
     "env",
     "port",
     "file",
+    "file_lock",
     "image",
     "hosts",
     "manuals",

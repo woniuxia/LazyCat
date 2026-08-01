@@ -271,6 +271,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:port:usage": { domain: "port", action: "usage" },
   "tool:port:process-detail": { domain: "port", action: "process_detail" },
   "tool:port:kill": { domain: "port", action: "kill" },
+  "tool:file-lock:inspect": { domain: "file_lock", action: "inspect" },
   "tool:file:split": { domain: "file", action: "split" },
   "tool:file:merge": { domain: "file", action: "merge" },
   "tool:file:read-text": { domain: "file", action: "read_text" },

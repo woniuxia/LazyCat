@@ -33,6 +33,7 @@ const toolRegistry: Record<string, Component> = {
   "api-mock": defineAsyncComponent(() => import("./components/ApiMockPanel.vue")),
   hosts: defineAsyncComponent(() => import("./components/HostsPanel.vue")),
   ports: defineAsyncComponent(() => import("./components/PortsPanel.vue")),
+  "file-lock": defineAsyncComponent(() => import("./components/FileLockPanel.vue")),
   dns: defineAsyncComponent(() => import("./components/DnsPanel.vue")),
   env: defineAsyncComponent(() => import("./components/EnvPanel.vue")),
   "split-merge": defineAsyncComponent(() => import("./components/SplitMergePanel.vue")),

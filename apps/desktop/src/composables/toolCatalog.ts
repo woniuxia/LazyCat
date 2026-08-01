@@ -109,6 +109,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
         { id: "hosts", name: "Hosts 管理", desc: "多配置保存与切换" },
         { id: "ports", name: "端口占用", desc: "端口占用与进程分析" },
+        { id: "file-lock", name: "文件占用", desc: "定位 Windows 文件关联进程" },
         { id: "env", name: "环境检测", desc: "检测 Node 与 Java 版本" },
         { id: "nginx-helper", name: "Nginx 助手", desc: "静态站点 + API 反代配置生成与校验" },
         { id: "hotkey", name: "快捷键检测", desc: "全局快捷键冲突检测" },

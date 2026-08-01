@@ -9,6 +9,7 @@ pub mod dns;
 pub mod encode;
 pub mod env;
 pub mod file;
+pub mod file_lock;
 pub mod format;
 pub mod gen;
 pub mod helpers;
@@ -91,6 +92,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "env" => env::execute(action, payload),
         "port" => port::execute(action, payload),
         "file" => file::execute(action, payload),
+        "file_lock" => file_lock::execute(action, payload),
         "image" => image::execute(action, payload),
         "hosts" => hosts::execute(action, payload),
         "manuals" => manuals::execute(action, payload),
@@ -141,6 +143,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "env" => Some(env::supported_actions()),
         "port" => Some(port::supported_actions()),
         "file" => Some(file::supported_actions()),
+        "file_lock" => Some(file_lock::supported_actions()),
         "image" => Some(image::supported_actions()),
         "hosts" => Some(hosts::supported_actions()),
         "manuals" => Some(manuals::supported_actions()),
