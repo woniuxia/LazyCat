@@ -74,7 +74,14 @@ async function prefetchPm(): Promise<SpotlightItem[]> {
         createSearchField(projectName, 0.7),
         createSearchField(tagsField, 0.85),
       ],
-      ranking: { pinned: it.pinned },
+      ranking: {
+        pinned: it.pinned,
+        usageRef: {
+          resourceType: "pm-item",
+          resourceId: String(it.id),
+          actions: ["open"],
+        },
+      },
       payload: {
         pmId: it.id,
         projectId: it.projectId,
@@ -96,6 +103,11 @@ async function jumpToPm(
     projectId: projectId != null ? String(projectId) : undefined,
     view: pmView,
   });
+  try {
+    await invokeToolByChannel("tool:pm:item-record-open", { id: pmId });
+  } catch (error) {
+    console.warn(`[Spotlight] record PM item ${pmId} open failed:`, error);
+  }
   return { closeSpotlight: true };
 }
 

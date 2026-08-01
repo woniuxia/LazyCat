@@ -1051,8 +1051,8 @@ async function markRecordUsed(id: number) {
     if (!keyword.value.trim()) {
       await loadPopularRecords();
     }
-  } catch {
-    // Usage tracking must not block record detail display.
+  } catch (error) {
+    console.warn(`[DataDictionary] mark record ${id} used failed:`, error);
   }
 }
 

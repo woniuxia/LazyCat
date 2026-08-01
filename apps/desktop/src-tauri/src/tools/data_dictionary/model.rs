@@ -105,6 +105,7 @@ pub(super) struct RecordRow {
 #[derive(Debug, Clone)]
 pub(super) struct RankedRecordRow {
     pub(super) row: RecordRow,
+    pub(super) normalized_primary_value: Option<String>,
     pub(super) recall_score: i64,
 }
 

@@ -685,6 +685,7 @@ mod tests {
             "CREATE TABLE data_dictionaries (
                  id INTEGER PRIMARY KEY,
                  name TEXT NOT NULL,
+                 primary_field_path TEXT,
                  title_field_path TEXT,
                  nav_order INTEGER NOT NULL DEFAULT 0
              );
@@ -700,11 +701,13 @@ mod tests {
              );
              CREATE TABLE data_dictionary_record_values (
                  record_id INTEGER NOT NULL,
+                 dictionary_id INTEGER NOT NULL,
                  field_path TEXT NOT NULL,
+                 value_type TEXT NOT NULL,
                  normalized_value TEXT NOT NULL
              );
-             INSERT INTO data_dictionaries(id, name, title_field_path, nav_order)
-             VALUES(1, '测试字典', 'name', 0);
+             INSERT INTO data_dictionaries(id, name, primary_field_path, title_field_path, nav_order)
+             VALUES(1, '测试字典', 'name', 'name', 0);
              INSERT INTO data_dictionary_records(
                  id, dictionary_id, row_index, raw_json, search_text,
                  normalized_search_text, pinyin_search_text, sort_key
@@ -715,8 +718,11 @@ mod tests {
                   'User', 'user', 'user', '1!1'),
                  (3, 1, 2, '{\"name\":\"数据字典\"}',
                   '数据字典', '数据字典', 'shu ju zi dian shujuzidian sjzd', '1!2');
-             INSERT INTO data_dictionary_record_values(record_id, field_path, normalized_value)
-             VALUES(1, 'name', 'later'), (2, 'name', 'user'), (3, 'name', '数据字典');",
+             INSERT INTO data_dictionary_record_values(
+                 record_id, dictionary_id, field_path, value_type, normalized_value
+             ) VALUES(1, 1, 'name', 'string', 'later'),
+                     (2, 1, 'name', 'string', 'user'),
+                     (3, 1, 'name', 'string', '数据字典');",
         )
         .unwrap();
 
@@ -728,6 +734,10 @@ mod tests {
 
         assert_eq!(title_results[0].row.id, 2);
         assert!(title_results[0].recall_score > title_results[1].recall_score);
+        assert_eq!(
+            title_results[0].normalized_primary_value.as_deref(),
+            Some("user")
+        );
         assert_eq!(pinyin_results[0].row.id, 3);
         assert_eq!(cross_field[0].row.id, 1);
     }

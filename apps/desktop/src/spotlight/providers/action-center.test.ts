@@ -33,6 +33,11 @@ describe("actionCenterProvider", () => {
     expect(item.subtitle).toBe("串行 · 4 个步骤");
     expect(item.status).toEqual({ text: "部分成功", tone: "warn" });
     expect(item.searchFields.map((field) => field.text)).toContain("客户门户开发环境");
+    expect(item.ranking?.usageRef).toEqual({
+      resourceType: "action-combination",
+      resourceId: "7",
+      actions: ["run"],
+    });
   });
 
   it("prefetches saved combinations", async () => {

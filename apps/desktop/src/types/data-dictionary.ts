@@ -60,6 +60,7 @@ export interface DataDictionarySearchItem {
   title: string;
   summary: DataDictionaryRecordSummaryPart[];
   recallScore?: number;
+  normalizedPrimaryValue?: string;
 }
 
 export interface DataDictionarySearchResult {

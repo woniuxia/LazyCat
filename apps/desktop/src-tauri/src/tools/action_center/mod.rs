@@ -6,8 +6,10 @@ mod combinations;
 mod definitions;
 mod dispatches;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use serde_json::{json, Value};
+
+use super::usage::{self, UsageKey, RESOURCE_ACTION_COMBINATION};
 
 pub(crate) use bindings::{
     apply_todo_binding_patch, attach_todo_binding_summaries, delete_todo_binding,
@@ -130,6 +132,23 @@ fn combination_detail_value(conn: &Connection, combination_id: i64) -> Result<Va
     Ok(value)
 }
 
+fn delete_combination_with_conn(conn: &mut Connection, combination_id: i64) -> Result<(), String> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| format!("begin combination delete transaction failed: {error}"))?;
+    combinations::delete_with_conn(&tx, combination_id)?;
+    usage::delete_resource(
+        &tx,
+        UsageKey {
+            resource_type: RESOURCE_ACTION_COMBINATION,
+            scope_id: "",
+            resource_id: &combination_id.to_string(),
+        },
+    )?;
+    tx.commit()
+        .map_err(|error| format!("commit combination delete transaction failed: {error}"))
+}
+
 fn execute_combination_with_conn<F>(
     action: &str,
     payload: &Value,
@@ -165,7 +184,7 @@ where
             Ok(json!({ "id": id }))
         }
         "combination_delete" => {
-            combinations::delete_with_conn(conn, parse_combination_id(payload)?)?;
+            delete_combination_with_conn(conn, parse_combination_id(payload)?)?;
             Ok(json!({ "deleted": true }))
         }
         "combination_run" => Err("action_center combination_run requires app context".into()),
@@ -287,6 +306,7 @@ mod tests {
         )
         .unwrap();
         ensure_schema(&conn).unwrap();
+        crate::tools::usage::ensure_schema_and_migrate(&conn).unwrap();
         conn.execute(
             "INSERT INTO hosts_profiles(id, name, content, enabled, sort_order)
              VALUES (1, '开发 Hosts', '127.0.0.1 dev.local', 1, 0)",
@@ -447,6 +467,17 @@ mod tests {
             .unwrap()
             .contains("不存在"));
 
+        usage::record(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_ACTION_COMBINATION,
+                scope_id: "",
+                resource_id: &combination_id.to_string(),
+            },
+            crate::tools::usage::ACTION_RUN,
+        )
+        .unwrap();
+
         execute_combination_with_conn(
             "combination_delete",
             &json!({ "combinationId": combination_id }),
@@ -454,6 +485,18 @@ mod tests {
             |_, _, _| Ok(()),
         )
         .unwrap();
+        let usage = usage::summary(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_ACTION_COMBINATION,
+                scope_id: "",
+                resource_id: &combination_id.to_string(),
+            },
+            30,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(usage.total_count, 0);
         assert!(execute_combination_with_conn(
             "combination_get",
             &json!({ "combinationId": combination_id }),

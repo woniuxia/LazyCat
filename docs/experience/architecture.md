@@ -72,7 +72,11 @@ API 调试和数据库工作台曾在短期内快速扩张，随后因维护投�
 
 **历史迁移**：带真实时间戳的 `tool_clicks` 按 UTC 日期迁移；只有累计次数或无法还原每日分布的数据进入 `day_utc = 0` 的 legacy 桶。legacy 桶参与累计统计，但不得计入 30 天窗口。迁移使用事务和 `usage_migrations` 幂等标记，任一结构化来源失败时整体回滚；损坏的可选 JSON 设置记录告警并跳过，不能阻断应用启动。
 
-**Spotlight 边界**：Provider 只声明稳定的 `UsageRef` 以及 `favorite`、`pinned`、`enabled`、`contextual`、`sourceOrder` 等业务信号，不读取使用统计或自行计算使用权重。Spotlight 集中批量读取摘要并排序：搜索相关性是主分，30 天使用频率和最近度提供有上限的增益，legacy 累计只作为低权重基线。明显更差的文本匹配不得靠高频或收藏反超。
+**Spotlight 边界**：Provider 只声明稳定的 `UsageRef` 以及 `favorite`、`pinned`、`contextual`、`sourceOrder` 等业务信号，不读取使用统计或自行计算使用权重。Provider 启用状态在召回前过滤数据源，不属于排序信号。
+
+**稳定身份**：`UsageRef` 必须与领域写入和删除清理使用同一身份。Todo、PM 和动作组合使用稳定行 ID 与空 scope；数据字典记录使用字典 ID 作为 scope、归一化业务主键作为资源 ID，不使用可随导入变化的行 ID。只在领域行为成功后记录；统计写入属于非关键行为时，失败保留诊断日志，但不得把已经成功的打开或运行伪装成失败。
+
+**排序职责**：非空查询由 `SearchRanker` 排序，文本相关性是主分，30 天使用频率、最近度和业务信号只提供有上限的增益，明显更差的文本匹配不得靠高频或收藏反超。空查询由 `RecommendationRanker` 排序，优先上下文信号，再组合业务信号和使用度；legacy 累计只作为低权重基线。公共信号归一化集中在 `ranking-signals.ts`，搜索与推荐不得共享一套混合公式。
 
 **扩展要求**：新领域先定义稳定资源标识和动作，再接入统一记录、摘要、删除清理和历史迁移；不得新增领域计数列作为第二事实源。批量摘要调用必须分批，避免资源数量超过单次 IPC 上限。
 
@@ -80,7 +84,9 @@ API 调试和数据库工作台曾在短期内快速扩张，随后因维护投�
 
 - `apps/desktop/src-tauri/src/tools/usage.rs`
 - `apps/desktop/src/types/usage.ts`
-- `apps/desktop/src/spotlight/ranking.ts`
+- `apps/desktop/src/spotlight/ranking-signals.ts`
+- `apps/desktop/src/spotlight/search-ranker.ts`
+- `apps/desktop/src/spotlight/recommendation-ranker.ts`
 - `apps/desktop/src/components/SpotlightPanel.vue`
 
 **验证**：
@@ -90,7 +96,7 @@ API 调试和数据库工作台曾在短期内快速扩张，随后因维护投�
 - `pnpm --filter @lazycat/desktop test -- src/spotlight`
 - `pnpm typecheck`
 
-**使用次数**：1（2026-07-30）
+**使用次数**：2（2026-07-30、2026-08-01）
 
 ## Tauri 窗口必须同步声明 capability
 

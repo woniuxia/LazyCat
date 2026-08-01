@@ -243,7 +243,8 @@ pub(super) fn query_ranked_records(
         .query_map(refs.as_slice(), |row| {
             Ok(RankedRecordRow {
                 row: record_row(row)?,
-                recall_score: row.get(6)?,
+                normalized_primary_value: row.get(6)?,
+                recall_score: row.get(7)?,
             })
         })
         .map_err(|error| format!("query ranked data dictionary search failed: {error}"))?;
@@ -285,7 +286,7 @@ pub(super) fn build_ranked_record_query_sql(
     };
     format!(
         "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json,
-                d.title_field_path,
+                d.title_field_path, primary_value.normalized_value,
                 (CASE
                     WHEN title_value.normalized_value = ? THEN 1800
                     WHEN title_value.normalized_value LIKE ? ESCAPE '\\' THEN 1660
@@ -302,7 +303,13 @@ pub(super) fn build_ranked_record_query_sql(
          JOIN data_dictionaries d ON d.id = r.dictionary_id
          LEFT JOIN data_dictionary_record_values title_value
            ON title_value.record_id = r.id
+          AND title_value.dictionary_id = r.dictionary_id
           AND title_value.field_path = d.title_field_path
+         LEFT JOIN data_dictionary_record_values primary_value
+           ON primary_value.record_id = r.id
+          AND primary_value.dictionary_id = r.dictionary_id
+          AND primary_value.field_path = d.primary_field_path
+          AND primary_value.value_type IN ('string', 'number', 'boolean')
          WHERE {scope_condition}{token_conditions}
          ORDER BY recall_score DESC, {stable_order}
          LIMIT ?"
@@ -625,7 +632,12 @@ pub(super) fn ranked_rows_to_search_items(
     let mut field_cache: HashMap<i64, Vec<FieldConfig>> = HashMap::new();
     let mut out = Vec::with_capacity(rows.len());
     for ranked in rows {
-        let dictionary_id = ranked.row.dictionary_id;
+        let RankedRecordRow {
+            row,
+            normalized_primary_value,
+            recall_score,
+        } = ranked;
+        let dictionary_id = row.dictionary_id;
         let paths = if let Some(paths) = searchable_cache.get(&dictionary_id) {
             paths.clone()
         } else {
@@ -641,15 +653,24 @@ pub(super) fn ranked_rows_to_search_items(
             fields
         };
         let mut item = record_row_to_search_item_json(
-            ranked.row,
+            row,
             &paths,
             &fields,
             keyword,
             include_raw_json,
         )?;
-        item.as_object_mut()
-            .expect("data dictionary search item must be an object")
-            .insert("recallScore".to_string(), json!(ranked.recall_score));
+        let item_object = item
+            .as_object_mut()
+            .expect("data dictionary search item must be an object");
+        item_object.insert("recallScore".to_string(), json!(recall_score));
+        if let Some(normalized_primary_value) =
+            normalized_primary_value.filter(|value| !value.is_empty())
+        {
+            item_object.insert(
+                "normalizedPrimaryValue".to_string(),
+                json!(normalized_primary_value),
+            );
+        }
         out.push(item);
     }
     Ok(out)

@@ -7,6 +7,7 @@ use url::Url;
 use calamine::{open_workbook_auto, Data, Reader};
 
 use super::helpers::db_conn;
+use super::usage::{self, UsageKey, ACTION_OPEN, RESOURCE_PM_ITEM};
 
 
 pub(crate) const STATUSES: [&str; 4] = ["todo", "in_progress", "testing", "done"];
@@ -25,6 +26,7 @@ const ACTIONS: &[&str] = &[
     "item_counts",
     "item_list",
     "spotlight_list",
+    "item_record_open",
     "item_create",
     "item_update",
     "item_change_status",
@@ -76,6 +78,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_counts" => item_counts(),
         "item_list" => item_list(payload),
         "spotlight_list" => spotlight_list(),
+        "item_record_open" => item_record_open(payload),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
         "item_change_status" => item_change_status(payload),
@@ -340,7 +343,7 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
             params![id],
             |r| r.get(0),
         )
-        .unwrap_or(0);
+        .map_err(|error| format!("project_delete count linked todo items: {error}"))?;
     if todo_count > 0 {
         return Err(format!(
             "该项目下有 {todo_count} 条待办事项，请先移除待办的项目归属后再删除"
@@ -359,10 +362,17 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
         let rows = stmt
             .query_map(params![id], |r| r.get::<_, i64>(0))
             .map_err(|e| format!("project_delete query children: {e}"))?;
-        rows.filter_map(|r| r.ok()).collect()
+        let mut item_ids = Vec::new();
+        for row in rows {
+            item_ids.push(
+                row.map_err(|error| format!("project_delete read child item: {error}"))?,
+            );
+        }
+        item_ids
     };
     for item_id in &item_ids {
         super::attachments::delete_by_owner_internal(&tx, "pm_item", &item_id.to_string())?;
+        delete_pm_item_usage(&tx, *item_id)?;
     }
 
     // 2. 显式删子 items（pm_items 无 FK CASCADE，否则会产生孤儿记录）
@@ -596,6 +606,46 @@ fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, String> {
             );
     }
     Ok(json!(items))
+}
+
+fn item_record_open(payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id").ok_or("id is required")?;
+    let conn = db_conn()?;
+    record_pm_item_open_with_conn(&conn, id)
+}
+
+fn record_pm_item_open_with_conn(conn: &Connection, id: i64) -> Result<Value, String> {
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pm_items WHERE id = ?1)",
+            [id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("validate PM item usage failed: {error}"))?;
+    if !exists {
+        return Err("PM item not found".to_string());
+    }
+    let summary = usage::record(
+        conn,
+        UsageKey {
+            resource_type: RESOURCE_PM_ITEM,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+        ACTION_OPEN,
+    )?;
+    Ok(json!({ "resourceId": id.to_string(), "summary": summary }))
+}
+
+fn delete_pm_item_usage(conn: &Connection, id: i64) -> Result<(), String> {
+    usage::delete_resource(
+        conn,
+        UsageKey {
+            resource_type: RESOURCE_PM_ITEM,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+    )
 }
 
 fn load_spotlight_tags(
@@ -1353,6 +1403,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
     // 再删主行，FK CASCADE 会清掉 tags / todo_links / siyuan_links
     tx.execute("DELETE FROM pm_items WHERE id = ?1", params![id])
         .map_err(|e| format!("item_delete: {e}"))?;
+    delete_pm_item_usage(&tx, id)?;
     tx.commit()
         .map_err(|e| format!("item_delete commit: {e}"))?;
     Ok(json!({ "ok": true }))
@@ -1540,6 +1591,36 @@ mod tests {
         )
         .expect("create PM Spotlight schema");
         conn
+    }
+
+    fn create_pm_usage_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch("CREATE TABLE pm_items (id INTEGER PRIMARY KEY);")
+            .expect("create pm usage schema");
+        crate::tools::usage::ensure_schema_and_migrate(&conn).expect("create usage schema");
+        conn
+    }
+
+    #[test]
+    fn pm_item_usage_uses_stable_identity_and_delete_helper_cleans_it() {
+        let conn = create_pm_usage_test_conn();
+        conn.execute("INSERT INTO pm_items(id) VALUES(17)", []).unwrap();
+
+        record_pm_item_open_with_conn(&conn, 17).unwrap();
+        let key = UsageKey {
+            resource_type: RESOURCE_PM_ITEM,
+            scope_id: "",
+            resource_id: "17",
+        };
+        assert_eq!(
+            usage::summary(&conn, key.clone(), 30, &[])
+                .unwrap()
+                .total_count,
+            1
+        );
+
+        delete_pm_item_usage(&conn, 17).unwrap();
+        assert_eq!(usage::summary(&conn, key, 30, &[]).unwrap().total_count, 0);
     }
 
     #[test]

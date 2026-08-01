@@ -19,6 +19,7 @@ import type {
 interface DataDictionaryPayload {
   recordId: number;
   dictionaryId: number;
+  normalizedPrimaryValue?: string;
   summary: DataDictionaryRecordSummaryPart[];
 }
 
@@ -29,10 +30,17 @@ function truncate(text: string, max: number): string {
 function payloadOf(item: SpotlightItem): DataDictionaryPayload | null {
   const recordId = item.payload?.recordId;
   const dictionaryId = item.payload?.dictionaryId;
+  const normalizedPrimaryValue = item.payload?.normalizedPrimaryValue;
   const summary = item.payload?.summary;
   if (typeof recordId !== "number" || typeof dictionaryId !== "number") return null;
   if (!Array.isArray(summary)) return null;
-  return { recordId, dictionaryId, summary: summary as DataDictionaryRecordSummaryPart[] };
+  return {
+    recordId,
+    dictionaryId,
+    normalizedPrimaryValue:
+      typeof normalizedPrimaryValue === "string" ? normalizedPrimaryValue : undefined,
+    summary: summary as DataDictionaryRecordSummaryPart[],
+  };
 }
 
 export function buildDataDictionaryItem(row: DataDictionarySearchItem): SpotlightItem {
@@ -54,6 +62,7 @@ export function buildDataDictionaryItem(row: DataDictionarySearchItem): Spotligh
       createSearchField(match.value, 0.9),
     ]),
   ].filter((field) => field.text);
+  const normalizedPrimaryValue = row.normalizedPrimaryValue;
 
   return {
     providerId: "data-dictionary",
@@ -64,9 +73,20 @@ export function buildDataDictionaryItem(row: DataDictionarySearchItem): Spotligh
     status: summary.length > 0 ? { text: `${summary.length} 字段`, tone: "muted" } : undefined,
     searchFields,
     recallScore: row.recallScore,
+    ranking: normalizedPrimaryValue
+      ? {
+          usageRef: {
+            resourceType: "data-dictionary-record",
+            scopeId: String(row.dictionaryId),
+            resourceId: normalizedPrimaryValue,
+            actions: ["view"],
+          },
+        }
+      : undefined,
     payload: {
       recordId: row.id,
       dictionaryId: row.dictionaryId,
+      normalizedPrimaryValue,
       summary,
     },
   };

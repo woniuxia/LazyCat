@@ -36,6 +36,7 @@ const searchItem: DataDictionarySearchItem = {
     { fieldPath: "dept", label: "部门", value: "研发" },
   ],
   recallScore: 1520,
+  normalizedPrimaryValue: "1001",
 };
 
 beforeEach(() => {
@@ -66,6 +67,12 @@ describe("buildDataDictionaryItem", () => {
     expect(item.payload?.dictionaryId).toBe(3);
     expect(item.payload?.rawJson).toBeUndefined();
     expect(item.recallScore).toBe(1520);
+    expect(item.ranking?.usageRef).toEqual({
+      resourceType: "data-dictionary-record",
+      scopeId: "3",
+      resourceId: "1001",
+      actions: ["view"],
+    });
     expect(item.searchFields.map((field) => field.text)).toContain("张三");
     expect(item.searchFields.map((field) => field.text)).toContain("用户字典");
     expect(item.searchFields.map((field) => field.text)).toContain("编号 1001");

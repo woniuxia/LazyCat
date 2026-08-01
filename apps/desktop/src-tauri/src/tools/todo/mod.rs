@@ -34,6 +34,7 @@ const ACTIONS: &[&str] = &[
     "assignee_delete",
     "item_list",
     "spotlight_list",
+    "item_record_open",
     "item_create",
     "item_update",
     "item_upsert",
@@ -67,6 +68,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "assignee_delete" => assignee_delete(payload),
         "item_list" => item_list(payload),
         "spotlight_list" => spotlight_list(),
+        "item_record_open" => item_record_open(payload),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
         "item_upsert" => item_upsert(payload),
@@ -216,6 +218,7 @@ mod tests {
         .expect("create todo schema");
         crate::tools::release_package::ensure_schema(&conn).expect("create release schema");
         crate::tools::action_center::ensure_schema(&conn).expect("create action center schema");
+        crate::tools::usage::ensure_schema_and_migrate(&conn).expect("create usage schema");
         conn
     }
 
@@ -438,6 +441,33 @@ mod tests {
 
         assert_eq!(table_count(&conn, "todo_items"), 0);
         assert_eq!(table_count(&conn, "action_bindings"), 0);
+    }
+
+    #[test]
+    fn todo_open_usage_uses_stable_identity_and_is_deleted_with_item() {
+        let conn = create_test_conn();
+        seed_one_off(&conn, 41, "检查 Spotlight 推荐");
+
+        record_item_open_with_conn(&conn, 41).unwrap();
+        let key = crate::tools::usage::UsageKey {
+            resource_type: crate::tools::usage::RESOURCE_TODO_ITEM,
+            scope_id: "",
+            resource_id: "41",
+        };
+        assert_eq!(
+            crate::tools::usage::summary(&conn, key.clone(), 30, &[])
+                .unwrap()
+                .total_count,
+            1
+        );
+
+        item_delete_with_conn(&conn, &json!({ "id": 41 })).unwrap();
+        assert_eq!(
+            crate::tools::usage::summary(&conn, key, 30, &[])
+                .unwrap()
+                .total_count,
+            0
+        );
     }
 
     #[test]

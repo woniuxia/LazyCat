@@ -7,6 +7,7 @@ use crate::tools::action_center::{
     ensure_todo_can_become_recurring, parse_binding_patch, BindingPatch,
 };
 use crate::tools::helpers::db_conn;
+use crate::tools::usage::{self, UsageKey, ACTION_OPEN, RESOURCE_TODO_ITEM};
 
 use super::helpers::*;
 use super::recurrence::*;
@@ -189,6 +190,35 @@ pub(crate) fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, Strin
     }
     sort_item_rows(&mut items);
     Ok(json!({ "items": items }))
+}
+
+pub(crate) fn item_record_open(payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
+    let conn = db_conn()?;
+    record_item_open_with_conn(&conn, id)
+}
+
+pub(crate) fn record_item_open_with_conn(conn: &Connection, id: i64) -> Result<Value, String> {
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM todo_items WHERE id=?1)",
+            [id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("校验事项使用记录失败: {error}"))?;
+    if !exists {
+        return Err("事项不存在".to_string());
+    }
+    let summary = usage::record(
+        conn,
+        UsageKey {
+            resource_type: RESOURCE_TODO_ITEM,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+        ACTION_OPEN,
+    )?;
+    Ok(json!({ "resourceId": id.to_string(), "summary": summary }))
 }
 
 fn item_is_overdue(status: &str, event_at: Option<&str>, now: &DateTime<Utc>) -> bool {
@@ -1182,6 +1212,14 @@ pub(crate) fn delete_item_by_id(conn: &Connection, item_id: i64) -> Result<(), S
     .map_err(|e| format!("删除 PM 关联记录失败: {e}"))?;
     conn.execute("DELETE FROM todo_items WHERE id=?1", params![item_id])
         .map_err(|e| format!("删除事项失败: {e}"))?;
+    usage::delete_resource(
+        conn,
+        UsageKey {
+            resource_type: RESOURCE_TODO_ITEM,
+            scope_id: "",
+            resource_id: &item_id.to_string(),
+        },
+    )?;
     // 事项描述可能持有富文本附件，按 owner 汇点清理
     crate::tools::attachments::delete_by_owner_internal(conn, "todo", &item_id.to_string())?;
     Ok(())

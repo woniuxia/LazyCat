@@ -9,6 +9,7 @@ use super::{
     combinations::ExecutionMode,
 };
 use crate::events::EVENT_ACTION_CENTER_COMBINATION_RUN_UPDATED;
+use crate::tools::usage::{self, UsageKey, ACTION_RUN, RESOURCE_ACTION_COMBINATION};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 use std::{
@@ -895,7 +896,7 @@ pub(crate) fn start_with_app(
         }
         event_result
     });
-    start_with_dependencies(
+    let run = start_with_dependencies(
         &mut conn,
         combination_id,
         snapshot_target,
@@ -908,7 +909,19 @@ pub(crate) fn start_with_app(
                 .spawn(task)
                 .map(|_| ())
         },
-    )
+    )?;
+    if let Err(error) = usage::record(
+        &conn,
+        UsageKey {
+            resource_type: RESOURCE_ACTION_COMBINATION,
+            scope_id: "",
+            resource_id: &combination_id.to_string(),
+        },
+        ACTION_RUN,
+    ) {
+        eprintln!("record action combination usage failed for {combination_id}: {error}");
+    }
+    Ok(run)
 }
 
 #[cfg(test)]

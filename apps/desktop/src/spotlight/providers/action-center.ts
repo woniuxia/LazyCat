@@ -46,6 +46,13 @@ export function buildActionCombinationSpotlightItem(
       createSearchField("动作中心 组合动作", 0.65),
       createSearchField(modeLabel, 0.4),
     ],
+    ranking: {
+      usageRef: {
+        resourceType: "action-combination",
+        resourceId: String(combination.id),
+        actions: ["run"],
+      },
+    },
     payload: {
       combinationId: combination.id,
       combinationName: combination.name,

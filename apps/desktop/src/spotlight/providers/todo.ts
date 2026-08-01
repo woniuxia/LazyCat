@@ -46,6 +46,9 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
 
   return list.map<SpotlightItem>((todo) => {
     const status = dueStatus(todo);
+    const isOpen = todo.status !== "done" && todo.status !== "completed";
+    const contextual =
+      isOpen && (todo.pinned === true || todo.isOverdue === true || status?.text === "今日");
     return {
       providerId: "todo",
       itemId: String(todo.id),
@@ -57,7 +60,15 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
         createSearchField(todo.title, 1.2),
         createSearchField(todo.typeName ?? "", 0.6),
       ],
-      ranking: { pinned: todo.pinned },
+      ranking: {
+        pinned: todo.pinned,
+        contextual,
+        usageRef: {
+          resourceType: "todo-item",
+          resourceId: String(todo.id),
+          actions: ["open"],
+        },
+      },
       payload: {
         todoId: todo.id,
         status: todo.status,
@@ -69,6 +80,11 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
 
 async function jumpToTodo(todoId: number): Promise<SpotlightExecuteResult> {
   await invoke("spotlight_pick", { target: "todo", itemId: String(todoId) });
+  try {
+    await invokeToolByChannel("tool:todo:item-record-open", { id: todoId });
+  } catch (error) {
+    console.warn(`[Spotlight] record Todo ${todoId} open failed:`, error);
+  }
   return { closeSpotlight: true };
 }
 

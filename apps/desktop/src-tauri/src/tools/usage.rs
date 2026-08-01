@@ -12,12 +12,16 @@ pub const RESOURCE_BROWSER_PROFILE: &str = "browser-profile";
 pub const RESOURCE_SNIPPET: &str = "snippet";
 pub const RESOURCE_VAULT_ENTRY: &str = "vault-entry";
 pub const RESOURCE_DATA_DICTIONARY_RECORD: &str = "data-dictionary-record";
+pub const RESOURCE_TODO_ITEM: &str = "todo-item";
+pub const RESOURCE_PM_ITEM: &str = "pm-item";
+pub const RESOURCE_ACTION_COMBINATION: &str = "action-combination";
 
 pub const ACTION_OPEN: &str = "open";
 pub const ACTION_LAUNCH: &str = "launch";
 pub const ACTION_VIEW: &str = "view";
 pub const ACTION_REVEAL: &str = "reveal";
 pub const ACTION_COPY: &str = "copy";
+pub const ACTION_RUN: &str = "run";
 
 const MIGRATION_NAME: &str = "usage_v1";
 const DAY_MS: i64 = 86_400_000;
