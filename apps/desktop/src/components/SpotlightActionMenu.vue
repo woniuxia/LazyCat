@@ -20,6 +20,12 @@
         @mouseenter="activeIndex = idx"
         @click="select(action)"
       >
+        <component
+          :is="resolveActionIcon(action.icon)"
+          v-if="resolveActionIcon(action.icon)"
+          class="spotlight-action-icon"
+          aria-hidden="true"
+        />
         <span class="spotlight-action-label">{{ action.label }}</span>
         <span v-if="action.needsMasterPassword" class="spotlight-action-hint">需主密码</span>
         <span v-else-if="action.shortcut" class="spotlight-action-hint">{{ action.shortcut }}</span>
@@ -30,6 +36,17 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import {
+  Calendar,
+  CircleCheck,
+  CopyDocument,
+  FolderOpened,
+  Grid,
+  Link,
+  Lock,
+  Refresh,
+  VideoPlay,
+} from "@element-plus/icons-vue";
 import type { SpotlightAction } from "../spotlight/types";
 
 const props = defineProps<{
@@ -46,13 +63,48 @@ const emit = defineEmits<{
 const activeIndex = ref(0);
 const itemRefs = ref<HTMLButtonElement[]>([]);
 
+const actionIcons = {
+  board: Grid,
+  calendar: Calendar,
+  check: CircleCheck,
+  copy: CopyDocument,
+  external: Link,
+  folder: FolderOpened,
+  list: Grid,
+  lock: Lock,
+  matrix: Grid,
+  play: VideoPlay,
+  rotate: Refresh,
+  shield: Lock,
+} as const;
+
+function resolveActionIcon(icon?: string) {
+  if (!icon) return undefined;
+  return actionIcons[icon as keyof typeof actionIcons];
+}
+
 const positionStyle = computed(() => {
   if (!props.anchorRect) return { display: "none" };
-  const left = props.anchorRect.right + 8;
-  const top = props.anchorRect.top;
+  const margin = 12;
+  const gap = 8;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const menuWidth = Math.min(280, Math.max(0, viewportWidth - margin * 2));
+  const maxHeight = Math.max(0, viewportHeight - margin * 2);
+  const estimatedHeight = Math.min(maxHeight, Math.max(48, props.actions.length * 38 + 8));
+  const rightSide = props.anchorRect.right + gap;
+  const leftSide = props.anchorRect.left - menuWidth - gap;
+  const preferredLeft = rightSide + menuWidth <= viewportWidth - margin ? rightSide : leftSide;
+  const left = Math.max(margin, Math.min(preferredLeft, viewportWidth - menuWidth - margin));
+  const top = Math.max(
+    margin,
+    Math.min(props.anchorRect.top, viewportHeight - estimatedHeight - margin),
+  );
   return {
-    left: `${Math.min(left, window.innerWidth - 296)}px`,
-    top: `${Math.min(top, window.innerHeight - 200)}px`,
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${menuWidth}px`,
+    maxHeight: `${maxHeight}px`,
   };
 });
 
@@ -117,7 +169,7 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .spotlight-action-menu {
   position: fixed;
-  min-width: 220px;
+  min-width: 0;
   max-width: 280px;
   background: #ffffff;
   border-radius: 10px;
@@ -127,6 +179,7 @@ function onKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
   z-index: 9999;
 }
 
@@ -150,6 +203,11 @@ function onKeydown(e: KeyboardEvent) {
   outline: none;
 }
 
+.spotlight-action-item:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: -2px;
+}
+
 .spotlight-action-item.is-active,
 .spotlight-action-item:hover {
   background: #f3f6fb;
@@ -164,6 +222,13 @@ function onKeydown(e: KeyboardEvent) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.spotlight-action-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: #64748b;
 }
 
 .spotlight-action-hint {

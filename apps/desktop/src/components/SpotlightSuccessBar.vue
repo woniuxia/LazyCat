@@ -1,11 +1,13 @@
 <template>
   <div v-if="message" class="spotlight-success" role="status" aria-live="polite">
-    <span class="spotlight-success-icon">✓</span>
+    <CircleCheckFilled class="spotlight-success-icon" aria-hidden="true" />
     <span class="spotlight-success-text">{{ message }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { CircleCheckFilled } from "@element-plus/icons-vue";
+
 defineProps<{
   message: string | null;
 }>();
@@ -24,8 +26,9 @@ defineProps<{
 }
 
 .spotlight-success-icon {
-  font-size: 14px;
-  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .spotlight-success-text {

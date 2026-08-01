@@ -1,5 +1,11 @@
 <template>
-  <div class="spotlight" @keydown="onKeydown">
+  <div
+    class="spotlight"
+    role="dialog"
+    aria-label="Spotlight"
+    :aria-busy="isLoadingView || executing"
+    @keydown="onKeydown"
+  >
     <SpotlightVaultUnlockInput
       v-if="unlockState"
       ref="unlockRef"
@@ -15,13 +21,36 @@
         :placeholder="placeholder"
         spellcheck="false"
         autocomplete="off"
+        :readonly="executing"
+        role="combobox"
+        aria-label="搜索工具、动作和数据"
+        aria-autocomplete="list"
+        aria-controls="spotlight-results"
+        :aria-activedescendant="activeResultId || undefined"
+        :aria-expanded="results.length > 0"
       />
+      <span
+        v-if="isLoadingView"
+        class="spotlight-inline-status"
+        role="status"
+        aria-label="正在更新结果"
+      >
+        <Loading aria-hidden="true" />
+      </span>
       <span v-if="scope" class="spotlight-scope-chip">{{ scopeLabel }}</span>
     </div>
 
-    <div class="spotlight-results">
-      <div v-if="isLoadingView && results.length === 0" class="spotlight-empty">加载中…</div>
-      <div v-else-if="results.length === 0" class="spotlight-empty">
+    <div
+      id="spotlight-results"
+      class="spotlight-results"
+      role="listbox"
+      aria-label="Spotlight 搜索结果"
+      :aria-busy="isLoadingView"
+    >
+      <div v-if="isLoadingView && results.length === 0" class="spotlight-empty" role="status">
+        加载中…
+      </div>
+      <div v-else-if="results.length === 0" class="spotlight-empty" role="status">
         {{
           query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目"
         }}
@@ -30,8 +59,12 @@
         v-for="(entry, idx) in results"
         :key="entry.item.providerId + ':' + entry.item.itemId"
         ref="rowRefs"
+        :id="resultId(idx)"
         class="spotlight-row"
-        :class="{ 'is-active': idx === activeIndex }"
+        :class="{ 'is-active': idx === activeIndex, 'is-disabled': executing }"
+        role="option"
+        :aria-selected="idx === activeIndex"
+        :aria-disabled="executing"
         @mouseenter="activeIndex = idx"
         @click="commitDefault(entry.item)"
       >
@@ -86,6 +119,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Loading } from "@element-plus/icons-vue";
 
 import SpotlightActionMenu from "./SpotlightActionMenu.vue";
 import SpotlightErrorBar from "./SpotlightErrorBar.vue";
@@ -161,6 +195,7 @@ const RESULT_LIMIT = 9;
 const query = ref("");
 const activeIndex = ref(0);
 const loading = ref(false);
+const executing = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
 const rowRefs = ref<HTMLElement[]>([]);
 const unlockRef = ref<InstanceType<typeof SpotlightVaultUnlockInput> | null>(null);
@@ -369,6 +404,7 @@ const placeholder = computed(() => {
 const footerHint = computed(() => {
   if (unlockState.value) return "输入主密码 · 正确即复制 · Esc 取消";
   if (actionMenuOpen.value) return "↑↓ 选择 · Enter 执行 · Esc 收起";
+  if (executing.value) return "执行中… · Esc 隐藏";
   if (errorMessage.value) return "Ctrl+R 重试 · Esc 关闭";
   return "Enter 执行 · Tab 备选动作 · Alt+1-9 直选 · Esc 关闭";
 });
@@ -484,12 +520,21 @@ const results = computed(() => {
   });
 });
 
+function resultId(index: number): string {
+  return `spotlight-result-${index}`;
+}
+
+const activeResultId = computed(() => {
+  return results.value[activeIndex.value] ? resultId(activeIndex.value) : undefined;
+});
+
 watch(results, () => {
   activeIndex.value = nextSpotlightActiveIndex({
     currentIndex: activeIndex.value,
     resultCount: results.value.length,
     queryChanged: false,
   });
+  scrollActiveResultIntoView();
 });
 
 watch(
@@ -601,6 +646,8 @@ async function refreshQueryProviders() {
   const text = parsed.value.query;
   const currentScope = scope.value;
   const requestSeq = queryGuard.next(text, currentScope);
+  // 远程 provider 的结果只属于当前查询，避免新查询期间展示旧结果。
+  queryItemsByProvider.value = new Map();
   const baseProviders = view.value
     ? view.value.providers.filter((provider) => provider.enabled)
     : listProviders();
@@ -682,6 +729,14 @@ function focusInput(retries = 3) {
   }
 }
 
+function scrollActiveResultIntoView() {
+  nextTick(() => {
+    const row = rowRefs.value[activeIndex.value];
+    if (typeof row?.scrollIntoView !== "function") return;
+    row.scrollIntoView({ block: "nearest" });
+  });
+}
+
 function onWindowFocus() {
   focusInput();
 }
@@ -734,6 +789,8 @@ function showSuccessBar(message: string, willClose: boolean) {
 }
 
 async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
+  if (executing.value) return;
+  executing.value = true;
   lastFailed.value = fn;
   try {
     const result = await fn();
@@ -742,10 +799,13 @@ async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
     const msg = err instanceof Error ? err.message : String(err);
     errorMessage.value = msg;
     if (unlockState.value) unlockRef.value?.reportError?.(msg);
+  } finally {
+    executing.value = false;
   }
 }
 
 async function commitDefault(item: SpotlightItem) {
+  if (executing.value) return;
   if (isKeywordItem(item)) {
     await runWithRunner(() => executeKeywordItem(item, buildContext()));
     return;
@@ -791,6 +851,7 @@ async function commitDefault(item: SpotlightItem) {
 }
 
 function openActionMenu(item: SpotlightItem) {
+  if (executing.value) return;
   if (isKeywordItem(item)) {
     const actions = buildKeywordItemActions(item);
     if (actions.length === 0) return;
@@ -803,7 +864,9 @@ function openActionMenu(item: SpotlightItem) {
   }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider || !provider.buildActions) return;
-  actionMenuActions.value = provider.buildActions(item);
+  const actions = provider.buildActions(item);
+  if (actions.length === 0) return;
+  actionMenuActions.value = actions;
   actionMenuTargetItem.value = item;
   const row = rowRefs.value[activeIndex.value];
   actionMenuAnchor.value = row?.getBoundingClientRect() ?? null;
@@ -860,16 +923,19 @@ function onKeydown(e: KeyboardEvent) {
     void closeWindow();
     return;
   }
+  if (executing.value) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
     if (results.value.length === 0) return;
     activeIndex.value = (activeIndex.value + 1) % results.value.length;
+    scrollActiveResultIntoView();
     return;
   }
   if (e.key === "ArrowUp") {
     e.preventDefault();
     if (results.value.length === 0) return;
     activeIndex.value = (activeIndex.value - 1 + results.value.length) % results.value.length;
+    scrollActiveResultIntoView();
     return;
   }
   if (e.key === "Enter") {
@@ -995,11 +1061,12 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: 100vw;
   height: 100vh;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  background: var(--lc-surface-0);
+  border-radius: var(--lc-radius-md);
+  box-shadow: var(--lc-shadow-lg);
   overflow: hidden;
   font-family: inherit;
+  color: var(--lc-text);
 }
 
 .spotlight-input-wrap {
@@ -1018,12 +1085,33 @@ onBeforeUnmount(() => {
   border: none;
   outline: none;
   font-size: 16px;
-  color: #303133;
+  color: var(--lc-text);
   background: transparent;
 }
 
 .spotlight-input::placeholder {
-  color: #c0c4cc;
+  color: var(--lc-text-muted);
+}
+
+.spotlight-input:read-only {
+  color: var(--lc-text-secondary);
+  cursor: wait;
+}
+
+.spotlight-inline-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--lc-accent);
+}
+
+.spotlight-inline-status svg {
+  width: 16px;
+  height: 16px;
+  animation: spotlight-spin 0.85s linear infinite;
 }
 
 .spotlight-scope-chip {
@@ -1031,19 +1119,20 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(64, 158, 255, 0.12);
-  color: #2563eb;
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent-dark, #0284c7);
 }
 
 .spotlight-results {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 4px 0;
 }
 
 .spotlight-empty {
   padding: 24px 20px;
-  color: #909399;
+  color: var(--lc-text-secondary);
   font-size: 13px;
   text-align: center;
 }
@@ -1059,7 +1148,12 @@ onBeforeUnmount(() => {
 }
 
 .spotlight-row.is-active {
-  background: #f3f6fb;
+  background: var(--lc-accent-dim);
+}
+
+.spotlight-row.is-disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .spotlight-row-index {
@@ -1077,7 +1171,7 @@ onBeforeUnmount(() => {
 }
 
 .spotlight-row.is-active .spotlight-row-index {
-  background: #409eff;
+  background: var(--lc-accent);
   color: #fff;
 }
 
@@ -1131,7 +1225,7 @@ onBeforeUnmount(() => {
 
 .spotlight-row-name {
   font-size: 14px;
-  color: #303133;
+  color: var(--lc-text);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -1140,7 +1234,7 @@ onBeforeUnmount(() => {
 
 .spotlight-row-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--lc-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1188,8 +1282,23 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   padding: 6px 16px;
   font-size: 11px;
-  color: #909399;
-  background: #fafbfc;
+  color: var(--lc-text-muted);
+  background: var(--lc-surface-1);
   border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+@keyframes spotlight-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-inline-status svg {
+    animation: none;
+  }
+  .spotlight-row {
+    transition: none;
+  }
 }
 </style>

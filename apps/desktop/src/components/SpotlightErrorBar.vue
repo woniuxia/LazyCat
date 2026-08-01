@@ -1,6 +1,6 @@
 <template>
   <div v-if="message" class="spotlight-error" role="alert">
-    <span class="spotlight-error-icon">⚠</span>
+    <WarningFilled class="spotlight-error-icon" aria-hidden="true" />
     <span class="spotlight-error-text" :title="message">{{ message }}</span>
     <button v-if="canRetry" class="spotlight-error-btn" @click="$emit('retry')">
       重试 (Ctrl+R)
@@ -10,6 +10,8 @@
 </template>
 
 <script setup lang="ts">
+import { WarningFilled } from "@element-plus/icons-vue";
+
 defineProps<{
   message: string | null;
   canRetry?: boolean;
@@ -34,7 +36,9 @@ defineEmits<{
 }
 
 .spotlight-error-icon {
-  font-size: 14px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .spotlight-error-text {
