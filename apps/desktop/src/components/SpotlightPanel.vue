@@ -4,7 +4,6 @@
     role="dialog"
     aria-label="Spotlight"
     :aria-busy="isLoadingView || executing"
-    @keydown="onKeydown"
   >
     <SpotlightVaultUnlockInput
       v-if="unlockState"
@@ -42,6 +41,7 @@
 
     <div
       id="spotlight-results"
+      ref="resultsRef"
       class="spotlight-results"
       role="listbox"
       aria-label="Spotlight 搜索结果"
@@ -162,6 +162,7 @@ import {
   parseKeywordCommand,
 } from "../utils/spotlight-query";
 import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
+import { nextSpotlightScrollTop } from "../utils/spotlight-scroll";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { initSettings, getSetting } from "../composables/useSettings";
 import {
@@ -197,6 +198,7 @@ const activeIndex = ref(0);
 const loading = ref(false);
 const executing = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
+const resultsRef = ref<HTMLElement | null>(null);
 const rowRefs = ref<HTMLElement[]>([]);
 const unlockRef = ref<InstanceType<typeof SpotlightVaultUnlockInput> | null>(null);
 
@@ -534,7 +536,6 @@ watch(results, () => {
     resultCount: results.value.length,
     queryChanged: false,
   });
-  scrollActiveResultIntoView();
 });
 
 watch(
@@ -731,9 +732,23 @@ function focusInput(retries = 3) {
 
 function scrollActiveResultIntoView() {
   nextTick(() => {
-    const row = rowRefs.value[activeIndex.value];
-    if (typeof row?.scrollIntoView !== "function") return;
-    row.scrollIntoView({ block: "nearest" });
+    const container = resultsRef.value;
+    const row = container?.querySelector<HTMLElement>(`#${resultId(activeIndex.value)}`);
+    if (!container || !row) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const viewportHeight = containerRect.height;
+    if (viewportHeight <= 0 || rowRect.height <= 0) return;
+    const nextScrollTop = nextSpotlightScrollTop({
+      scrollTop: container.scrollTop,
+      viewportHeight,
+      itemTop: rowRect.top - containerRect.top + container.scrollTop,
+      itemHeight: rowRect.height,
+    });
+    if (nextScrollTop !== container.scrollTop) {
+      container.scrollTop = nextScrollTop;
+    }
   });
 }
 
@@ -923,7 +938,10 @@ function onKeydown(e: KeyboardEvent) {
     void closeWindow();
     return;
   }
-  if (executing.value) return;
+  if (executing.value) {
+    e.preventDefault();
+    return;
+  }
   if (e.key === "ArrowDown") {
     e.preventDefault();
     if (results.value.length === 0) return;
@@ -1014,6 +1032,7 @@ onMounted(async () => {
     });
 
   window.addEventListener("focus", onWindowFocus);
+  window.addEventListener("keydown", onKeydown);
 
   await nextTick();
   focusInput();
@@ -1052,6 +1071,7 @@ onBeforeUnmount(() => {
     successTimeoutId = null;
   }
   window.removeEventListener("focus", onWindowFocus);
+  window.removeEventListener("keydown", onKeydown);
 });
 </script>
 
