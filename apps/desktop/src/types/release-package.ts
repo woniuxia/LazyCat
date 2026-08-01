@@ -80,6 +80,7 @@ export interface ReleasePackageEnvironmentConfig extends ReleasePackageEnvironme
 export interface ReleasePackageProject extends ReleasePackageProjectDraft {
   id: number;
   environments: ReleasePackageEnvironmentConfig[];
+  recentUsageCount: number;
   createdAt: string;
   updatedAt: string;
 }

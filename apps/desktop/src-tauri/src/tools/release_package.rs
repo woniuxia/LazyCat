@@ -26,6 +26,9 @@ use super::release_package_remote::{
     validate_remote_dir, validate_remote_file, AuthSecret, HostTrust, PreflightBinding,
     ProbeSnapshot, RemoteEndpoint, RemoteTarget,
 };
+use super::usage::{
+    self, UsageKey, ACTION_OPEN, DEFAULT_WINDOW_DAYS, RESOURCE_RELEASE_PACKAGE_PROJECT,
+};
 use zeroize::Zeroizing;
 
 const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
@@ -510,6 +513,7 @@ pub(crate) fn migrate_legacy_output_root(conn: &Connection) -> Result<(), String
 
 const ACTIONS: &[&str] = &[
     "project_list",
+    "project_record_open",
     "project_create",
     "project_update",
     "project_delete",
@@ -1225,6 +1229,7 @@ struct ProjectListItem {
     #[serde(flatten)]
     project: ReleasePackageProjectConfig,
     environments: Vec<ReleasePackageEnvironmentConfig>,
+    recent_usage_count: i64,
 }
 
 #[cfg(test)]
@@ -1261,6 +1266,7 @@ fn run_thread_hook(hook_slot: &Mutex<Option<ThreadHook>>) {
 }
 
 fn load_project_list_items(conn: &Connection) -> Result<Vec<ProjectListItem>, String> {
+    usage::ensure_schema_and_migrate(conn)?;
     let transaction =
         Transaction::new_unchecked(conn, TransactionBehavior::Deferred).map_err(|error| {
             format!("begin release package project list transaction failed: {error}")
@@ -1302,8 +1308,16 @@ fn load_project_list_items(conn: &Connection) -> Result<Vec<ProjectListItem>, St
             .push(environment);
     }
 
+    let usage_summaries = usage::summaries_for_type(
+        &transaction,
+        RESOURCE_RELEASE_PACKAGE_PROJECT,
+        DEFAULT_WINDOW_DAYS,
+    )?;
     let mut items = Vec::with_capacity(projects.len());
     for project in projects {
+        let recent_usage_count = usage_summaries
+            .get(&(String::new(), project.id.to_string()))
+            .map_or(0, |summary| summary.window_count);
         let environments = grouped.remove(&project.id).unwrap_or_default();
         let mut test = Vec::new();
         let mut production = Vec::new();
@@ -1319,11 +1333,13 @@ fn load_project_list_items(conn: &Connection) -> Result<Vec<ProjectListItem>, St
         items.push(ProjectListItem {
             project,
             environments: vec![test.pop().unwrap(), production.pop().unwrap()],
+            recent_usage_count,
         });
     }
     if !grouped.is_empty() {
         return Err("上线包项目环境配置不完整".into());
     }
+    items.sort_by(|left, right| right.recent_usage_count.cmp(&left.recent_usage_count));
     transaction.commit().map_err(|error| {
         format!("commit release package project list transaction failed: {error}")
     })?;
@@ -1332,6 +1348,30 @@ fn load_project_list_items(conn: &Connection) -> Result<Vec<ProjectListItem>, St
 
 fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "projects": load_project_list_items(conn)? }))
+}
+
+fn project_record_open_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = required_positive_id(payload, "id")?;
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
+            [id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("validate release package project usage failed: {error}"))?;
+    if !exists {
+        return Err("release package project not found".into());
+    }
+    let summary = usage::record(
+        conn,
+        UsageKey {
+            resource_type: RESOURCE_RELEASE_PACKAGE_PROJECT,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+        ACTION_OPEN,
+    )?;
+    Ok(json!({ "resourceId": id.to_string(), "summary": summary }))
 }
 
 fn action_target_label(project_name: &str, environment: ReleasePackageEnvironmentKind) -> String {
@@ -1578,12 +1618,26 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
 
 fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = required_positive_id(payload, "id")?;
-    let changed = conn
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin release package project delete failed: {error}"))?;
+    let changed = transaction
         .execute("DELETE FROM release_package_projects WHERE id=?1", [id])
         .map_err(|e| format!("delete release package project failed: {e}"))?;
     if changed == 0 {
         return Err("release package project not found".into());
     }
+    usage::delete_resource(
+        &transaction,
+        UsageKey {
+            resource_type: RESOURCE_RELEASE_PACKAGE_PROJECT,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| format!("commit release package project delete failed: {error}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -2060,6 +2114,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     match action {
         "project_list" => project_list_with_conn(&conn),
+        "project_record_open" => project_record_open_with_conn(&conn, payload),
         "project_create" => project_create_with_conn(&conn, payload),
         "project_update" => project_update_with_conn(&conn, payload),
         "project_delete" => project_delete_with_conn(&conn, payload),
@@ -2246,7 +2301,7 @@ pub fn execute_with_app(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use chrono::{NaiveDate, Utc};
     use rusqlite::Connection;
     use serde_json::{json, Value};
     use std::{
@@ -2287,6 +2342,7 @@ mod tests {
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL).unwrap();
+        usage::ensure_schema_and_migrate(&conn).unwrap();
         conn
     }
 
@@ -2593,6 +2649,7 @@ mod tests {
         assert_eq!(project["name"], "客户门户");
         assert_eq!(project["frontendProjectPath"], r"D:\work\web");
         assert_eq!(project["backendProjectPath"], r"D:\work\server");
+        assert_eq!(project["recentUsageCount"], 0);
         let environments = project["environments"].as_array().unwrap();
         assert_eq!(environments.len(), 2);
         assert_eq!(environments[0]["environment"], "test");
@@ -2601,6 +2658,94 @@ mod tests {
         assert_eq!(environments[0]["frontendSuccessKeyword"], "Build completed");
         assert_eq!(environments[1]["environment"], "production");
         assert_eq!(environments[1]["configured"], false);
+    }
+
+    #[test]
+    fn project_list_sorts_by_recent_open_count_and_excludes_old_usage() {
+        let conn = test_conn();
+        let mut alpha_payload = environment_project_payload("test");
+        alpha_payload["project"]["name"] = json!("Alpha");
+        let alpha_id = project_create_with_conn(&conn, &alpha_payload).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let mut beta_payload = environment_project_payload("test");
+        beta_payload["project"]["name"] = json!("Beta");
+        let beta_id = project_create_with_conn(&conn, &beta_payload).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let mut old_payload = environment_project_payload("test");
+        old_payload["project"]["name"] = json!("Old");
+        let old_id = project_create_with_conn(&conn, &old_payload).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+
+        project_record_open_with_conn(&conn, &json!({ "id": alpha_id })).unwrap();
+        project_record_open_with_conn(&conn, &json!({ "id": beta_id })).unwrap();
+        project_record_open_with_conn(&conn, &json!({ "id": beta_id })).unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO usage_daily(
+                resource_type, scope_id, resource_id, action,
+                day_utc, use_count, last_used_at_ms
+             ) VALUES (?1, '', ?2, ?3, ?4, 99, ?5)",
+            params![
+                RESOURCE_RELEASE_PACKAGE_PROJECT,
+                old_id.to_string(),
+                ACTION_OPEN,
+                now_ms.div_euclid(86_400_000) - 31,
+                now_ms - 31 * 86_400_000,
+            ],
+        )
+        .unwrap();
+
+        let listed = project_list_with_conn(&conn).unwrap();
+        let projects = listed["projects"].as_array().unwrap();
+        assert_eq!(
+            projects
+                .iter()
+                .map(|project| project["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["Beta", "Alpha", "Old"]
+        );
+        assert_eq!(projects[0]["recentUsageCount"], 2);
+        assert_eq!(projects[1]["recentUsageCount"], 1);
+        assert_eq!(projects[2]["recentUsageCount"], 0);
+    }
+
+    #[test]
+    fn project_usage_rejects_missing_projects_and_is_deleted_with_project() {
+        let conn = test_conn();
+        let project_id = project_create_with_conn(&conn, &environment_project_payload("test"))
+            .unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        project_record_open_with_conn(&conn, &json!({ "id": project_id })).unwrap();
+
+        assert_eq!(
+            conn.query_row(
+                "SELECT SUM(use_count) FROM usage_daily
+                 WHERE resource_type=?1 AND resource_id=?2",
+                params![RESOURCE_RELEASE_PACKAGE_PROJECT, project_id.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        project_delete_with_conn(&conn, &json!({ "id": project_id })).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM usage_daily
+                 WHERE resource_type=?1 AND resource_id=?2",
+                params![RESOURCE_RELEASE_PACKAGE_PROJECT, project_id.to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            project_record_open_with_conn(&conn, &json!({ "id": project_id })).unwrap_err(),
+            "release package project not found"
+        );
     }
 
     #[test]

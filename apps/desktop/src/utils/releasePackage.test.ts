@@ -33,6 +33,7 @@ import {
 const project: ReleasePackageProject = {
   id: 7,
   name: "客户门户",
+  recentUsageCount: 0,
   frontendProjectPath: "D:\\work\\portal-web",
   backendProjectPath: "D:\\work\\portal-server",
   environments: [],

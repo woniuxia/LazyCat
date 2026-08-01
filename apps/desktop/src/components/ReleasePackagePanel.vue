@@ -1138,6 +1138,7 @@ import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntim
 import { useReleasePackageCommandRetry } from "../composables/useReleasePackageCommandRetry";
 import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
 import type { ActionDispatchRequest } from "../types";
+import type { UsageSummary } from "../types/usage";
 import type {
   ReleasePackageBranchCheck,
   ReleasePackageBranchCheckResult,
@@ -1669,6 +1670,23 @@ async function selectProject(project: ReleasePackageProject): Promise<void> {
   selectedId.value = project.id;
   selectedEnvironmentKind.value = "test";
   restoreSelectedDrafts();
+  await recordProjectOpen(project.id);
+}
+
+async function recordProjectOpen(projectId: number): Promise<void> {
+  try {
+    const result = (await invokeToolByChannel("tool:release-package:project-record-open", {
+      id: projectId,
+    })) as { resourceId: string; summary: UsageSummary };
+    const project = projects.value.find((item) => item.id === projectId);
+    if (!project) return;
+    project.recentUsageCount = result.summary.windowCount;
+    projects.value = [...projects.value].sort(
+      (left, right) => right.recentUsageCount - left.recentUsageCount,
+    );
+  } catch (error) {
+    console.warn("record release package project usage failed", error);
+  }
 }
 
 async function newProject(): Promise<void> {

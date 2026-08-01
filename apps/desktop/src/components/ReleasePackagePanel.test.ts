@@ -198,6 +198,7 @@ async function flushMountedPanel(): Promise<void> {
 const mountedProject: ReleasePackageProject = {
   id: 7,
   name: "Portal",
+  recentUsageCount: 0,
   frontendProjectPath: "C:\\portal\\web",
   backendProjectPath: "C:\\portal\\api",
   environments: [
@@ -529,6 +530,59 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("终止打包");
   });
 
+  it("records a successful project switch and immediately reorders by recent usage", async () => {
+    const adminProject: ReleasePackageProject = {
+      ...mountedProject,
+      id: 8,
+      name: "Admin",
+      environments: mountedProject.environments.map((environment) => ({
+        ...environment,
+        id: environment.id + 10,
+        projectId: 8,
+      })),
+    };
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") {
+        return { projects: [mountedProject, adminProject] };
+      }
+      if (channel === "tool:release-package:project-record-open") {
+        return {
+          resourceId: "8",
+          summary: { totalCount: 4, windowCount: 4, lastUsedAt: 1, actionCounts: { open: 4 } },
+        };
+      }
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const adminButton = findNode(
+      root,
+      (node) =>
+        node.type === "button" &&
+        String(node.props.class).includes("project-item") &&
+        nodeText(node).includes("Admin"),
+    );
+    await (adminButton?.props.onClick as () => Promise<void>)();
+    await nextTick();
+
+    expect(panelHarness.invoke).toHaveBeenCalledWith("tool:release-package:project-record-open", {
+      id: 8,
+    });
+    const projectButtons = buttonTexts(root).filter((text) =>
+      ["Portal", "Admin"].some((name) => text.includes(name)),
+    );
+    expect(projectButtons[0]).toContain("Admin");
+    app.unmount();
+  });
+
   it("edits the project name from the header without a duplicate basics field", () => {
     expect(source).not.toContain('class="editor-hint"');
     expect(source).not.toContain('<el-form-item label="项目名称"');
@@ -543,6 +597,7 @@ describe("ReleasePackagePanel", () => {
   it("uses all release-package actions without global setting persistence", () => {
     for (const channel of [
       "project-list",
+      "project-record-open",
       "project-create",
       "project-update",
       "project-delete",

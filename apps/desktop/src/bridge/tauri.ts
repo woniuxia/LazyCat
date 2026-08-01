@@ -194,6 +194,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:api-mock:project-delete": { domain: "api_mock", action: "project_delete" },
   "tool:api-mock:project-reorder": { domain: "api_mock", action: "project_reorder" },
   "tool:release-package:project-list": { domain: "release_package", action: "project_list" },
+  "tool:release-package:project-record-open": {
+    domain: "release_package",
+    action: "project_record_open",
+  },
   "tool:release-package:project-create": { domain: "release_package", action: "project_create" },
   "tool:release-package:project-update": { domain: "release_package", action: "project_update" },
   "tool:release-package:project-delete": { domain: "release_package", action: "project_delete" },
