@@ -308,6 +308,9 @@ fn resource_summaries_with_conn(conn: &Connection, payload: &Value) -> Result<Va
         RESOURCE_SNIPPET,
         RESOURCE_VAULT_ENTRY,
         RESOURCE_DATA_DICTIONARY_RECORD,
+        RESOURCE_TODO_ITEM,
+        RESOURCE_PM_ITEM,
+        RESOURCE_ACTION_COMBINATION,
     ];
     let mut requests = Vec::with_capacity(refs.len());
     for item in refs {
@@ -1095,6 +1098,54 @@ mod tests {
         assert_eq!(items[2]["summary"]["actionCounts"][ACTION_COPY], 3);
         assert_eq!(items[3]["scopeId"], "7");
         assert_eq!(items[3]["summary"]["totalCount"], 4);
+    }
+
+    #[test]
+    fn resource_summaries_accepts_spotlight_domain_refs() {
+        let conn = connection();
+        ensure_schema_and_migrate(&conn).unwrap();
+        let now = Utc::now().timestamp_millis();
+        let cases = [
+            (RESOURCE_TODO_ITEM, "11", ACTION_OPEN),
+            (RESOURCE_PM_ITEM, "22", ACTION_OPEN),
+            (RESOURCE_ACTION_COMBINATION, "33", ACTION_RUN),
+        ];
+
+        for &(resource_type, resource_id, action) in &cases {
+            record_at(
+                &conn,
+                UsageKey {
+                    resource_type,
+                    scope_id: "",
+                    resource_id,
+                },
+                action,
+                now,
+                1,
+            )
+            .unwrap();
+        }
+
+        let refs = cases
+            .iter()
+            .map(|(resource_type, resource_id, action)| {
+                json!({
+                    "resourceType": resource_type,
+                    "resourceId": resource_id,
+                    "actions": [action]
+                })
+            })
+            .collect::<Vec<_>>();
+        let result = resource_summaries_with_conn(&conn, &json!({ "refs": refs })).unwrap();
+        let items = result["items"].as_array().unwrap();
+
+        assert_eq!(items.len(), cases.len());
+        for (item, (resource_type, resource_id, action)) in items.iter().zip(cases) {
+            assert_eq!(item["resourceType"], resource_type);
+            assert_eq!(item["resourceId"], resource_id);
+            assert_eq!(item["summary"]["totalCount"], 1);
+            assert_eq!(item["summary"]["actionCounts"][action], 1);
+        }
     }
 
     #[test]
