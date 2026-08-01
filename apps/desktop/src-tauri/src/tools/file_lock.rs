@@ -129,7 +129,6 @@ fn inspect_windows(raw_path: &str, canonical_path: &Path) -> Result<Value, Strin
             "appType": app_type_label(process_info.ApplicationType),
             "status": app_status_label(process_info.AppStatus),
             "executablePath": executable_path,
-            "startedAt": Value::Null,
         }));
     }
     processes.sort_by_key(|process| process["pid"].as_u64().unwrap_or(0));

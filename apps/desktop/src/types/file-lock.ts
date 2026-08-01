@@ -4,7 +4,6 @@ export interface FileLockProcess {
   appType: string;
   status: string;
   executablePath: string | null;
-  startedAt: string | null;
 }
 
 export interface FileLockInspectResponse {
