@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildClipboardPathSuggestion, detectClipboardPath } from "./clipboard-detect";
+import {
+  buildClipboardPathSuggestion,
+  detectClipboardContent,
+  detectClipboardPath,
+} from "./clipboard-detect";
 
 describe("clipboard-detect", () => {
   it("识别 Windows 文件路径并返回 reveal=true", () => {
@@ -62,5 +66,22 @@ describe("clipboard-detect", () => {
         },
       ],
     });
+  });
+
+  it("将 JSON 工作台作为 JSON 的首选动作并保留代码格式化", () => {
+    expect(detectClipboardContent('{"name":"LazyCat"}')?.actions).toEqual([
+      {
+        kind: "tool",
+        label: "处理与转换",
+        toolId: "json-workbench",
+        toolName: "JSON 工作台",
+      },
+      {
+        kind: "tool",
+        label: "代码格式化",
+        toolId: "formatter",
+        toolName: "代码格式化",
+      },
+    ]);
   });
 });

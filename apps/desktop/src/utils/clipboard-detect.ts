@@ -187,8 +187,8 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
         label: "JSON",
         preview,
         actions: [
-          createToolAction("格式化", "formatter", "代码格式化"),
-          createToolAction("JSON 处理", "json-process", "JSON 处理"),
+          createToolAction("处理与转换", "json-workbench", "JSON 工作台"),
+          createToolAction("代码格式化", "formatter", "代码格式化"),
         ],
       };
     }

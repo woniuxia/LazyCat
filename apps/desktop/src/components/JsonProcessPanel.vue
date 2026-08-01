@@ -84,7 +84,6 @@ const jsonProcessState = { input: "", output: "" };
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 import JsonTreeViewer from "./common/JsonTreeViewer.vue";
 import { stringifyJsonWithSortedKeys } from "../utils/jsonProcess";
 import { canEnterJsonTree } from "../utils/jsonProcessTree";
@@ -250,10 +249,11 @@ async function formatYaml() {
   }
 }
 
-const { watchPendingInput } = useClipboardSuggestion();
-watchPendingInput("json-process", (text) => {
+function applyExternalInput(text: string) {
   input.value = text;
-});
+}
+
+defineExpose({ applyExternalInput });
 </script>
 
 <style scoped>
@@ -318,5 +318,13 @@ watchPendingInput("json-process", (text) => {
   bottom: 6px;
   z-index: 1;
   opacity: 0.85;
+}
+
+@media (max-width: 900px) {
+  .editor-area {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(240px, 1fr));
+    overflow: auto;
+  }
 }
 </style>

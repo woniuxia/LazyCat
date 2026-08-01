@@ -25,6 +25,26 @@ describe("toolCatalog retired workbenches", () => {
   });
 });
 
+describe("toolCatalog conversion workbenches", () => {
+  it("registers the new workbenches and keeps the data dictionary independent", () => {
+    const toolIds = getAllTools().map((tool) => tool.id);
+
+    expect(toolIds).toContain("json-workbench");
+    expect(toolIds).toContain("data-convert");
+    expect(toolIds).toContain("data-dictionary");
+    expect(isRealToolId("json-workbench")).toBe(true);
+    expect(isRealToolId("data-convert")).toBe(true);
+    expect(isRealToolId("data-dictionary")).toBe(true);
+  });
+
+  it.each(["json-process", "json-schema", "csv-json", "java-bean-js", "config-convert"])(
+    "removes the old public tool id %s",
+    (toolId) => {
+      expect(isRealToolId(toolId)).toBe(false);
+    },
+  );
+});
+
 describe("toolCatalog release package", () => {
   it("registers the release package tool", () => {
     expect(getAllTools()).toContainEqual(

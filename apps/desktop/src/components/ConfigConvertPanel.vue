@@ -113,6 +113,7 @@ async function copyOutput() {
 .config-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   flex-shrink: 0;
 }
