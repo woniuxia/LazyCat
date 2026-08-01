@@ -12,33 +12,37 @@
     <section class="panel-grid-full file-lock-query" aria-label="文件占用扫描">
       <div class="file-lock-query__field">
         <label class="file-lock-query__label" for="file-lock-path">目标文件</label>
-        <el-input
-          id="file-lock-path"
-          v-model="path"
-          class="file-lock-path-input"
-          clearable
-          placeholder="输入或选择文件路径，例如 D:\\work\\demo\\target\\app.jar"
-          @keyup.enter="inspect"
-        >
-          <template #prefix>
-            <el-icon><Document /></el-icon>
-          </template>
-        </el-input>
+        <div class="file-lock-query__input-row">
+          <el-input
+            id="file-lock-path"
+            v-model="path"
+            class="file-lock-path-input"
+            clearable
+            placeholder="输入或选择文件路径，例如 D:\\work\\demo\\target\\app.jar"
+            @keyup.enter="inspect"
+          >
+            <template #prefix>
+              <el-icon><Document /></el-icon>
+            </template>
+          </el-input>
+          <div class="file-lock-query__actions">
+            <el-button :icon="FolderOpened" :disabled="loading" @click="pickFile"
+              >选择文件</el-button
+            >
+            <el-button
+              type="primary"
+              :icon="Search"
+              :loading="loading"
+              :disabled="!path.trim()"
+              @click="inspect"
+            >
+              扫描占用
+            </el-button>
+          </div>
+        </div>
         <span class="file-lock-query__hint"
           >结果来自 Windows Restart Manager，可能受权限和系统过滤驱动影响。</span
         >
-      </div>
-      <div class="file-lock-query__actions">
-        <el-button :icon="FolderOpened" :disabled="loading" @click="pickFile">选择文件</el-button>
-        <el-button
-          type="primary"
-          :icon="Search"
-          :loading="loading"
-          :disabled="!path.trim()"
-          @click="inspect"
-        >
-          扫描占用
-        </el-button>
       </div>
     </section>
 
@@ -507,10 +511,7 @@ watch(path, () => {
 }
 
 .file-lock-query {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: end;
+  display: block;
   padding: 14px 16px;
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-md);
@@ -519,6 +520,13 @@ watch(path, () => {
 
 .file-lock-query__field {
   min-width: 0;
+}
+
+.file-lock-query__input-row {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  align-items: center;
 }
 
 .file-lock-query__label {
@@ -540,11 +548,13 @@ watch(path, () => {
 .file-lock-query__actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
   align-items: center;
 }
 
 .file-lock-path-input {
   min-width: 0;
+  flex: 1;
 }
 
 .file-lock-loading {
@@ -823,7 +833,12 @@ watch(path, () => {
   }
 
   .file-lock-query {
-    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .file-lock-query__input-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .file-lock-query__actions {
