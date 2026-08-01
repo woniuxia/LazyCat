@@ -117,7 +117,6 @@ export const browserProfilesProvider: ProviderDescriptor = {
   description: "启动 Edge 或 Chrome 用户身份窗口",
   badgeShort: "浏览器",
   badgeTone: "primary",
-  weight: 1.02,
   defaultAliases: [],
   defaultEnabled: true,
   prefetch: prefetchBrowserProfiles,

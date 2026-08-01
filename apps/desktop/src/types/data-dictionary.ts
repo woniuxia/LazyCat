@@ -59,6 +59,7 @@ export interface DataDictionarySearchItem {
   matches: DataDictionaryMatch[];
   title: string;
   summary: DataDictionaryRecordSummaryPart[];
+  recallScore?: number;
 }
 
 export interface DataDictionarySearchResult {

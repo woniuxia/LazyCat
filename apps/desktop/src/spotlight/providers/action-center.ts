@@ -5,7 +5,7 @@ import type {
   ActionCombinationRunStatus,
   ActionCombinationSummary,
 } from "../../types/action-center";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -13,10 +13,6 @@ import type {
   SpotlightItem,
   SpotlightStatus,
 } from "../types";
-
-function searchField(text: string, weight: number) {
-  return { text, initials: toPinyinInitials(text), weight };
-}
 
 function runStatus(status: ActionCombinationRunStatus | undefined): SpotlightStatus | undefined {
   switch (status) {
@@ -46,9 +42,9 @@ export function buildActionCombinationSpotlightItem(
     badge: { short: "动", tone: "primary" },
     status: runStatus(combination.latestRunStatus),
     searchFields: [
-      searchField(combination.name, 1.2),
-      searchField("动作中心 组合动作", 0.65),
-      searchField(modeLabel, 0.4),
+      createSearchField(combination.name, 1.2),
+      createSearchField("动作中心 组合动作", 0.65),
+      createSearchField(modeLabel, 0.4),
     ],
     payload: {
       combinationId: combination.id,
@@ -106,7 +102,6 @@ export const actionCenterProvider: ProviderDescriptor = {
   description: "搜索并运行动作中心中保存的组合动作",
   badgeShort: "动",
   badgeTone: "primary",
-  weight: 1,
   defaultAliases: ["ac"],
   defaultEnabled: true,
   prefetch: prefetchCombinations,

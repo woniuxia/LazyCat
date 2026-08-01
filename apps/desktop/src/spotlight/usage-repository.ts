@@ -1,6 +1,6 @@
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { UsageRef, UsageSummary } from "../types/usage";
-import { usageRefKey } from "./ranking";
+import { usageRefKey } from "./ranking-signals";
 import type { SpotlightItem, SpotlightProviderId } from "./types";
 
 export type SpotlightItemsMap = Map<SpotlightProviderId, SpotlightItem[]>;

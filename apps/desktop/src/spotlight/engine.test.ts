@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageSummary } from "../types/usage";
 import type { ProviderDescriptor, SpotlightItem } from "./types";
 import { createSpotlightEngine } from "./engine";
-import { usageRefKey } from "./ranking";
+import { usageRefKey } from "./ranking-signals";
 
 function item(title: string): SpotlightItem {
   return {
@@ -20,7 +20,6 @@ function provider(overrides: Partial<ProviderDescriptor> = {}): ProviderDescript
     description: "工具",
     badgeShort: "工具",
     badgeTone: "primary",
-    weight: 1,
     defaultAliases: [],
     defaultEnabled: true,
     prefetch: async () => [],

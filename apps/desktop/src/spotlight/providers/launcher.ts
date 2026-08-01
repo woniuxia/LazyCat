@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type { ProviderDescriptor, SpotlightExecuteResult, SpotlightItem } from "../types";
 
@@ -10,11 +10,6 @@ interface LauncherEntry {
   exe_path: string;
   arguments?: string;
   group_name?: string;
-}
-
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return { text: cleaned, initials: toPinyinInitials(cleaned), weight };
 }
 
 function isDirPath(p: string): boolean {
@@ -43,7 +38,7 @@ async function prefetchLauncher(): Promise<SpotlightItem[]> {
       title: e.name,
       subtitle: e.group_name || (isDir ? "文件夹" : "应用"),
       badge: { short: "启", tone: "primary" },
-      searchFields: [makeField(e.name, 1.2), makeField(stem, 0.6)],
+      searchFields: [createSearchField(e.name, 1.2), createSearchField(stem, 0.6)],
       ranking: {
         usageRef: {
           resourceType: "launcher-entry",
@@ -125,7 +120,6 @@ export const launcherProvider: ProviderDescriptor = {
   description: "通过 Spotlight 启动已注册的应用与文件夹",
   badgeShort: "启",
   badgeTone: "primary",
-  weight: 0.95,
   defaultAliases: [],
   defaultEnabled: true,
   prefetch: prefetchLauncher,

@@ -57,7 +57,6 @@ export const suggestionProvider: ProviderDescriptor = {
   description: "剪贴板内容智能匹配",
   badgeShort: "建议",
   badgeTone: "warn",
-  weight: 1,
   defaultAliases: [],
   defaultEnabled: true,
   hiddenInSettings: true,

@@ -1,5 +1,6 @@
 use super::model::{FieldStat, FlattenedField, IndexedRecord, PrimaryPartition, RecordValue};
 use super::path::{default_display_name, escape_path_segment, get_value_by_field_path};
+use pinyin::ToPinyin;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -214,6 +215,54 @@ pub(super) fn normalize_search_text(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
+}
+
+pub(super) fn normalize_record_search_text(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut pending_space = false;
+    for character in value.chars().flat_map(char::to_lowercase) {
+        if character.is_whitespace()
+            || matches!(
+                character,
+                '\\' | '/' | '_' | '.' | '-' | ':' | '：' | '@' | '|' | ',' | '，' | ';' | '；' | '·'
+            )
+        {
+            pending_space = !normalized.is_empty();
+            continue;
+        }
+        if pending_space {
+            normalized.push(' ');
+            pending_space = false;
+        }
+        normalized.push(character);
+    }
+    normalized
+}
+
+pub(super) fn build_pinyin_search_text(value: &str) -> String {
+    let mut full = String::new();
+    let mut initials = String::new();
+    for (character, converted) in value.chars().zip(value.to_pinyin()) {
+        if let Some(pinyin) = converted {
+            let plain = pinyin.plain();
+            full.push_str(plain);
+            full.push(' ');
+            if let Some(initial) = plain.chars().next() {
+                initials.push(initial);
+            }
+        } else {
+            full.push(character);
+            initials.push(character);
+        }
+    }
+    let full = normalize_record_search_text(&full);
+    let compact = full.replace(' ', "");
+    let initials = normalize_record_search_text(&initials).replace(' ', "");
+    [full, compact, initials]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub(super) fn escape_like_pattern(value: &str) -> String {

@@ -1,6 +1,6 @@
 import { isRealToolId } from "../composables/toolCatalog";
 import { detectClipboardContent } from "../utils/clipboard-detect";
-import { toPinyinInitials } from "../utils/fuzzy-match";
+import { createSearchField } from "../utils/fuzzy-match";
 import { validateReferenceCardText } from "../utils/monacoLanguages";
 import type { SpotlightItem } from "./types";
 
@@ -79,11 +79,7 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
     title: `创建置顶参考卡（剪贴板：${preview}）`,
     subtitle: detected ? `${detected.label} · Enter 创建或聚焦参考卡` : "Enter 创建或聚焦参考卡",
     badge: { short: "参考", tone: "primary" },
-    searchFields: REFERENCE_CARD_SEARCH_TERMS.map((term) => ({
-      text: term,
-      initials: toPinyinInitials(term),
-      weight: 1,
-    })),
+    searchFields: REFERENCE_CARD_SEARCH_TERMS.map((term) => createSearchField(term, 1)),
     ranking: { contextual: true, sourceOrder: 1 },
     payload: { suggestionAction },
   });

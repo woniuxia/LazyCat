@@ -244,6 +244,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             raw_json TEXT NOT NULL,
             search_text TEXT NOT NULL,
             normalized_search_text TEXT NOT NULL,
+            pinyin_search_text TEXT NOT NULL DEFAULT '',
             sort_key TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
@@ -625,6 +626,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_pm_item_tags_tag ON pm_item_tags(tag);",
     )
     .map_err(|e| format!("initialize schema failed: {e}"))?;
+
+    super::data_dictionary::ensure_search_index_schema(conn)?;
 
     let _ = conn.execute_batch(
         "ALTER TABLE vault_entries ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0;",

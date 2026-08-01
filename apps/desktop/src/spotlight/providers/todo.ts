@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -20,11 +20,6 @@ interface TodoListItem {
   isOverdue?: boolean;
   pinned?: boolean;
   typeName?: string | null;
-}
-
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return { text: cleaned, initials: toPinyinInitials(cleaned), weight };
 }
 
 function dueStatus(item: TodoListItem): { text: string; tone: StatusTone } | undefined {
@@ -58,7 +53,10 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
       subtitle: todo.typeName ?? undefined,
       badge: { short: "待", tone: "success" },
       status,
-      searchFields: [makeField(todo.title, 1.2), makeField(todo.typeName ?? "", 0.6)],
+      searchFields: [
+        createSearchField(todo.title, 1.2),
+        createSearchField(todo.typeName ?? "", 0.6),
+      ],
       ranking: { pinned: todo.pinned },
       payload: {
         todoId: todo.id,
@@ -135,7 +133,6 @@ export const todoProvider: ProviderDescriptor = {
   description: "任务清单与速建",
   badgeShort: "待",
   badgeTone: "success",
-  weight: 0.85,
   defaultAliases: ["t", "todo"],
   defaultEnabled: true,
   prefetch: prefetchTodo,

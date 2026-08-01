@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
   DataDictionaryRecordDetail,
@@ -20,15 +20,6 @@ interface DataDictionaryPayload {
   recordId: number;
   dictionaryId: number;
   summary: DataDictionaryRecordSummaryPart[];
-}
-
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return {
-    text: cleaned,
-    initials: toPinyinInitials(cleaned),
-    weight,
-  };
 }
 
 function truncate(text: string, max: number): string {
@@ -51,16 +42,16 @@ export function buildDataDictionaryItem(row: DataDictionarySearchItem): Spotligh
     ...summary.slice(0, 3).map((part) => `${part.label}：${part.value}`),
   ].filter(Boolean);
   const searchFields = [
-    makeField(row.title, 1.2),
-    makeField(row.dictionaryName, 0.8),
+    createSearchField(row.title, 1.2),
+    createSearchField(row.dictionaryName, 0.8),
     ...summary.flatMap((part) => [
-      makeField(part.label, 0.5),
-      makeField(`${part.label} ${part.value}`, 0.9),
-      makeField(part.value, 0.9),
+      createSearchField(part.label, 0.5),
+      createSearchField(`${part.label} ${part.value}`, 0.9),
+      createSearchField(part.value, 0.9),
     ]),
     ...row.matches.flatMap((match) => [
-      makeField(match.fieldPath, 0.5),
-      makeField(match.value, 0.9),
+      createSearchField(match.fieldPath, 0.5),
+      createSearchField(match.value, 0.9),
     ]),
   ].filter((field) => field.text);
 
@@ -72,6 +63,7 @@ export function buildDataDictionaryItem(row: DataDictionarySearchItem): Spotligh
     badge: { short: "典", tone: "info" },
     status: summary.length > 0 ? { text: `${summary.length} 字段`, tone: "muted" } : undefined,
     searchFields,
+    recallScore: row.recallScore,
     payload: {
       recordId: row.id,
       dictionaryId: row.dictionaryId,
@@ -181,7 +173,6 @@ export const dataDictionaryProvider: ProviderDescriptor = {
   description: "搜索数据字典记录",
   badgeShort: "典",
   badgeTone: "info",
-  weight: 0.72,
   defaultAliases: ["dd", "dict"],
   defaultEnabled: true,
   prefetch: async () => [],

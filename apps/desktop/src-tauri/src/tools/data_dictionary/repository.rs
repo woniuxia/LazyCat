@@ -1,6 +1,6 @@
 use super::import::{
-    build_record_values, build_search_text, escape_like_pattern, flatten_record,
-    normalize_search_text, normalized_primary_key,
+    build_pinyin_search_text, build_record_values, build_search_text, escape_like_pattern,
+    flatten_record, normalize_record_search_text, normalized_primary_key,
 };
 use super::model::*;
 use super::path::get_value_by_field_path;
@@ -13,6 +13,69 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 pub(super) type SqlParam = Box<dyn ToSql>;
+
+pub(super) fn ensure_search_index_schema(conn: &Connection) -> Result<(), String> {
+    let mut columns = conn
+        .prepare("PRAGMA table_info(data_dictionary_records)")
+        .map_err(|error| format!("prepare data dictionary search index migration failed: {error}"))?;
+    let names = columns
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("query data dictionary search index columns failed: {error}"))?;
+    let mut has_pinyin_column = false;
+    for name in names {
+        if name.map_err(|error| format!("read data dictionary search index column failed: {error}"))?
+            == "pinyin_search_text"
+        {
+            has_pinyin_column = true;
+            break;
+        }
+    }
+    drop(columns);
+    if has_pinyin_column {
+        return Ok(());
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin data dictionary search index migration failed: {error}"))?;
+    tx.execute_batch(
+        "ALTER TABLE data_dictionary_records
+         ADD COLUMN pinyin_search_text TEXT NOT NULL DEFAULT '';",
+    )
+    .map_err(|error| format!("add data dictionary pinyin search column failed: {error}"))?;
+    let records = {
+        let mut stmt = tx
+            .prepare("SELECT id, search_text FROM data_dictionary_records")
+            .map_err(|error| format!("prepare data dictionary search index backfill failed: {error}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| format!("query data dictionary search index backfill failed: {error}"))?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(
+                row.map_err(|error| format!("read data dictionary search index backfill failed: {error}"))?,
+            );
+        }
+        records
+    };
+    for (record_id, search_text) in records {
+        tx.execute(
+            "UPDATE data_dictionary_records
+             SET normalized_search_text = ?1, pinyin_search_text = ?2
+             WHERE id = ?3",
+            params![
+                normalize_record_search_text(&search_text),
+                build_pinyin_search_text(&search_text),
+                record_id,
+            ],
+        )
+        .map_err(|error| format!("backfill data dictionary search index failed: {error}"))?;
+    }
+    tx.commit()
+        .map_err(|error| format!("commit data dictionary search index migration failed: {error}"))
+}
 
 pub(super) fn field_has_non_scalar_values(
     conn: &Connection,
@@ -55,20 +118,23 @@ pub(super) fn insert_records(
     for record in records {
         let fields = flatten_record(&record.value);
         let search_text = build_search_text(&fields, searchable_paths);
-        let normalized = normalize_search_text(&search_text);
+        let normalized = normalize_record_search_text(&search_text);
+        let pinyin_search_text = build_pinyin_search_text(&search_text);
         let raw_json = serde_json::to_string(&record.value)
             .map_err(|e| format!("serialize data dictionary record failed: {e}"))?;
         let sort_key = build_record_sort_key(&record.value, record.source_row_index, sort_config)?;
         conn.execute(
             "INSERT INTO data_dictionary_records
-             (dictionary_id, row_index, raw_json, search_text, normalized_search_text, sort_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (dictionary_id, row_index, raw_json, search_text, normalized_search_text,
+              pinyin_search_text, sort_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 dictionary_id,
                 record.source_row_index,
                 raw_json,
                 search_text,
                 normalized,
+                pinyin_search_text,
                 sort_key,
             ],
         )
@@ -120,29 +186,126 @@ pub(super) fn query_empty_records(
     query_records(conn, scope, Vec::new(), Vec::new(), limit, true)
 }
 
-pub(super) fn query_like_records(
+pub(super) fn query_ranked_records(
     conn: &Connection,
     scope: &SearchScope,
     keyword: &str,
-    limit: Option<i64>,
-) -> Result<Vec<RecordRow>, String> {
-    let (condition, pattern) = build_keyword_search_condition(keyword);
-    query_records(
-        conn,
-        scope,
-        vec![condition],
-        vec![Box::new(pattern)],
-        limit,
-        false,
-    )
+    limit: i64,
+) -> Result<Vec<RankedRecordRow>, String> {
+    let normalized = normalize_record_search_text(keyword);
+    let compact = normalized.replace(' ', "");
+    let tokens = normalized
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let sql = build_ranked_record_query_sql(scope, tokens.len());
+    let prefix = format!("{}%", escape_like_pattern(&normalized));
+    let contains = format!("%{}%", escape_like_pattern(&normalized));
+    let compact_contains = format!("%{}%", escape_like_pattern(&compact));
+    let mut params_list: Vec<SqlParam> = vec![
+        Box::new(normalized.clone()),
+        Box::new(prefix.clone()),
+        Box::new(contains.clone()),
+        Box::new(normalized.clone()),
+        Box::new(compact.clone()),
+        Box::new(prefix.clone()),
+        Box::new(compact_contains.clone()),
+        Box::new(prefix),
+        Box::new(contains),
+    ];
+    for token in &tokens {
+        params_list.push(Box::new(format!("{}%", escape_like_pattern(token))));
+        params_list.push(Box::new(format!("{}%", escape_like_pattern(token))));
+    }
+    if let SearchScope::Current(dictionary_id) = scope {
+        params_list.push(Box::new(*dictionary_id));
+    }
+    for token in &tokens {
+        let pattern = format!("%{}%", escape_like_pattern(token));
+        params_list.push(Box::new(pattern.clone()));
+        params_list.push(Box::new(pattern.clone()));
+        params_list.push(Box::new(pattern));
+    }
+    params_list.push(Box::new(limit));
+
+    let refs = params_list
+        .iter()
+        .map(|param| param.as_ref())
+        .collect::<Vec<_>>();
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|error| format!("prepare ranked data dictionary search failed: {error}"))?;
+    let rows = stmt
+        .query_map(refs.as_slice(), |row| {
+            Ok(RankedRecordRow {
+                row: record_row(row)?,
+                recall_score: row.get(6)?,
+            })
+        })
+        .map_err(|error| format!("query ranked data dictionary search failed: {error}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|error| format!("read ranked data dictionary search failed: {error}"))?);
+    }
+    Ok(out)
 }
 
-pub(super) fn build_keyword_search_condition(keyword: &str) -> (String, String) {
-    let normalized = normalize_search_text(keyword);
-    let pattern = format!("%{}%", escape_like_pattern(&normalized));
-    (
-        "r.normalized_search_text LIKE ? ESCAPE '\\'".to_string(),
-        pattern,
+pub(super) fn build_ranked_record_query_sql(
+    scope: &SearchScope,
+    token_count: usize,
+) -> String {
+    let token_score = std::iter::repeat(
+        "+ CASE
+             WHEN r.normalized_search_text LIKE ? ESCAPE '\\' THEN 35
+             WHEN r.pinyin_search_text LIKE ? ESCAPE '\\' THEN 25
+             ELSE 0 END",
+    )
+    .take(token_count)
+    .collect::<Vec<_>>()
+    .join(" ");
+    let token_conditions = std::iter::repeat(
+        "(r.normalized_search_text LIKE ? ESCAPE '\\'
+           OR replace(r.normalized_search_text, ' ', '') LIKE ? ESCAPE '\\'
+           OR r.pinyin_search_text LIKE ? ESCAPE '\\')",
+    )
+    .take(token_count)
+    .collect::<Vec<_>>()
+    .join(" AND ");
+    let scope_condition = match scope {
+        SearchScope::Current(_) => "r.dictionary_id = ? AND ",
+        SearchScope::All => "",
+    };
+    let stable_order = match scope {
+        SearchScope::Current(_) => "r.sort_key COLLATE BINARY ASC, r.id ASC",
+        SearchScope::All => "d.nav_order ASC, r.sort_key COLLATE BINARY ASC, r.id ASC",
+    };
+    format!(
+        "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json,
+                d.title_field_path,
+                (CASE
+                    WHEN title_value.normalized_value = ? THEN 1800
+                    WHEN title_value.normalized_value LIKE ? ESCAPE '\\' THEN 1660
+                    WHEN title_value.normalized_value LIKE ? ESCAPE '\\' THEN 1520
+                    WHEN r.normalized_search_text = ? THEN 1460
+                    WHEN replace(r.normalized_search_text, ' ', '') = ? THEN 1420
+                    WHEN r.normalized_search_text LIKE ? ESCAPE '\\' THEN 1360
+                    WHEN replace(r.normalized_search_text, ' ', '') LIKE ? ESCAPE '\\' THEN 1280
+                    WHEN r.pinyin_search_text LIKE ? ESCAPE '\\' THEN 1220
+                    WHEN r.pinyin_search_text LIKE ? ESCAPE '\\' THEN 1120
+                    ELSE 800
+                 END {token_score}) AS recall_score
+         FROM data_dictionary_records r
+         JOIN data_dictionaries d ON d.id = r.dictionary_id
+         LEFT JOIN data_dictionary_record_values title_value
+           ON title_value.record_id = r.id
+          AND title_value.field_path = d.title_field_path
+         WHERE {scope_condition}{token_conditions}
+         ORDER BY recall_score DESC, {stable_order}
+         LIMIT ?"
     )
 }
 
@@ -448,6 +611,46 @@ pub(super) fn rows_to_search_items(
             keyword,
             include_raw_json,
         )?);
+    }
+    Ok(out)
+}
+
+pub(super) fn ranked_rows_to_search_items(
+    conn: &Connection,
+    rows: Vec<RankedRecordRow>,
+    keyword: &str,
+    include_raw_json: bool,
+) -> Result<Vec<Value>, String> {
+    let mut searchable_cache: HashMap<i64, Vec<String>> = HashMap::new();
+    let mut field_cache: HashMap<i64, Vec<FieldConfig>> = HashMap::new();
+    let mut out = Vec::with_capacity(rows.len());
+    for ranked in rows {
+        let dictionary_id = ranked.row.dictionary_id;
+        let paths = if let Some(paths) = searchable_cache.get(&dictionary_id) {
+            paths.clone()
+        } else {
+            let paths = load_searchable_paths(conn, dictionary_id)?;
+            searchable_cache.insert(dictionary_id, paths.clone());
+            paths
+        };
+        let fields = if let Some(fields) = field_cache.get(&dictionary_id) {
+            fields.clone()
+        } else {
+            let fields = load_field_configs(conn, dictionary_id)?;
+            field_cache.insert(dictionary_id, fields.clone());
+            fields
+        };
+        let mut item = record_row_to_search_item_json(
+            ranked.row,
+            &paths,
+            &fields,
+            keyword,
+            include_raw_json,
+        )?;
+        item.as_object_mut()
+            .expect("data dictionary search item must be an object")
+            .insert("recallScore".to_string(), json!(ranked.recall_score));
+        out.push(item);
     }
     Ok(out)
 }
@@ -789,13 +992,21 @@ pub(super) fn rebuild_dictionary_indexes(
     for (record_id, row_index, raw_json, value) in &records {
         let fields = flatten_record(value);
         let search_text = build_search_text(&fields, &searchable_paths);
-        let normalized = normalize_search_text(&search_text);
+        let normalized = normalize_record_search_text(&search_text);
+        let pinyin_search_text = build_pinyin_search_text(&search_text);
         let sort_key = build_record_sort_key(value, *row_index, sort_config_ref)?;
         conn.execute(
             "UPDATE data_dictionary_records
-             SET search_text = ?1, normalized_search_text = ?2, sort_key = ?3
-             WHERE id = ?4",
-            params![search_text, normalized, sort_key, record_id],
+             SET search_text = ?1, normalized_search_text = ?2,
+                 pinyin_search_text = ?3, sort_key = ?4
+             WHERE id = ?5",
+            params![
+                search_text,
+                normalized,
+                pinyin_search_text,
+                sort_key,
+                record_id
+            ],
         )
         .map_err(|e| format!("update rebuilt search text failed: {e}"))?;
 

@@ -102,6 +102,12 @@ pub(super) struct RecordRow {
     pub(super) raw_json: String,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct RankedRecordRow {
+    pub(super) row: RecordRow,
+    pub(super) recall_score: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RelationConfig {
     pub(super) id: i64,

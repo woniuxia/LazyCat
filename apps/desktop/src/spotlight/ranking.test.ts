@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { UsageSummary } from "../types/usage";
 import type { ProviderDescriptor, SpotlightItem } from "./types";
-import { normalizeUsageScore, rankEmptyItems, rankSearchCandidate, usageRefKey } from "./ranking";
+import { RecommendationRanker } from "./recommendation-ranker";
+import { businessScore, normalizeUsageScore, usageRefKey } from "./ranking-signals";
+import { SearchRanker } from "./search-ranker";
 
 const now = Date.UTC(2026, 6, 30);
 
@@ -38,7 +40,6 @@ function provider(id: ProviderDescriptor["id"], quota: number): ProviderDescript
     description: id,
     badgeShort: id,
     badgeTone: "muted",
-    weight: 1,
     emptyQueryQuota: quota,
     defaultAliases: [],
     defaultEnabled: true,
@@ -59,7 +60,7 @@ describe("Spotlight unified ranking", () => {
     expect(legacy).toBeGreaterThan(0);
   });
 
-  it("caps usage and business boosts so relevance remains primary", () => {
+  it("keeps search boosts below a clearly better relevance score", () => {
     const frequent = item("frequent");
     frequent.ranking!.favorite = true;
     const summaries = new Map([
@@ -69,7 +70,19 @@ describe("Spotlight unified ranking", () => {
       ],
     ]);
 
-    expect(rankSearchCandidate(980, frequent, summaries)).toBeLessThan(1200);
+    const ranker = new SearchRanker(summaries);
+    const frequentRank = ranker.rank(frequent, 970)!;
+    const relevantRank = ranker.rank(item("relevant"), 1000)!;
+
+    expect(frequentRank.score).toBeLessThan(relevantRank.score);
+    expect(frequentRank.score - frequentRank.relevance).toBeLessThanOrEqual(20);
+  });
+
+  it("does not treat an already enabled Hosts profile as a positive recommendation signal", () => {
+    const hosts = item("hosts", "hosts");
+    hosts.ranking = {};
+
+    expect(businessScore(hosts)).toBe(0);
   });
 
   it("applies global usage order with per-provider diversity quotas", () => {
@@ -91,13 +104,14 @@ describe("Spotlight unified ranking", () => {
       ],
     ]);
 
-    const result = rankEmptyItems(
+    const result = new RecommendationRanker(
+      [provider("tool", 1), provider("launcher", 1)],
+      summaries,
+    ).rank(
       new Map([
         ["tool", [toolA, toolB]],
         ["launcher", [launcher]],
       ]),
-      [provider("tool", 1), provider("launcher", 1)],
-      summaries,
       3,
     );
 

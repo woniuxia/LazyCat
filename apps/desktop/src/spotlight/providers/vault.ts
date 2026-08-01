@@ -1,5 +1,5 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { writeSecretToClipboard, scheduleClipboardClear } from "../../utils/vaultClipboard";
 import { registerProvider } from "../registry";
 import type {
@@ -75,33 +75,24 @@ export function buildSubtitle(entry: VaultMetaEntry): string {
   return parts.join(" · ");
 }
 
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return {
-    text: cleaned,
-    initials: toPinyinInitials(cleaned),
-    weight,
-  };
-}
-
 export function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightItem {
   const tagsField = entry.tags?.length ? entry.tags.join(" ") : "";
   const subtitle = buildSubtitle(entry);
   const pf = entry.plainFields ?? undefined;
   const account = pf?.account ?? "";
   const searchFields = [
-    makeField(entry.title, 1.2),
-    makeField(account, 1.1),
-    makeField(tagsField, 1.0),
-    makeField(pf?.url ?? "", 0.8),
-    makeField(pf?.address ?? "", 0.8),
-    makeField(pf?.dbName ?? "", 0.8),
-    makeField(pf?.schema ?? "", 0.8),
-    makeField(entry.environment, 0.7),
-    makeField(CATEGORY_LABEL[entry.category] ?? entry.category, 0.6),
-    makeField(pf?.serverType ?? "", 0.6),
-    makeField(pf?.dbType ?? "", 0.6),
-    makeField(pf?.notes ?? "", 0.5),
+    createSearchField(entry.title, 1.2),
+    createSearchField(account, 1.1),
+    createSearchField(tagsField, 1.0),
+    createSearchField(pf?.url ?? "", 0.8),
+    createSearchField(pf?.address ?? "", 0.8),
+    createSearchField(pf?.dbName ?? "", 0.8),
+    createSearchField(pf?.schema ?? "", 0.8),
+    createSearchField(entry.environment, 0.7),
+    createSearchField(CATEGORY_LABEL[entry.category] ?? entry.category, 0.6),
+    createSearchField(pf?.serverType ?? "", 0.6),
+    createSearchField(pf?.dbType ?? "", 0.6),
+    createSearchField(pf?.notes ?? "", 0.5),
   ].filter((f) => f.text);
   return {
     providerId: "vault",
@@ -275,7 +266,6 @@ export const vaultProvider: ProviderDescriptor = {
   description: "密码库快速复制",
   badgeShort: "凭",
   badgeTone: "warn",
-  weight: 0.9,
   defaultAliases: ["v", "vault"],
   defaultEnabled: true,
   prefetch: prefetchVault,

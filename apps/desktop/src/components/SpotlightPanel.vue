@@ -130,7 +130,7 @@ import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
 import { APP_EVENTS } from "../bridge/events";
 import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
-import { rankEmptyItems } from "../spotlight/ranking";
+import { RecommendationRanker } from "../spotlight/recommendation-ranker";
 import "../spotlight/providers/tool";
 import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
@@ -429,10 +429,8 @@ const results = computed(() => {
   if (!text.trim()) {
     const providers =
       view.value?.providers.filter((provider) => provider.enabled) ?? listProviders();
-    return rankEmptyItems(
+    return new RecommendationRanker(providers, usageSummaries.value).rank(
       searchableItemsByProvider.value,
-      providers,
-      usageSummaries.value,
       RESULT_LIMIT,
     );
   }

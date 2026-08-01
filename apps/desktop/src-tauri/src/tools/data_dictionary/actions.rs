@@ -465,14 +465,17 @@ pub(super) fn action_search(payload: &Value) -> Result<Value, String> {
     }
     ensure_scope_sort_keys_ready(&conn, &scope)?;
 
-    let rows = if keyword.is_empty() {
-        query_empty_records(&conn, &scope, Some(fetch_limit))?
-    } else {
-        query_like_records(&conn, &scope, keyword, Some(fetch_limit))?
-    };
+    if keyword.is_empty() {
+        let rows = query_empty_records(&conn, &scope, Some(fetch_limit))?;
+        let (rows, has_more) = split_limited_rows(rows, limit as usize);
+        let items = rows_to_search_items(&conn, rows, keyword, include_raw_json)?;
+        return Ok(json!({ "items": items, "hasMore": has_more }));
+    }
 
-    let (rows, has_more) = split_limited_rows(rows, limit as usize);
-    let items = rows_to_search_items(&conn, rows, keyword, include_raw_json)?;
+    let mut rows = query_ranked_records(&conn, &scope, keyword, fetch_limit)?;
+    let has_more = rows.len() > limit as usize;
+    rows.truncate(limit as usize);
+    let items = ranked_rows_to_search_items(&conn, rows, keyword, include_raw_json)?;
     Ok(json!({ "items": items, "hasMore": has_more }))
 }
 

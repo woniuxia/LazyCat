@@ -1,6 +1,10 @@
 import type { BrowserProfileItem } from "../types/browser-profiles";
-import type { SearchField } from "./fuzzy-match";
-import { matchScore, toPinyinInitials } from "./fuzzy-match";
+import {
+  createSearchField,
+  matchPreparedQuery,
+  prepareSearchQuery,
+  type SearchField,
+} from "./fuzzy-match";
 
 export interface BrowserProfileGroups {
   visible: BrowserProfileItem[];
@@ -54,12 +58,13 @@ export function filterBrowserProfiles(
 ): BrowserProfileItem[] {
   const query = queryRaw.trim();
   if (!query) return [...profiles];
+  const prepared = prepareSearchQuery(query);
 
   return profiles
     .map((profile, index) => ({
       profile,
       index,
-      score: matchScore(query, buildBrowserProfileSearchFields(profile)),
+      score: matchPreparedQuery(prepared, buildBrowserProfileSearchFields(profile)),
     }))
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index)
@@ -153,11 +158,7 @@ export function buildBrowserProfileSearchFields(profile: BrowserProfileItem): Se
     const key = text.toLocaleLowerCase("zh-CN");
     if (!text || seen.has(key)) continue;
     seen.add(key);
-    fields.push({
-      text,
-      initials: toPinyinInitials(text),
-      weight: candidate.weight,
-    });
+    fields.push(createSearchField(text, candidate.weight));
   }
 
   return fields;

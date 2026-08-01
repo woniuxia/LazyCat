@@ -42,7 +42,6 @@ function makeDescriptor(
     description: over.description ?? "",
     badgeShort: over.badgeShort ?? "X",
     badgeTone: over.badgeTone ?? "primary",
-    weight: over.weight ?? 1,
     defaultAliases: over.defaultAliases ?? [],
     defaultEnabled: over.defaultEnabled ?? true,
     hiddenInSettings: over.hiddenInSettings,

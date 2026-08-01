@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../../bridge/tauri";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -20,11 +20,6 @@ interface PmListItem {
   endAt?: string | null;
   pinned?: boolean;
   tags?: string[];
-}
-
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return { text: cleaned, initials: toPinyinInitials(cleaned), weight };
 }
 
 function parseEndAtToLocalDate(raw: string): Date | null {
@@ -75,9 +70,9 @@ async function prefetchPm(): Promise<SpotlightItem[]> {
       badge: { short: "项", tone: "primary" },
       status: dueStatus(it),
       searchFields: [
-        makeField(it.title, 1.2),
-        makeField(projectName, 0.7),
-        makeField(tagsField, 0.85),
+        createSearchField(it.title, 1.2),
+        createSearchField(projectName, 0.7),
+        createSearchField(tagsField, 0.85),
       ],
       ranking: { pinned: it.pinned },
       payload: {
@@ -142,7 +137,6 @@ export const pmProvider: ProviderDescriptor = {
   description: "项目工作项检索",
   badgeShort: "项",
   badgeTone: "primary",
-  weight: 0.75,
   defaultAliases: ["p", "pm"],
   defaultEnabled: true,
   prefetch: prefetchPm,

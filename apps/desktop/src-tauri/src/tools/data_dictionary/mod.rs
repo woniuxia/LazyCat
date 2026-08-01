@@ -9,6 +9,10 @@ mod repository;
 
 use actions::*;
 
+pub(crate) fn ensure_search_index_schema(conn: &rusqlite::Connection) -> Result<(), String> {
+    repository::ensure_search_index_schema(conn)
+}
+
 #[cfg(test)]
 use import::*;
 #[cfg(test)]
@@ -245,6 +249,23 @@ mod tests {
     #[test]
     fn normalize_search_text_lowercases_and_collapses_spaces() {
         assert_eq!(normalize_search_text("  Foo\tBAR \n Baz  "), "foo bar baz");
+    }
+
+    #[test]
+    fn record_search_normalization_equates_common_separators() {
+        assert_eq!(
+            normalize_record_search_text(" Request_Forward.Rule / API "),
+            "request forward rule api"
+        );
+    }
+
+    #[test]
+    fn pinyin_search_text_contains_full_compact_and_initial_forms() {
+        let index = build_pinyin_search_text("数据字典");
+
+        assert!(index.contains("shu ju zi dian"));
+        assert!(index.contains("shujuzidian"));
+        assert!(index.contains("sjzd"));
     }
 
     #[test]
@@ -511,13 +532,14 @@ mod tests {
     }
 
     #[test]
-    fn keyword_search_condition_uses_like_without_fts() {
-        let (condition, pattern) = build_keyword_search_condition("  Foo\tBAR  ");
+    fn ranked_search_query_uses_token_and_quality_order_without_fts() {
+        let sql = build_ranked_record_query_sql(&SearchScope::All, 2);
 
-        assert_eq!(condition, "r.normalized_search_text LIKE ? ESCAPE '\\'");
-        assert_eq!(pattern, "%foo bar%");
-        assert!(!condition.contains("data_dictionary_fts"));
-        assert!(!condition.contains("MATCH"));
+        assert_eq!(sql.matches("r.pinyin_search_text LIKE").count(), 6);
+        assert!(sql.contains(" AND (r.normalized_search_text LIKE"));
+        assert!(sql.contains("ORDER BY recall_score DESC, d.nav_order ASC"));
+        assert!(!sql.contains("data_dictionary_fts"));
+        assert!(!sql.contains("MATCH"));
     }
 
     #[test]
@@ -549,6 +571,7 @@ mod tests {
                 raw_json TEXT NOT NULL,
                 search_text TEXT NOT NULL,
                 normalized_search_text TEXT NOT NULL,
+                pinyin_search_text TEXT NOT NULL DEFAULT '',
                 sort_key TEXT NOT NULL DEFAULT ''
             );
             INSERT INTO data_dictionary_records
@@ -583,6 +606,7 @@ mod tests {
                 raw_json TEXT NOT NULL,
                 search_text TEXT NOT NULL,
                 normalized_search_text TEXT NOT NULL,
+                pinyin_search_text TEXT NOT NULL DEFAULT '',
                 sort_key TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE data_dictionary_record_values (
@@ -623,6 +647,89 @@ mod tests {
         assert_eq!(keys.len(), 2);
         assert!(keys.iter().all(|key| !key.is_empty()));
         assert!(keys[0] < keys[1]);
+    }
+
+    #[test]
+    fn search_index_migration_backfills_normalized_and_pinyin_text_atomically() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE data_dictionary_records (
+                 id INTEGER PRIMARY KEY,
+                 search_text TEXT NOT NULL,
+                 normalized_search_text TEXT NOT NULL
+             );
+             INSERT INTO data_dictionary_records(id, search_text, normalized_search_text)
+             VALUES(1, '数据-字典', 'stale');",
+        )
+        .unwrap();
+
+        ensure_search_index_schema(&conn).unwrap();
+        ensure_search_index_schema(&conn).unwrap();
+
+        let indexed = conn
+            .query_row(
+                "SELECT normalized_search_text, pinyin_search_text
+                 FROM data_dictionary_records WHERE id = 1",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(indexed.0, "数据 字典");
+        assert!(indexed.1.contains("shujuzidian"));
+    }
+
+    #[test]
+    fn ranked_search_prefers_exact_title_and_recalls_full_pinyin() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE data_dictionaries (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 title_field_path TEXT,
+                 nav_order INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE data_dictionary_records (
+                 id INTEGER PRIMARY KEY,
+                 dictionary_id INTEGER NOT NULL,
+                 row_index INTEGER NOT NULL,
+                 raw_json TEXT NOT NULL,
+                 search_text TEXT NOT NULL,
+                 normalized_search_text TEXT NOT NULL,
+                 pinyin_search_text TEXT NOT NULL,
+                 sort_key TEXT NOT NULL
+             );
+             CREATE TABLE data_dictionary_record_values (
+                 record_id INTEGER NOT NULL,
+                 field_path TEXT NOT NULL,
+                 normalized_value TEXT NOT NULL
+             );
+             INSERT INTO data_dictionaries(id, name, title_field_path, nav_order)
+             VALUES(1, '测试字典', 'name', 0);
+             INSERT INTO data_dictionary_records(
+                 id, dictionary_id, row_index, raw_json, search_text,
+                 normalized_search_text, pinyin_search_text, sort_key
+             ) VALUES
+                 (1, 1, 0, '{\"name\":\"Later\",\"note\":\"target user\"}',
+                  'Later target user', 'later target user', 'later target user', '1!0'),
+                 (2, 1, 1, '{\"name\":\"User\"}',
+                  'User', 'user', 'user', '1!1'),
+                 (3, 1, 2, '{\"name\":\"数据字典\"}',
+                  '数据字典', '数据字典', 'shu ju zi dian shujuzidian sjzd', '1!2');
+             INSERT INTO data_dictionary_record_values(record_id, field_path, normalized_value)
+             VALUES(1, 'name', 'later'), (2, 'name', 'user'), (3, 'name', '数据字典');",
+        )
+        .unwrap();
+
+        let title_results = query_ranked_records(&conn, &SearchScope::All, "user", 10).unwrap();
+        let pinyin_results =
+            query_ranked_records(&conn, &SearchScope::All, "shujuzidian", 10).unwrap();
+        let cross_field =
+            query_ranked_records(&conn, &SearchScope::All, "target user", 10).unwrap();
+
+        assert_eq!(title_results[0].row.id, 2);
+        assert!(title_results[0].recall_score > title_results[1].recall_score);
+        assert_eq!(pinyin_results[0].row.id, 3);
+        assert_eq!(cross_field[0].row.id, 1);
     }
 
     #[test]

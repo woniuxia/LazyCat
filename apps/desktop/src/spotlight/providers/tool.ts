@@ -61,7 +61,6 @@ export const toolProvider: ProviderDescriptor = {
   description: "在所有内置工具中检索",
   badgeShort: "工具",
   badgeTone: "primary",
-  weight: 1.0,
   emptyQueryQuota: 8,
   defaultAliases: [],
   defaultEnabled: true,

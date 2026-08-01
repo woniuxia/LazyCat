@@ -1,7 +1,7 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { emit } from "@tauri-apps/api/event";
 import { APP_EVENTS } from "../../bridge/events";
-import { toPinyinInitials } from "../../utils/fuzzy-match";
+import { createSearchField } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -17,11 +17,6 @@ interface HostsProfile {
   enabled: boolean | number;
   updatedAt?: string;
   sortOrder?: number;
-}
-
-function makeField(text: string, weight: number) {
-  const cleaned = text.trim();
-  return { text: cleaned, initials: toPinyinInitials(cleaned), weight };
 }
 
 function firstCommentLine(content: string): string {
@@ -48,8 +43,7 @@ async function prefetchHosts(): Promise<SpotlightItem[]> {
       subtitle: comment || (enabled ? "当前启用" : "未启用"),
       badge: { short: "主", tone: "info" },
       status: enabled ? { text: "已启用", tone: "success" } : { text: "未启用", tone: "muted" },
-      searchFields: [makeField(profile.name, 1.2), makeField(comment, 0.85)],
-      ranking: { enabled },
+      searchFields: [createSearchField(profile.name, 1.2), createSearchField(comment, 0.85)],
       payload: { profileName: profile.name, content: profile.content, enabled },
     };
   });
@@ -115,7 +109,6 @@ export const hostsProvider: ProviderDescriptor = {
   description: "切换 hosts profile",
   badgeShort: "主",
   badgeTone: "info",
-  weight: 0.75,
   defaultAliases: ["h", "hosts"],
   defaultEnabled: true,
   prefetch: prefetchHosts,

@@ -4,9 +4,9 @@ import type {
   SpotlightItem,
   SpotlightProviderId,
 } from "./types";
-import { matchScore } from "../utils/fuzzy-match";
+import { matchPreparedQuery, prepareSearchQuery } from "../utils/fuzzy-match";
 import type { UsageSummary } from "../types/usage";
-import { rankSearchCandidate } from "./ranking";
+import { SearchRanker } from "./search-ranker";
 import { toolProvider } from "./providers/tool";
 
 const DESCRIPTORS = new Map<SpotlightProviderId, ProviderDescriptor>();
@@ -35,18 +35,6 @@ export function listDescriptors(includeHidden = false): ProviderDescriptor[] {
 // 默认注册：工具源。其它 provider 由其模块导入时主动注册。
 registerProvider(toolProvider);
 
-export function scoreItem(
-  query: string,
-  item: SpotlightItem,
-  _providerWeight: number,
-  usageSummaries: ReadonlyMap<string, UsageSummary> = new Map(),
-): number {
-  if (!query.trim()) return 0;
-  const baseScore = matchScore(query, item.searchFields);
-  if (baseScore <= 0) return 0;
-  return rankSearchCandidate(baseScore, item, usageSummaries);
-}
-
 export function searchItems(
   query: string,
   itemsByProvider: Map<SpotlightProviderId, SpotlightItem[]>,
@@ -58,26 +46,22 @@ export function searchItems(
   },
 ): ScoredSpotlightItem[] {
   const { scope, limit, enabledIds, usageSummaries = new Map() } = options;
-  const scored: ScoredSpotlightItem[] = [];
+  const queryIndex = prepareSearchQuery(query);
+  if (queryIndex.tokens.length === 0) return [];
+  const ranker = new SearchRanker(usageSummaries);
+  const scored: Array<NonNullable<ReturnType<SearchRanker["rank"]>>> = [];
 
   for (const provider of listProviders()) {
     if (scope && provider.id !== scope) continue;
     if (enabledIds && !enabledIds.has(provider.id)) continue;
     const items = itemsByProvider.get(provider.id) ?? [];
     for (const item of items) {
-      const score = scoreItem(query, item, provider.weight, usageSummaries);
-      if (score > 0) {
-        scored.push({ item, score });
-      }
+      const relevance = matchPreparedQuery(queryIndex, item.searchFields);
+      const ranked = ranker.rank(item, relevance);
+      if (ranked) scored.push(ranked);
     }
   }
 
-  scored.sort(
-    (a, b) =>
-      Number(b.item.ranking?.contextual === true) - Number(a.item.ranking?.contextual === true) ||
-      b.score - a.score ||
-      a.item.providerId.localeCompare(b.item.providerId) ||
-      a.item.itemId.localeCompare(b.item.itemId),
-  );
+  scored.sort(SearchRanker.compare);
   return scored.slice(0, limit);
 }

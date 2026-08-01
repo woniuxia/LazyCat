@@ -46,12 +46,11 @@ export interface SpotlightItem {
   badge?: SpotlightBadge;
   status?: SpotlightStatus;
   searchFields: SearchField[];
-  weight?: number;
+  recallScore?: number;
   ranking?: {
     usageRef?: UsageRef;
     favorite?: boolean;
     pinned?: boolean;
-    enabled?: boolean;
     contextual?: boolean;
     sourceOrder?: number;
   };
@@ -88,7 +87,6 @@ export interface ProviderDescriptor {
   description: string;
   badgeShort: string;
   badgeTone: StatusTone;
-  weight: number;
   emptyQueryQuota?: number;
   defaultAliases: string[];
   defaultEnabled: boolean;
