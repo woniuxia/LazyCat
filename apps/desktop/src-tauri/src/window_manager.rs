@@ -323,6 +323,12 @@ pub(crate) fn show_spotlight(app: &AppHandle) {
     });
 }
 
+#[tauri::command]
+pub(crate) fn spotlight_open(app: tauri::AppHandle) -> Result<(), String> {
+    show_spotlight(&app);
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CursorMonitorRelation {
     MovedToCursorMonitor,

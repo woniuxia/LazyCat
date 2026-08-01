@@ -362,6 +362,7 @@ fn main() {
             global_notification::global_notification_open_tool,
             global_notification::global_notification_open_action_run,
             background::suppress_clipboard_capture,
+            window_manager::spotlight_open,
             window_manager::spotlight_pick,
             window_manager::spotlight_close,
             reference_card::reference_card_show,
