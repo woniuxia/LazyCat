@@ -1,5 +1,5 @@
-﻿// 本文件被 src-tauri 契约对账测试逐行解析。
-// CHANNEL_MAP 请保持一行一条目格式：`"tool:x:y": { domain: "x", action: "y" },`
+﻿// 本文件被 src-tauri 契约对账测试解析。
+// CHANNEL_MAP 的键、domain 和 action 使用稳定字符串格式；对象可按格式化工具换行。
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {

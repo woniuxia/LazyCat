@@ -75,17 +75,18 @@ fn parse_channel_map() -> Vec<(String, String)> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bridge/tauri.ts");
     let source = std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("read CHANNEL_MAP from {:?} failed: {err}", path));
+    parse_channel_map_source(&source)
+}
+
+fn parse_channel_map_source(source: &str) -> Vec<(String, String)> {
     let entry_re = Regex::new(
-        r#"^\s*"tool:[^"]+":\s*\{\s*domain:\s*"([a-z_]+)",\s*action:\s*"([a-z0-9_]+)"\s*\},?\s*$"#,
+        r#""tool:[^"]+"\s*:\s*\{\s*domain:\s*"([a-z_]+)"\s*,\s*action:\s*"([a-z0-9_]+)"\s*,?\s*\}\s*,?"#,
     )
     .expect("valid CHANNEL_MAP regex");
 
-    source
-        .lines()
-        .filter_map(|line| {
-            let caps = entry_re.captures(line)?;
-            Some((caps[1].to_string(), caps[2].to_string()))
-        })
+    entry_re
+        .captures_iter(source)
+        .map(|caps| (caps[1].to_string(), caps[2].to_string()))
         .collect()
 }
 
@@ -179,4 +180,24 @@ fn widget_refresh_whitelists_are_supported_actions() {
             "Todo 挂件刷新白名单 action 未被 todo 支持：{action}。{SYNC_GUIDE}"
         );
     }
+}
+
+#[test]
+fn channel_map_parser_accepts_multiline_entries() {
+    let source = r#"
+        const CHANNEL_MAP = {
+          "tool:action-center:combination-definition-list": {
+            domain: "action_center",
+            action: "combination_definition_list",
+          },
+        };
+    "#;
+
+    assert_eq!(
+        parse_channel_map_source(source),
+        vec![(
+            "action_center".to_string(),
+            "combination_definition_list".to_string(),
+        )]
+    );
 }
