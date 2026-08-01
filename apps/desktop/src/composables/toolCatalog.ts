@@ -72,7 +72,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       id: "text",
       name: "数据转换",
       tools: [
-        { id: "json-process", name: "JSON 处理", desc: "JSON 格式化/压缩/XML/YAML 互转" },
+        {
+          id: "json-process",
+          name: "JSON 处理",
+          desc: "JSON 格式化/压缩/字段排序与 XML/YAML 互转",
+        },
         { id: "json-schema", name: "JSON Schema", desc: "JSON Schema 校验与样例生成" },
         { id: "data-dictionary", name: "数据字典", desc: "JSON 数组字段释义与数据检索" },
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },

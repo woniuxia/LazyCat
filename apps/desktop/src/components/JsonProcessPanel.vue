@@ -4,6 +4,7 @@
       <el-space wrap>
         <el-button type="primary" @click="formatJson">JSON 格式化</el-button>
         <el-button @click="minifyJson">JSON 压缩</el-button>
+        <el-button @click="sortJsonFields">字段排序</el-button>
         <el-divider direction="vertical" />
         <el-button @click="callIpc('tool:convert:json-to-xml')">JSON → XML</el-button>
         <el-button @click="callIpc('tool:convert:xml-to-json')">XML → JSON</el-button>
@@ -85,6 +86,7 @@ import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 import JsonTreeViewer from "./common/JsonTreeViewer.vue";
+import { stringifyJsonWithSortedKeys } from "../utils/jsonProcess";
 import { canEnterJsonTree } from "../utils/jsonProcessTree";
 
 type InputMode = "text" | "tree";
@@ -185,6 +187,17 @@ function minifyJson() {
   try {
     const parsed = JSON.parse(input.value);
     output.value = JSON.stringify(parsed);
+  } catch (e: unknown) {
+    ElMessage.error(`JSON 解析失败: ${(e as Error).message}`);
+  }
+}
+
+function sortJsonFields() {
+  ensureTextMode();
+  if (!input.value.trim()) return;
+  try {
+    const parsed = JSON.parse(input.value);
+    output.value = stringifyJsonWithSortedKeys(parsed);
   } catch (e: unknown) {
     ElMessage.error(`JSON 解析失败: ${(e as Error).message}`);
   }

@@ -33,6 +33,11 @@ describe("JsonProcessPanel source structure", () => {
     expect(occurrences).toBeGreaterThanOrEqual(5);
   });
 
+  it("offers recursive JSON field sorting", () => {
+    expect(source).toContain('@click="sortJsonFields">字段排序</el-button>');
+    expect(source).toContain("stringifyJsonWithSortedKeys(parsed)");
+  });
+
   it("mounts the editable tree on the input side with depth 2", () => {
     expect(source).toContain("JsonTreeViewer");
     expect(source).toContain("editable");
