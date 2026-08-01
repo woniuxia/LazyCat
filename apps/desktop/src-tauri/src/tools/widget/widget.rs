@@ -17,13 +17,10 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use tauri::{
-    AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
-};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
-use crate::tools::widget::{config, session};
 use crate::tools::widget::diagnostics::WidgetEvent;
+use crate::tools::widget::{config, session};
 
 pub use session::VisualState;
 
@@ -80,7 +77,10 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
     // 存储窗口 + 自增 generation
     s.set_window(win.clone());
     s.set_ready_deadline();
-    eprintln!("[widget] widget: window stored, generation={}, transitioning to Peek", s.generation());
+    eprintln!(
+        "[widget] widget: window stored, generation={}, transitioning to Peek",
+        s.generation()
+    );
 
     // 通过 transition 设置 Peek 状态（positioning + show）
     if let Err(e) = s.transition(app, VisualState::Peek) {
@@ -195,7 +195,10 @@ pub(crate) fn apply_position(
             }
         }
     };
-    eprintln!("[widget] widget: apply_position {:?} edge={edge} x={x} y={y}", vstate);
+    eprintln!(
+        "[widget] widget: apply_position {:?} edge={edge} x={x} y={y}",
+        vstate
+    );
     set_window_pos(win, x, y)
 }
 
@@ -367,8 +370,7 @@ fn cursor_loop(app: AppHandle) {
                         last_in_widget = Instant::now();
                         was_in_full = true;
                     } else if was_in_full
-                        && last_in_widget.elapsed()
-                            >= Duration::from_millis(collapse_delay_ms)
+                        && last_in_widget.elapsed() >= Duration::from_millis(collapse_delay_ms)
                     {
                         if s.generation() == gen {
                             let _ = s.transition(&app, VisualState::Peek);
@@ -386,9 +388,7 @@ fn cursor_loop(app: AppHandle) {
                 panic_info
                     .downcast_ref::<&str>()
                     .map(|s| s.to_string())
-                    .or_else(|| panic_info
-                        .downcast_ref::<String>()
-                        .cloned())
+                    .or_else(|| panic_info.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "unknown".into())
             );
             eprintln!("[widget] {msg}");

@@ -7,7 +7,8 @@ use super::helpers::db_conn;
 use super::todo::{compute_remind_at, reminder_configs_from_presets};
 
 pub fn item_todo_list(payload: &Value) -> Result<Value, String> {
-    let pm_item_id = crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
+    let pm_item_id =
+        crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
     let conn = db_conn()?;
 
     // Verify PM item exists
@@ -105,7 +106,8 @@ pub fn item_todo_list(payload: &Value) -> Result<Value, String> {
 
 /// Batch-link existing Todos to a PM item (single transaction, all-or-nothing).
 pub fn item_todo_link(payload: &Value) -> Result<Value, String> {
-    let pm_item_id = crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
+    let pm_item_id =
+        crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
     let todo_ids = payload
         .get("todoItemIds")
         .and_then(Value::as_array)
@@ -164,9 +166,7 @@ pub fn item_todo_link(payload: &Value) -> Result<Value, String> {
         // Check project consistency: allow same project or null project
         match todo_project_id {
             Some(pid) if pid != pm_project_id => {
-                return Err(format!(
-                    "事项 {tid} 属于其他项目，无法绑定到当前工作项"
-                ));
+                return Err(format!("事项 {tid} 属于其他项目，无法绑定到当前工作项"));
             }
             _ => {}
         }
@@ -195,8 +195,10 @@ pub fn item_todo_link(payload: &Value) -> Result<Value, String> {
 
 /// Unlink a Todo from a PM item.
 pub fn item_todo_unlink(payload: &Value) -> Result<Value, String> {
-    let pm_item_id = crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
-    let todo_item_id = crate::tools::pm::parse_i64(payload, "todoItemId").ok_or("todoItemId is required")?;
+    let pm_item_id =
+        crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
+    let todo_item_id =
+        crate::tools::pm::parse_i64(payload, "todoItemId").ok_or("todoItemId is required")?;
     let conn = db_conn()?;
     let changed = conn
         .execute(
@@ -212,7 +214,8 @@ pub fn item_todo_unlink(payload: &Value) -> Result<Value, String> {
 
 /// Atomically create a new one-off Todo and link it to a PM item in a single transaction.
 pub fn item_todo_create(payload: &Value) -> Result<Value, String> {
-    let pm_item_id = crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
+    let pm_item_id =
+        crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
     let title = crate::tools::pm::parse_string(payload, "title").ok_or("title is required")?;
     let description = crate::tools::pm::parse_string(payload, "description").unwrap_or_default();
     let priority = crate::tools::pm::parse_string(payload, "priority")
@@ -311,20 +314,24 @@ pub fn item_todo_create(payload: &Value) -> Result<Value, String> {
 
 /// Return candidate Todos that can be linked to a PM item.
 pub fn item_todo_candidates(payload: &Value) -> Result<Value, String> {
-    let pm_item_id = crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
+    let pm_item_id =
+        crate::tools::pm::parse_i64(payload, "pmItemId").ok_or("pmItemId is required")?;
     let keyword = crate::tools::pm::parse_string(payload, "keyword");
-    let limit = crate::tools::pm::parse_i64(payload, "limit").unwrap_or(50).min(100) as usize;
+    let limit = crate::tools::pm::parse_i64(payload, "limit")
+        .unwrap_or(50)
+        .min(100) as usize;
 
     // Parse status filter
-    let status_filter: Option<Vec<String>> = payload
-        .get("statuses")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        });
+    let status_filter: Option<Vec<String>> =
+        payload
+            .get("statuses")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| s.to_string())
+                    .collect()
+            });
 
     let conn = db_conn()?;
 
@@ -373,7 +380,9 @@ pub fn item_todo_candidates(payload: &Value) -> Result<Value, String> {
     sql.push_str(" LIMIT ");
     sql.push_str(&(limit + 1).to_string());
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("item_todo_candidates prepare: {e}"))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("item_todo_candidates prepare: {e}"))?;
 
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(pm_project_id)];
     if let Some(ref kw) = keyword {
@@ -471,9 +480,12 @@ pub fn item_todo_candidates(payload: &Value) -> Result<Value, String> {
 /// Return candidate Todos for linking by project ID (no PM item required).
 /// Used when creating a new PM item and wanting to pre-select todos to link.
 pub fn item_todo_candidates_by_project(payload: &Value) -> Result<Value, String> {
-    let project_id = crate::tools::pm::parse_i64(payload, "projectId").ok_or("projectId is required")?;
+    let project_id =
+        crate::tools::pm::parse_i64(payload, "projectId").ok_or("projectId is required")?;
     let keyword = crate::tools::pm::parse_string(payload, "keyword");
-    let limit = crate::tools::pm::parse_i64(payload, "limit").unwrap_or(50).min(100) as usize;
+    let limit = crate::tools::pm::parse_i64(payload, "limit")
+        .unwrap_or(50)
+        .min(100) as usize;
 
     let conn = db_conn()?;
 
@@ -496,7 +508,9 @@ pub fn item_todo_candidates_by_project(payload: &Value) -> Result<Value, String>
     sql.push_str(" LIMIT ");
     sql.push_str(&(limit + 1).to_string());
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("item_todo_candidates_by_project prepare: {e}"))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("item_todo_candidates_by_project prepare: {e}"))?;
 
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(project_id)];
     if let Some(ref kw) = keyword {
@@ -526,7 +540,13 @@ pub fn item_todo_candidates_by_project(payload: &Value) -> Result<Value, String>
     let items: Vec<Value> = rows.into_iter().take(limit).collect();
     let total = items.len() as i64;
 
-    let reason = if total == 0 { "empty" } else if overflow { "overflow" } else { "ok" };
+    let reason = if total == 0 {
+        "empty"
+    } else if overflow {
+        "overflow"
+    } else {
+        "ok"
+    };
 
     Ok(json!({
         "items": items,

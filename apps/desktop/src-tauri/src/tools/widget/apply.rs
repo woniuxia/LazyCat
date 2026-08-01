@@ -68,7 +68,14 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .get("todoTotalCount")
         .and_then(|v| v.as_u64())
         .unwrap_or(todo_list_value.len() as u64);
-    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, &ext_fixed, ext_limit, privacy_mask, total_count);
+    let input_hash = compute_input_hash(
+        &todo_list_value,
+        &hot_tools_value,
+        &ext_fixed,
+        ext_limit,
+        privacy_mask,
+        total_count,
+    );
     let prev_hash = session::session().input_hash();
     if !force && input_hash != 0 && input_hash == prev_hash {
         eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
@@ -162,9 +169,17 @@ fn compute_input_hash(
     hasher.update(b"|");
     hasher.update(if privacy_mask { b"1" } else { b"0" });
     hasher.update(b"|");
-    hasher.update(serde_json::to_string(hot_tools).unwrap_or_default().as_bytes());
+    hasher.update(
+        serde_json::to_string(hot_tools)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     hasher.update(b"|");
-    hasher.update(serde_json::to_string(ext_fixed).unwrap_or_default().as_bytes());
+    hasher.update(
+        serde_json::to_string(ext_fixed)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     hasher.update(b"|");
     hasher.update(ext_limit.to_string().as_bytes());
     hasher.update(b"|");

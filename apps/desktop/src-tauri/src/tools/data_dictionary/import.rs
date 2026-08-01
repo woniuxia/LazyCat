@@ -224,7 +224,19 @@ pub(super) fn normalize_record_search_text(value: &str) -> String {
         if character.is_whitespace()
             || matches!(
                 character,
-                '\\' | '/' | '_' | '.' | '-' | ':' | '：' | '@' | '|' | ',' | '，' | ';' | '；' | '·'
+                '\\' | '/'
+                    | '_'
+                    | '.'
+                    | '-'
+                    | ':'
+                    | '：'
+                    | '@'
+                    | '|'
+                    | ','
+                    | '，'
+                    | ';'
+                    | '；'
+                    | '·'
             )
         {
             pending_space = !normalized.is_empty();

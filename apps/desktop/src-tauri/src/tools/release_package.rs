@@ -3999,7 +3999,10 @@ mod tests {
         assert_eq!(production["frontendSuccessKeyword"], "Build completed");
         assert_eq!(production["backendSuccessKeyword"], "BUILD SUCCESS");
         assert_eq!(production["healthCheckEnabled"], true);
-        assert_eq!(production["healthCheckUrl"], "https://portal.example.com/health");
+        assert_eq!(
+            production["healthCheckUrl"],
+            "https://portal.example.com/health"
+        );
         assert_eq!(production["healthCheckMaxRetries"], 4);
         assert_eq!(
             production["frontendPostUploadCommand"],
@@ -4026,7 +4029,10 @@ mod tests {
             "systemctl restart portal-pro"
         );
         assert!(updated.health_check_enabled);
-        assert_eq!(updated.health_check_url, "https://portal.example.com/health");
+        assert_eq!(
+            updated.health_check_url,
+            "https://portal.example.com/health"
+        );
         assert_eq!(updated.health_check_max_retries, 8);
         project_delete_with_conn(&conn, &json!({ "id": id })).unwrap();
         assert!(load_environment(&conn, environment_id).is_err());

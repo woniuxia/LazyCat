@@ -10,19 +10,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
-use super::release_package_model::{
-    ReleasePackageEnvironmentConfig, ReleasePackageEnvironmentKind, ReleaseTarget,
-};
-#[cfg(test)]
-use super::release_package_model::ReleasePackageType;
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use super::release_package_artifact::{ArchivedTarget, ArtifactManifest};
 use super::release_package_deploy::{
-    deploy_parallel, DeployError, DeployEvent, DeploymentPlan,
-    DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
+    deploy_parallel, DeployError, DeployEvent, DeploymentPlan, DeploymentRequest,
+    DeploymentSuccess, DeploymentTarget, RemoteFs,
+};
+#[cfg(test)]
+use super::release_package_model::ReleasePackageType;
+use super::release_package_model::{
+    ReleasePackageEnvironmentConfig, ReleasePackageEnvironmentKind, ReleaseTarget,
 };
 use super::release_package_remote::CommandRemoteFs;
 use super::release_package_remote::RemoteEndpoint;
@@ -507,11 +507,7 @@ struct UploadProgressReporter {
 }
 
 impl UploadProgressReporter {
-    fn new(
-        sink: Arc<dyn EventSink>,
-        identity: RunIdentity,
-        total_bytes: u64,
-    ) -> Self {
+    fn new(sink: Arc<dyn EventSink>, identity: RunIdentity, total_bytes: u64) -> Self {
         Self {
             sink,
             identity,
@@ -680,14 +676,7 @@ fn run_command_phase(
     if cancelled.load(Ordering::Acquire) {
         return Err(PipelineError::Cancelled { phase });
     }
-    emit_status(
-        sink.as_ref(),
-        identity,
-        "running",
-        phase,
-        None,
-        None,
-    );
+    emit_status(sink.as_ref(), identity, "running", phase, None, None);
     emit_system_log(sink.as_ref(), identity, phase, "开始执行构建命令");
     let event_identity = identity.clone();
     let event_phase = phase.to_owned();
@@ -837,14 +826,9 @@ fn emit_target_result(
         Err(PipelineError::Cancelled { .. }) => {
             emit_status(sink, identity, "cancelled", phase, None, None)
         }
-        Err(PipelineError::Failed { message }) => emit_status(
-            sink,
-            identity,
-            "failed",
-            phase,
-            None,
-            Some(message.clone()),
-        ),
+        Err(PipelineError::Failed { message }) => {
+            emit_status(sink, identity, "failed", phase, None, Some(message.clone()))
+        }
     }
 }
 
@@ -1281,13 +1265,7 @@ fn run_post_upload_commands(
             .iter()
             .any(|command| command.target == manifest.target)
         {
-            emit_command_status(
-                sink.as_ref(),
-                identity,
-                manifest.target,
-                "skipped",
-                None,
-            );
+            emit_command_status(sink.as_ref(), identity, manifest.target, "skipped", None);
         }
     }
     if commands.is_empty() {
@@ -1303,12 +1281,7 @@ fn run_post_upload_commands(
     for (index, snapshot) in commands.iter().enumerate() {
         if cancelled.load(Ordering::Acquire) {
             let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
-            emit_cancelled_command_statuses(
-                sink.as_ref(),
-                identity,
-                &commands[index..],
-                message,
-            );
+            emit_cancelled_command_statuses(sink.as_ref(), identity, &commands[index..], message);
             summary.status = "cancelled";
             summary.error = Some(message.into());
             summary.failed_commands.clear();
@@ -1317,13 +1290,7 @@ fn run_post_upload_commands(
         }
 
         let label = target_label(snapshot.target);
-        emit_command_status(
-            sink.as_ref(),
-            identity,
-            snapshot.target,
-            "running",
-            None,
-        );
+        emit_command_status(sink.as_ref(), identity, snapshot.target, "running", None);
         emit_system_log(
             sink.as_ref(),
             identity,
@@ -1351,12 +1318,7 @@ fn run_post_upload_commands(
 
         if cancelled.load(Ordering::Acquire) || matches!(&result, Err(error) if error.cancelled) {
             let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
-            emit_cancelled_command_statuses(
-                sink.as_ref(),
-                identity,
-                &commands[index..],
-                message,
-            );
+            emit_cancelled_command_statuses(sink.as_ref(), identity, &commands[index..], message);
             summary.status = "cancelled";
             summary.error = Some(message.into());
             summary.failed_commands.clear();
@@ -1372,13 +1334,7 @@ fn run_post_upload_commands(
                     "upload",
                     &format!("[{label}命令] 上传后命令执行成功"),
                 );
-                emit_command_status(
-                    sink.as_ref(),
-                    identity,
-                    snapshot.target,
-                    "succeeded",
-                    None,
-                );
+                emit_command_status(sink.as_ref(), identity, snapshot.target, "succeeded", None);
             }
             Ok(result) => {
                 let error = format!("上传后命令执行失败，退出码：{}", result.exit_code);
@@ -1670,15 +1626,16 @@ fn run_deployment_phase(
         return summary;
     }
     let commands = configured_post_upload_commands(project, &summary.manifests);
-    let request = match build_deployment_request(&identity.run_id, &summary, &authorization.consumed) {
-        Ok(request) => request,
-        Err(error) => {
-            return preserve_retry_commands(
-                combine_package_and_deploy(summary, Err(error)),
-                commands,
-            );
-        }
-    };
+    let request =
+        match build_deployment_request(&identity.run_id, &summary, &authorization.consumed) {
+            Ok(request) => request,
+            Err(error) => {
+                return preserve_retry_commands(
+                    combine_package_and_deploy(summary, Err(error)),
+                    commands,
+                );
+            }
+        };
     let summary = execute_deployment_request(
         identity,
         summary,
@@ -1690,7 +1647,13 @@ fn run_deployment_phase(
         ssh_sockets,
         Arc::clone(&sink),
     );
-    run_health_check(identity, summary, project, cancelled.as_ref(), sink.as_ref())
+    run_health_check(
+        identity,
+        summary,
+        project,
+        cancelled.as_ref(),
+        sink.as_ref(),
+    )
 }
 
 fn execute_deployment_request(
@@ -1704,12 +1667,9 @@ fn execute_deployment_request(
     ssh_sockets: &Arc<SshSocketRegistry>,
     sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
-    if let Err(error) = prepare_frontend_transfers(
-        identity,
-        &mut request,
-        cancelled.as_ref(),
-        sink.as_ref(),
-    ) {
+    if let Err(error) =
+        prepare_frontend_transfers(identity, &mut request, cancelled.as_ref(), sink.as_ref())
+    {
         ssh_sockets.clear();
         return preserve_retry_commands(combine_package_and_deploy(summary, Err(error)), commands);
     }
@@ -1718,12 +1678,7 @@ fn execute_deployment_request(
         .iter()
         .map(DeploymentTarget::transfer_bytes)
         .sum();
-    emit_system_log(
-        sink.as_ref(),
-        identity,
-        "upload",
-        "开始上传服务器",
-    );
+    emit_system_log(sink.as_ref(), identity, "upload", "开始上传服务器");
     let reporter = Arc::new(UploadProgressReporter::new(
         Arc::clone(&sink),
         identity.clone(),
@@ -1743,13 +1698,19 @@ fn execute_deployment_request(
                 sink.as_ref(),
                 &identity,
                 "upload",
-                &format!("[前端传输] tar.gz 上传完成，耗时 {} ms", duration.as_millis()),
+                &format!(
+                    "[前端传输] tar.gz 上传完成，耗时 {} ms",
+                    duration.as_millis()
+                ),
             ),
             DeployEvent::FrontendArchiveExtracted { duration } => emit_system_log(
                 sink.as_ref(),
                 &identity,
                 "upload",
-                &format!("[前端传输] 远端 tar.gz 解压完成，耗时 {} ms", duration.as_millis()),
+                &format!(
+                    "[前端传输] 远端 tar.gz 解压完成，耗时 {} ms",
+                    duration.as_millis()
+                ),
             ),
         }) as Arc<dyn Fn(DeployEvent) + Send + Sync>
     };
@@ -1807,12 +1768,7 @@ fn execute_deployment_request(
     let (mut summary, control) = resolve_deployment_result(summary, deploy_result);
     summary = preserve_retry_commands(summary, retry_commands);
     if summary.remote_committed {
-        emit_system_log(
-            sink.as_ref(),
-            identity,
-            "upload",
-            "服务器上传完成",
-        );
+        emit_system_log(sink.as_ref(), identity, "upload", "服务器上传完成");
         if let Some(control) = control {
             summary = run_post_upload_commands(
                 identity,
@@ -1911,14 +1867,14 @@ fn run_retry_deployment_phase(
     };
     let request =
         match build_retry_deployment_request(&identity.run_id, &retry, &authorization.consumed) {
-        Ok(request) => request,
-        Err(error) => {
-            return preserve_retry_commands(
-                combine_package_and_deploy(summary, Err(error)),
-                commands,
-            );
-        }
-    };
+            Ok(request) => request,
+            Err(error) => {
+                return preserve_retry_commands(
+                    combine_package_and_deploy(summary, Err(error)),
+                    commands,
+                );
+            }
+        };
     let summary = execute_deployment_request(
         identity,
         summary,
@@ -1930,7 +1886,13 @@ fn run_retry_deployment_phase(
         ssh_sockets,
         Arc::clone(&sink),
     );
-    run_health_check(identity, summary, project, cancelled.as_ref(), sink.as_ref())
+    run_health_check(
+        identity,
+        summary,
+        project,
+        cancelled.as_ref(),
+        sink.as_ref(),
+    )
 }
 
 fn run_build_pipeline(
@@ -1960,12 +1922,7 @@ fn run_build_pipeline(
                     pid,
                     thread_sink.clone(),
                 );
-                emit_target_result(
-                    thread_sink.as_ref(),
-                    &thread_identity,
-                    target,
-                    &result,
-                );
+                emit_target_result(thread_sink.as_ref(), &thread_identity, target, &result);
                 result
             }),
         ));
@@ -2012,14 +1969,7 @@ fn emit_local_archive_target_status(
     status: &str,
     error: Option<String>,
 ) {
-    emit_status(
-        sink,
-        identity,
-        status,
-        target_phase(target),
-        None,
-        error,
-    );
+    emit_status(sink, identity, status, target_phase(target), None, error);
 }
 
 fn merge_pipeline_error(existing: Option<&str>, error: PipelineError) -> PipelineError {
@@ -4490,13 +4440,8 @@ mod pipeline_tests {
         let sink = Sink;
 
         let mut first = build_retry_deployment_request("retry-1", &retry, &consumed).unwrap();
-        prepare_frontend_transfers(
-            &run_identity("retry-1"),
-            &mut first,
-            &cancelled,
-            &sink,
-        )
-        .unwrap();
+        prepare_frontend_transfers(&run_identity("retry-1"), &mut first, &cancelled, &sink)
+            .unwrap();
         let first_path = first.targets[0]
             .frontend_archive
             .as_ref()
@@ -4505,13 +4450,8 @@ mod pipeline_tests {
             .to_path_buf();
 
         let mut second = build_retry_deployment_request("retry-2", &retry, &consumed).unwrap();
-        prepare_frontend_transfers(
-            &run_identity("retry-2"),
-            &mut second,
-            &cancelled,
-            &sink,
-        )
-        .unwrap();
+        prepare_frontend_transfers(&run_identity("retry-2"), &mut second, &cancelled, &sink)
+            .unwrap();
         let second_path = second.targets[0]
             .frontend_archive
             .as_ref()

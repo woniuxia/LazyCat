@@ -409,24 +409,20 @@ fn v2_get(payload: &Value) -> Result<Value, String> {
          FROM snippet_entries se WHERE se.id = ?1"
     );
     let mut snippet = conn
-        .query_row(
-            &query,
-            params![entry_id],
-            |r| {
-                Ok(json!({
-                    "id": r.get::<_, i64>(0)?,
-                    "title": r.get::<_, String>(1)?,
-                    "description": r.get::<_, String>(2)?,
-                    "folderId": r.get::<_, Option<i64>>(3)?,
-                    "isFavorite": r.get::<_, i64>(4)? == 1,
-                    "primaryLanguage": r.get::<_, String>(5)?,
-                    "createdAt": r.get::<_, String>(6)?,
-                    "updatedAt": r.get::<_, String>(7)?,
-                    "lastUsedAt": r.get::<_, String>(8)?,
-                    "useCount": r.get::<_, i64>(9)?,
-                }))
-            },
-        )
+        .query_row(&query, params![entry_id], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "description": r.get::<_, String>(2)?,
+                "folderId": r.get::<_, Option<i64>>(3)?,
+                "isFavorite": r.get::<_, i64>(4)? == 1,
+                "primaryLanguage": r.get::<_, String>(5)?,
+                "createdAt": r.get::<_, String>(6)?,
+                "updatedAt": r.get::<_, String>(7)?,
+                "lastUsedAt": r.get::<_, String>(8)?,
+                "useCount": r.get::<_, i64>(9)?,
+            }))
+        })
         .map_err(|e| format!("v2_get not found: {e}"))?;
 
     snippet["tags"] = collect_tags(&conn, entry_id)?;

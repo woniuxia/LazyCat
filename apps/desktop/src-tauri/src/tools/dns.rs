@@ -16,11 +16,7 @@ fn get_runtime() -> &'static tokio::runtime::Runtime {
     DNS_RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().expect("create DNS runtime"))
 }
 
-const ACTIONS: &[&str] = &[
-    "resolve",
-    "system_dns",
-    "compare",
-];
+const ACTIONS: &[&str] = &["resolve", "system_dns", "compare"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

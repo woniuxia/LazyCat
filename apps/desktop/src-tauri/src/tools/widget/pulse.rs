@@ -30,8 +30,8 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use crate::events::EVENT_WIDGET_NAVIGATE;
+use crate::tools::widget::diagnostics::{ApplyResult, SkipReason, WidgetEvent};
 use crate::tools::widget::{apply, conflicts, guards, session, widget};
-use crate::tools::widget::diagnostics::{WidgetEvent, ApplyResult, SkipReason};
 
 const DEBOUNCE_WINDOW: Duration = Duration::from_secs(5);
 const WATCHDOG_THRESHOLD: Duration = Duration::from_secs(15);
@@ -79,10 +79,7 @@ pub fn start(app: AppHandle) {
         notify_data_changed("widget");
 
         if let Ok(payload) = serde_json::from_str::<Value>(evt.payload()) {
-            let kind = payload
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let kind = payload.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             if matches!(kind, "open-tool" | "open-todo-create") {
                 // 确保主窗口在点击快捷操作时呼出到前台
                 if let Some(main) = app_nav.get_webview_window("main") {
@@ -186,8 +183,12 @@ fn tick(app: &AppHandle, force: bool) {
     s.refresh_config_if_dirty();
 
     let skip = s.should_skip();
-    eprintln!("[widget] pulse: tick force={force} skip={skip} enabled={} paused={} window_exists={}",
-        s.is_enabled(), s.is_paused(), s.is_window_open());
+    eprintln!(
+        "[widget] pulse: tick force={force} skip={skip} enabled={} paused={} window_exists={}",
+        s.is_enabled(),
+        s.is_paused(),
+        s.is_window_open()
+    );
     s.sync_visibility(app, skip);
 
     if !skip {
@@ -218,10 +219,7 @@ fn tick(app: &AppHandle, force: bool) {
                                 .and_then(|val| val.as_bool())
                                 .unwrap_or(false),
                         },
-                        elapsed_ms: v
-                            .get("elapsedMs")
-                            .and_then(|val| val.as_u64())
-                            .unwrap_or(0),
+                        elapsed_ms: v.get("elapsedMs").and_then(|val| val.as_u64()).unwrap_or(0),
                     });
                 }
             }

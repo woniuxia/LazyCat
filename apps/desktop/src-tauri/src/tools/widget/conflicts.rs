@@ -48,7 +48,9 @@ mod imp {
     }
 
     fn detect_spotlight() -> bool {
-        if read_background_type_is_spotlight() { return true; }
+        if read_background_type_is_spotlight() {
+            return true;
+        }
         read_wallpaper_path_in_spotlight_cache()
     }
 
@@ -66,7 +68,9 @@ mod imp {
     fn read_wallpaper_path_in_spotlight_cache() -> bool {
         let subkey = wide(r"Control Panel\Desktop");
         let value = wide("WallPaper");
-        let Some(path) = read_string(HKEY_CURRENT_USER, &subkey, &value) else { return false; };
+        let Some(path) = read_string(HKEY_CURRENT_USER, &subkey, &value) else {
+            return false;
+        };
         let lower = path.to_ascii_lowercase();
         // Spotlight 缓存路径通常落在：
         //   %LOCALAPPDATA%\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\
@@ -79,7 +83,9 @@ mod imp {
     fn detect_third_party_engine() -> Option<String> {
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
         let snap = snap.ok()?;
-        if snap.is_invalid() { return None; }
+        if snap.is_invalid() {
+            return None;
+        }
 
         let mut entry = PROCESSENTRY32W::default();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
@@ -94,7 +100,9 @@ mod imp {
                         found = Some(name);
                         break;
                     }
-                    if Process32NextW(snap, &mut entry).is_err() { break; }
+                    if Process32NextW(snap, &mut entry).is_err() {
+                        break;
+                    }
                 }
             }
             let _ = CloseHandle(snap);
@@ -103,8 +111,14 @@ mod imp {
     }
 
     fn exe_name_from_entry(entry: &PROCESSENTRY32W) -> String {
-        let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-        OsString::from_wide(&entry.szExeFile[..len]).to_string_lossy().into_owned()
+        let len = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        OsString::from_wide(&entry.szExeFile[..len])
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn wide(s: &str) -> Vec<u16> {
@@ -141,7 +155,16 @@ mod imp {
             }
             let mut size = 0u32;
             let mut typ = REG_VALUE_TYPE::default();
-            if RegQueryValueExW(hkey, PCWSTR(value.as_ptr()), Some(std::ptr::null_mut()), Some(&mut typ), Some(std::ptr::null_mut()), Some(&mut size)).is_err() {
+            if RegQueryValueExW(
+                hkey,
+                PCWSTR(value.as_ptr()),
+                Some(std::ptr::null_mut()),
+                Some(&mut typ),
+                Some(std::ptr::null_mut()),
+                Some(&mut size),
+            )
+            .is_err()
+            {
                 let _ = RegCloseKey(hkey);
                 return None;
             }
@@ -155,9 +178,15 @@ mod imp {
                 Some(&mut size),
             );
             let _ = RegCloseKey(hkey);
-            if q.is_err() { return None; }
+            if q.is_err() {
+                return None;
+            }
             let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            Some(OsString::from_wide(&buf[..len]).to_string_lossy().into_owned())
+            Some(
+                OsString::from_wide(&buf[..len])
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         }
     }
 }

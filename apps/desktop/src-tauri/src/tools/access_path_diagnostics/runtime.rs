@@ -1843,7 +1843,10 @@ fn finding_message(step: &DiagnosticStep) -> String {
         }
         (StepLifecycle::Cancelled, _) => format!("{} 尚未完成，诊断已取消", step_label(step.id)),
         (StepLifecycle::Completed, Some(StepOutcome::Warning)) => {
-            format!("{} 存在差异或风险项，需要结合证据确认影响", step_label(step.id))
+            format!(
+                "{} 存在差异或风险项，需要结合证据确认影响",
+                step_label(step.id)
+            )
         }
         (StepLifecycle::Completed, Some(StepOutcome::Unverified)) => {
             format!("{} 缺少足够证据，当前无法验证", step_label(step.id))

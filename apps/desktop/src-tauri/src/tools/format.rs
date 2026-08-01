@@ -1,12 +1,6 @@
 use serde_json::{json, Value};
 
-const ACTIONS: &[&str] = &[
-    "json",
-    "xml",
-    "html",
-    "java",
-    "sql",
-];
+const ACTIONS: &[&str] = &["json", "xml", "html", "java", "sql"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

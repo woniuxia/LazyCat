@@ -17,13 +17,16 @@ pub(super) type SqlParam = Box<dyn ToSql>;
 pub(super) fn ensure_search_index_schema(conn: &Connection) -> Result<(), String> {
     let mut columns = conn
         .prepare("PRAGMA table_info(data_dictionary_records)")
-        .map_err(|error| format!("prepare data dictionary search index migration failed: {error}"))?;
+        .map_err(|error| {
+            format!("prepare data dictionary search index migration failed: {error}")
+        })?;
     let names = columns
         .query_map([], |row| row.get::<_, String>(1))
         .map_err(|error| format!("query data dictionary search index columns failed: {error}"))?;
     let mut has_pinyin_column = false;
     for name in names {
-        if name.map_err(|error| format!("read data dictionary search index column failed: {error}"))?
+        if name
+            .map_err(|error| format!("read data dictionary search index column failed: {error}"))?
             == "pinyin_search_text"
         {
             has_pinyin_column = true;
@@ -46,17 +49,21 @@ pub(super) fn ensure_search_index_schema(conn: &Connection) -> Result<(), String
     let records = {
         let mut stmt = tx
             .prepare("SELECT id, search_text FROM data_dictionary_records")
-            .map_err(|error| format!("prepare data dictionary search index backfill failed: {error}"))?;
+            .map_err(|error| {
+                format!("prepare data dictionary search index backfill failed: {error}")
+            })?;
         let rows = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })
-            .map_err(|error| format!("query data dictionary search index backfill failed: {error}"))?;
+            .map_err(|error| {
+                format!("query data dictionary search index backfill failed: {error}")
+            })?;
         let mut records = Vec::new();
         for row in rows {
-            records.push(
-                row.map_err(|error| format!("read data dictionary search index backfill failed: {error}"))?,
-            );
+            records.push(row.map_err(|error| {
+                format!("read data dictionary search index backfill failed: {error}")
+            })?);
         }
         records
     };
@@ -250,15 +257,14 @@ pub(super) fn query_ranked_records(
         .map_err(|error| format!("query ranked data dictionary search failed: {error}"))?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row.map_err(|error| format!("read ranked data dictionary search failed: {error}"))?);
+        out.push(
+            row.map_err(|error| format!("read ranked data dictionary search failed: {error}"))?,
+        );
     }
     Ok(out)
 }
 
-pub(super) fn build_ranked_record_query_sql(
-    scope: &SearchScope,
-    token_count: usize,
-) -> String {
+pub(super) fn build_ranked_record_query_sql(scope: &SearchScope, token_count: usize) -> String {
     let token_score = std::iter::repeat(
         "+ CASE
              WHEN r.normalized_search_text LIKE ? ESCAPE '\\' THEN 35
@@ -652,13 +658,8 @@ pub(super) fn ranked_rows_to_search_items(
             field_cache.insert(dictionary_id, fields.clone());
             fields
         };
-        let mut item = record_row_to_search_item_json(
-            row,
-            &paths,
-            &fields,
-            keyword,
-            include_raw_json,
-        )?;
+        let mut item =
+            record_row_to_search_item_json(row, &paths, &fields, keyword, include_raw_json)?;
         let item_object = item
             .as_object_mut()
             .expect("data dictionary search item must be an object");

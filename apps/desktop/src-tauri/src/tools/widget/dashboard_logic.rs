@@ -177,8 +177,14 @@ pub fn sort_dashboard_items(items: &mut [Value]) {
             return ra.cmp(&rb);
         }
 
-        let da = a.get("endAt").and_then(Value::as_str).unwrap_or(SENTINEL_DATE);
-        let dbb = b.get("endAt").and_then(Value::as_str).unwrap_or(SENTINEL_DATE);
+        let da = a
+            .get("endAt")
+            .and_then(Value::as_str)
+            .unwrap_or(SENTINEL_DATE);
+        let dbb = b
+            .get("endAt")
+            .and_then(Value::as_str)
+            .unwrap_or(SENTINEL_DATE);
         if da != dbb {
             return da.cmp(dbb);
         }

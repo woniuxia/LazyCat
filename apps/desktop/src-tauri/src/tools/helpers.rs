@@ -171,11 +171,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;");
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN ref_code TEXT DEFAULT NULL;");
 
-    conn
-        .execute_batch(super::api_mock::API_MOCK_SCHEMA_SQL)
+    conn.execute_batch(super::api_mock::API_MOCK_SCHEMA_SQL)
         .map_err(|e| format!("create api mock schema failed: {e}"))?;
-    conn
-        .execute_batch(super::sql_entity::SQL_ENTITY_SCHEMA_SQL)
+    conn.execute_batch(super::sql_entity::SQL_ENTITY_SCHEMA_SQL)
         .map_err(|e| format!("create sql entity schema failed: {e}"))?;
     super::release_package::ensure_schema(conn)?;
     super::action_center::ensure_schema(conn)?;

@@ -70,11 +70,7 @@ fn open_external(payload: &Value) -> Result<Value, String> {
     }
 
     // 协议白名单：仅允许 http/https/mailto。注意取 scheme 时要 case-insensitive。
-    let scheme_lower = url
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let scheme_lower = url.split(':').next().unwrap_or("").to_ascii_lowercase();
     match scheme_lower.as_str() {
         "http" | "https" | "mailto" => {}
         other => return Err(format!("scheme not allowed: {other}")),

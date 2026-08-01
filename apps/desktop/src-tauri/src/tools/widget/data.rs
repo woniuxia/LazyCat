@@ -10,9 +10,7 @@ use serde_json::{json, Value};
 use crate::tools::helpers::db_conn;
 use crate::tools::usage::{self, RESOURCE_TOOL};
 use crate::tools::widget::config;
-use crate::tools::widget::dashboard_logic::{
-    merge_and_dedup_items, sort_dashboard_items,
-};
+use crate::tools::widget::dashboard_logic::{merge_and_dedup_items, sort_dashboard_items};
 
 /// `todoList` 截断上限（前端可滚动浏览全部）。
 const TODO_LIMIT: usize = 100;

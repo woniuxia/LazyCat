@@ -3,10 +3,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::PathBuf;
 
-const ACTIONS: &[&str] = &[
-    "locate",
-    "open_path",
-];
+const ACTIONS: &[&str] = &["locate", "open_path"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

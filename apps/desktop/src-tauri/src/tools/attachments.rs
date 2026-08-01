@@ -218,10 +218,7 @@ fn save_from_path(payload: &Value) -> Result<Value, String> {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or(inferred_name);
-    let mime = payload
-        .get("mime")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let mime = payload.get("mime").and_then(|v| v.as_str()).unwrap_or("");
     let kind = payload
         .get("kind")
         .and_then(|v| v.as_str())
@@ -402,8 +399,7 @@ fn delete_by_owner(payload: &Value) -> Result<Value, String> {
     validate_owner_type(owner_type)?;
     let owner_id = require_str(payload, "ownerId")?;
     let conn = db_conn()?;
-    let (removed_count, removed_files) =
-        cleanup_orphans_impl(&conn, owner_type, owner_id, &[])?;
+    let (removed_count, removed_files) = cleanup_orphans_impl(&conn, owner_type, owner_id, &[])?;
     Ok(json!({
         "removedCount": removed_count,
         "removedFiles": removed_files,

@@ -9,8 +9,8 @@
 //! - 需要 AppHandle：`enable` / `disable` / `apply` / `resume`
 
 pub mod apply;
-pub mod conflicts;
 pub mod config;
+pub mod conflicts;
 pub mod dashboard_logic;
 pub mod data;
 pub mod diagnostics;
@@ -114,7 +114,9 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
         s.auto_skip_reason = None;
         s.auto_skip_app = None;
     });
-    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    session::session()
+        .paused
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     session::session().invalidate_input_hash();
 
     // 通知 pulse 循环：立即创建窗口 + 推送数据（跳过事件去重 debounce）
@@ -139,7 +141,9 @@ fn disable_widget(app: &AppHandle) -> Result<Value, String> {
         s.auto_skip_reason = None;
         s.auto_skip_app = None;
     });
-    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    session::session()
+        .paused
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     eprintln!("[widget] disable: done");
     Ok(json!({ "ok": true }))
 }
@@ -172,7 +176,9 @@ fn pause_widget(payload: &Value) -> Result<Value, String> {
         "lock" => session::PauseReason::Lock,
         _ => session::PauseReason::Manual,
     };
-    session::session().paused.store(true, std::sync::atomic::Ordering::SeqCst);
+    session::session()
+        .paused
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     session::session().write_inner(|s| {
         s.pause_reason = Some(reason);
     });
@@ -185,7 +191,9 @@ fn pause_widget(payload: &Value) -> Result<Value, String> {
 
 /// 恢复：清暂停 + 立即推一次数据。
 fn resume_widget(app: &AppHandle) -> Result<Value, String> {
-    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    session::session()
+        .paused
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     session::session().write_inner(|s| {
         s.pause_reason = None;
     });

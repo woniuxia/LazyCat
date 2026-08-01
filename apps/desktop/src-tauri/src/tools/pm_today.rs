@@ -23,12 +23,8 @@ struct CandidateRow {
 }
 
 fn today_bounds_utc(today: NaiveDate) -> Result<(String, String), String> {
-    let start_local = today
-        .and_hms_opt(0, 0, 0)
-        .ok_or("invalid today start")?;
-    let end_local = today
-        .and_hms_opt(23, 59, 59)
-        .ok_or("invalid today end")?;
+    let start_local = today.and_hms_opt(0, 0, 0).ok_or("invalid today start")?;
+    let end_local = today.and_hms_opt(23, 59, 59).ok_or("invalid today end")?;
     let start_utc = Local
         .from_local_datetime(&start_local)
         .single()
@@ -386,25 +382,52 @@ mod tests {
     fn classify_overdue_by_end_at() {
         let row = candidate(1, "todo", Some("2026-04-10"), None, None);
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::Overdue,
         ));
     }
 
     #[test]
     fn classify_due_today_on_end_at_match() {
-        let row = candidate(2, "in_progress", Some("2026-04-19"), Some("2026-04-19T00:00:00+00:00"), None);
+        let row = candidate(
+            2,
+            "in_progress",
+            Some("2026-04-19"),
+            Some("2026-04-19T00:00:00+00:00"),
+            None,
+        );
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::DueToday,
         ));
     }
 
     #[test]
     fn classify_in_progress_when_started_but_future_end() {
-        let row = candidate(3, "in_progress", Some("2026-04-25"), Some("2026-04-18T00:00:00+00:00"), None);
+        let row = candidate(
+            3,
+            "in_progress",
+            Some("2026-04-25"),
+            Some("2026-04-18T00:00:00+00:00"),
+            None,
+        );
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::InProgress,
         ));
     }
@@ -419,7 +442,12 @@ mod tests {
             Some("2026-04-19T05:00:00+00:00"),
         );
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::CompletedToday,
         ));
     }
@@ -434,7 +462,12 @@ mod tests {
             Some("2026-04-15T05:00:00+00:00"),
         );
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::None,
         ));
     }
@@ -443,7 +476,12 @@ mod tests {
     fn classify_no_end_no_start_no_bucket() {
         let row = candidate(6, "todo", None, None, None);
         assert!(matches!(
-            classify(&row, "2026-04-19", "2026-04-18T16:00:00+00:00", "2026-04-19T15:59:59+00:00"),
+            classify(
+                &row,
+                "2026-04-19",
+                "2026-04-18T16:00:00+00:00",
+                "2026-04-19T15:59:59+00:00"
+            ),
             Bucket::None,
         ));
     }

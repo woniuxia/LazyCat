@@ -8,9 +8,9 @@ use hickory_resolver::config::{
 };
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::net::{DnsError as HickoryDnsError, NetError};
-use hickory_resolver::proto::ProtoError;
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::{RData, RecordType};
+use hickory_resolver::proto::ProtoError;
 use hickory_resolver::system_conf::read_system_conf;
 use hickory_resolver::TokioResolver;
 use serde::Serialize;
@@ -420,7 +420,10 @@ async fn query_bypass_server(
     }
 }
 
-fn resolver_for_endpoint(endpoint: SocketAddr, timeout: Duration) -> Result<TokioResolver, DnsError> {
+fn resolver_for_endpoint(
+    endpoint: SocketAddr,
+    timeout: Duration,
+) -> Result<TokioResolver, DnsError> {
     let mut udp = ConnectionConfig::udp();
     udp.port = endpoint.port();
     let mut tcp = ConnectionConfig::tcp();
@@ -534,11 +537,9 @@ fn parse_dns_server(value: &str) -> Result<SocketAddr, DnsError> {
 fn classify_resolve_error(error: &NetError) -> DnsError {
     let raw_error = error.to_string();
     match error {
-        NetError::Dns(HickoryDnsError::NoRecordsFound(no_records)) => classify_response_code(
-            no_records.response_code,
-            no_records.negative_ttl,
-            raw_error,
-        ),
+        NetError::Dns(HickoryDnsError::NoRecordsFound(no_records)) => {
+            classify_response_code(no_records.response_code, no_records.negative_ttl, raw_error)
+        }
         NetError::Dns(HickoryDnsError::ResponseCode(response_code)) => {
             classify_response_code(*response_code, None, raw_error)
         }

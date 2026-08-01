@@ -64,8 +64,7 @@ mod imp {
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
     };
     use windows::Win32::System::StationsAndDesktops::{
-        CloseDesktop, GetUserObjectInformationW, OpenInputDesktop, DESKTOP_SWITCHDESKTOP,
-        UOI_NAME,
+        CloseDesktop, GetUserObjectInformationW, OpenInputDesktop, DESKTOP_SWITCHDESKTOP, UOI_NAME,
     };
     use windows::Win32::System::SystemInformation::GetTickCount64;
     use windows::Win32::System::Threading::{
@@ -81,8 +80,8 @@ mod imp {
         GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId,
     };
 
-    use crate::tools::widget::config;
     use super::SystemInputSnapshot;
+    use crate::tools::widget::config;
 
     // ── 全屏切净检测（原 fullscreen.rs） ──────────
 
@@ -91,15 +90,11 @@ mod imp {
     pub fn fullscreen_busy_app() -> Option<String> {
         // 通知状态：拿不到具体进程名，先取前台进程兜底；仍取不到则给标签。
         if check_notification_state() {
-            return Some(
-                foreground_process_name().unwrap_or_else(|| "系统通知态".into()),
-            );
+            return Some(foreground_process_name().unwrap_or_else(|| "系统通知态".into()));
         }
         // 前台全屏窗口：拿前台进程名，取不到给标签。
         if check_foreground_full_screen() {
-            return Some(
-                foreground_process_name().unwrap_or_else(|| "前台全屏窗口".into()),
-            );
+            return Some(foreground_process_name().unwrap_or_else(|| "前台全屏窗口".into()));
         }
         // 黑名单：直接拿前台进程名（命中时必然有值）。
         if let Some(name) = check_foreground_blacklisted() {
@@ -177,8 +172,7 @@ mod imp {
             if pid == 0 {
                 return None;
             }
-            let process =
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             if process.is_invalid() {
                 return None;
             }
@@ -194,10 +188,9 @@ mod imp {
             if q.is_err() {
                 return None;
             }
-            let full_path =
-                OsString::from_wide(&buf[..size as usize])
-                    .to_string_lossy()
-                    .into_owned();
+            let full_path = OsString::from_wide(&buf[..size as usize])
+                .to_string_lossy()
+                .into_owned();
             std::path::Path::new(&full_path)
                 .file_name()
                 .and_then(|s| s.to_str())
@@ -232,7 +225,10 @@ mod imp {
                 return false;
             }
 
-            let len = name_buf.iter().position(|&c| c == 0).unwrap_or(NAME_BUF_LEN);
+            let len = name_buf
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(NAME_BUF_LEN);
             let name = String::from_utf16_lossy(&name_buf[..len]);
             !name.eq_ignore_ascii_case("Default")
         }

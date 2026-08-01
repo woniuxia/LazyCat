@@ -1123,10 +1123,7 @@ mod tests {
         let runner = Arc::new(UdpRuleRunner::new());
         let manager = RuntimeManager::new(runner.clone());
         assert_eq!(
-            manager
-                .start(&rule)
-                .expect("start UDP rule")
-                .state,
+            manager.start(&rule).expect("start UDP rule").state,
             RuntimeState::Running
         );
         let handle = runner.only_handle().expect("read UDP running handle");

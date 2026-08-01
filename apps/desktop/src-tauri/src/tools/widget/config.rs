@@ -127,8 +127,7 @@ pub fn read_config() -> WidgetConfig {
     if let Some(v) = read_string(&conn, KEY_PRIVACY_MASK) {
         cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
     }
-    cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL)
-        .filter(|s| !s.is_empty());
+    cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL).filter(|s| !s.is_empty());
     if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.widget_y = Some(n);
@@ -162,7 +161,8 @@ pub fn read_string(conn: &rusqlite::Connection, key: &str) -> Option<String> {
     let mut stmt = conn
         .prepare("SELECT value FROM user_settings WHERE key = ?1")
         .ok()?;
-    stmt.query_row(params![key], |row| row.get::<_, String>(0)).ok()
+    stmt.query_row(params![key], |row| row.get::<_, String>(0))
+        .ok()
 }
 
 pub fn read_bool(conn: &rusqlite::Connection, key: &str, default: bool) -> bool {
@@ -215,9 +215,7 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
         match key.as_str() {
             // enabled 必须走 enable / disable channel，避免绕过 widget 创建/销毁副作用
             "enabled" => {
-                return Err(
-                    "enabled must be set via tool:widget:enable / disable channels".into(),
-                );
+                return Err("enabled must be set via tool:widget:enable / disable channels".into());
             }
             "style" => write_string(KEY_STYLE, val)?,
             "refreshIntervalMin" => write_i64(KEY_REFRESH_INTERVAL_MIN, val)?,
@@ -245,7 +243,9 @@ fn write_bool(key: &str, val: &Value) -> Result<(), String> {
 }
 
 fn write_string(key: &str, val: &Value) -> Result<(), String> {
-    let s = val.as_str().ok_or_else(|| format!("{key} must be string"))?;
+    let s = val
+        .as_str()
+        .ok_or_else(|| format!("{key} must be string"))?;
     set_string(key, s)
 }
 
@@ -297,8 +297,7 @@ fn write_string_array(key: &str, val: &Value) -> Result<(), String> {
             .ok_or_else(|| format!("{key} element must be string"))?;
         list.push(s.to_string());
     }
-    let json = serde_json::to_string(&list)
-        .map_err(|e| format!("serialize {key} failed: {e}"))?;
+    let json = serde_json::to_string(&list).map_err(|e| format!("serialize {key} failed: {e}"))?;
     set_string(key, &json)
 }
 

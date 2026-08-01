@@ -11,17 +11,16 @@ mod reminders;
 mod taxonomy;
 mod types;
 
-use items::*;
 pub(crate) use items::change_item_status_with_conn;
+use items::*;
 use pm_link::*;
 use reminders::*;
 use taxonomy::*;
 
 pub use helpers::is_open_status;
 pub use reminders::{compute_remind_at, reminder_configs_from_presets, sync_item_reminders};
-pub use types::ReminderDispatch;
 pub(crate) use types::ReminderActionSummary;
-
+pub use types::ReminderDispatch;
 
 // ── Entry points ──────────────────────────────────────────
 
@@ -91,15 +90,14 @@ pub fn scheduler_tick() -> Result<Vec<ReminderDispatch>, String> {
     dispatch_due_reminders(&conn, Utc::now())
 }
 
-
 // ── Tests ─────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::helpers::*;
     use super::recurrence::*;
     use super::types::*;
+    use super::*;
     use chrono::{DateTime, Timelike};
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -223,8 +221,10 @@ mod tests {
     }
 
     fn table_count(conn: &Connection, table: &str) -> i64 {
-        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-            .unwrap()
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
     }
 
     fn seed_one_off(conn: &Connection, id: i64, title: &str) {
@@ -237,8 +237,10 @@ mod tests {
     }
 
     fn item_title(conn: &Connection, id: i64) -> String {
-        conn.query_row("SELECT title FROM todo_items WHERE id=?1", [id], |row| row.get(0))
-            .unwrap()
+        conn.query_row("SELECT title FROM todo_items WHERE id=?1", [id], |row| {
+            row.get(0)
+        })
+        .unwrap()
     }
 
     fn seed_release_project(conn: &Connection, id: i64, name: &str) -> i64 {
@@ -500,7 +502,9 @@ mod tests {
 
         assert!(error.contains("请先解除动作绑定"));
         let kind: String = conn
-            .query_row("SELECT kind FROM todo_items WHERE id=?1", [id], |row| row.get(0))
+            .query_row("SELECT kind FROM todo_items WHERE id=?1", [id], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(kind, "one_off");
         assert_eq!(table_count(&conn, "action_bindings"), 1);
@@ -513,7 +517,9 @@ mod tests {
         end_mode: &str,
         end_value: Option<&str>,
     ) {
-        let start = (Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%dT09:00:00+00:00").to_string();
+        let start = (Utc::now() - chrono::Duration::days(1))
+            .format("%Y-%m-%dT09:00:00+00:00")
+            .to_string();
         conn.execute(
             "INSERT INTO todo_series_rules
              (series_id, rule_mode, rule_json, cron_expression, timezone, start_at, end_mode, end_value, occurrence_index, active)
@@ -796,7 +802,10 @@ mod tests {
 
         assert!(!action.available);
         assert_eq!(action.target_label, "配置 #404");
-        assert_eq!(action.unavailable_reason.as_deref(), Some("上线包配置不存在"));
+        assert_eq!(
+            action.unavailable_reason.as_deref(),
+            Some("上线包配置不存在")
+        );
     }
 
     #[test]
@@ -976,12 +985,22 @@ mod tests {
         assert_eq!(series_id, 7);
 
         // The next occurrence should be today or tomorrow at 09:00 UTC
-        let next_dt = event_at.parse::<chrono::DateTime<Utc>>().expect("parse event_at");
+        let next_dt = event_at
+            .parse::<chrono::DateTime<Utc>>()
+            .expect("parse event_at");
         let now = Utc::now();
         let today_09 = now.date_naive().and_hms_opt(9, 0, 0).unwrap();
-        let tomorrow_09 = (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(9, 0, 0).unwrap();
-        let next_naive = next_dt.date_naive().and_hms_opt(next_dt.hour(), next_dt.minute(), 0).unwrap();
-        assert!(next_naive == today_09 || next_naive == tomorrow_09, "expected 09:00 today or tomorrow, got {event_at}");
+        let tomorrow_09 = (now.date_naive() + chrono::Duration::days(1))
+            .and_hms_opt(9, 0, 0)
+            .unwrap();
+        let next_naive = next_dt
+            .date_naive()
+            .and_hms_opt(next_dt.hour(), next_dt.minute(), 0)
+            .unwrap();
+        assert!(
+            next_naive == today_09 || next_naive == tomorrow_09,
+            "expected 09:00 today or tomorrow, got {event_at}"
+        );
 
         // Verify occurrence_index incremented
         let idx: i64 = conn

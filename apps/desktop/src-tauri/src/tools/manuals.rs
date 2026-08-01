@@ -4,9 +4,7 @@ use std::sync::OnceLock;
 
 pub static MANUAL_SERVERS: OnceLock<HashMap<String, u16>> = OnceLock::new();
 
-const ACTIONS: &[&str] = &[
-    "list",
-];
+const ACTIONS: &[&str] = &["list"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

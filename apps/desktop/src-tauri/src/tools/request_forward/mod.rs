@@ -314,9 +314,7 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                 return Err("没有可导出的转发规则".into());
             }
             if ids.len() > RULE_BUNDLE_LIMIT {
-                return Err(format!(
-                    "单次最多导出 {RULE_BUNDLE_LIMIT} 条请求转发规则"
-                ));
+                return Err(format!("单次最多导出 {RULE_BUNDLE_LIMIT} 条请求转发规则"));
             }
             let rules = ids
                 .into_iter()

@@ -28,12 +28,7 @@ fn byte_offset_to_char_offset(input: &str, byte_offset: usize) -> usize {
     input[..byte_offset].chars().count()
 }
 
-const ACTIONS: &[&str] = &[
-    "test",
-    "replace",
-    "generate",
-    "templates",
-];
+const ACTIONS: &[&str] = &["test", "replace", "generate", "templates"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

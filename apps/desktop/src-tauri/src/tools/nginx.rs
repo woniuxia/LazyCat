@@ -1,9 +1,6 @@
 use serde_json::{json, Value};
 
-const ACTIONS: &[&str] = &[
-    "generate",
-    "lint",
-];
+const ACTIONS: &[&str] = &["generate", "lint"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

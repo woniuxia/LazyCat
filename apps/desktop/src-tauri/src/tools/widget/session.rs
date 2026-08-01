@@ -195,10 +195,7 @@ impl WidgetSession {
 
     /// 获取窗口句柄克隆（供 apply.rs 等外部使用）。
     pub fn window_handle(&self) -> Option<WebviewWindow> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|g| g.window.clone())
+        self.inner.read().ok().and_then(|g| g.window.clone())
     }
 
     // ── transition（所有可见性变更唯一入口） ─────────
@@ -215,7 +212,8 @@ impl WidgetSession {
         }
 
         // Windowless → 非 Windowless：必须有窗口（通过 set_window() 已存储）
-        if cur == VisualState::Windowless && to != VisualState::Windowless && !self.is_window_open() {
+        if cur == VisualState::Windowless && to != VisualState::Windowless && !self.is_window_open()
+        {
             return Err("transition from Windowless requires set_window() first".into());
         }
 
@@ -224,8 +222,7 @@ impl WidgetSession {
         eprintln!("[widget] session: transition {} → {}", from_str, to_str);
 
         // 1. 更新 AtomicU8（先改状态）
-        self.visual_state
-            .store(to as u8, Ordering::SeqCst);
+        self.visual_state.store(to as u8, Ordering::SeqCst);
 
         // 2. 窗口操作（锁外执行，获取窗口引用用短锁）
         let win = self.inner.read().ok().and_then(|g| g.window.clone());
@@ -356,10 +353,7 @@ impl WidgetSession {
             .inner
             .read()
             .ok()
-            .map(|g| {
-                g.pause_reason
-                    == Some(PauseReason::Manual)
-            })
+            .map(|g| g.pause_reason == Some(PauseReason::Manual))
             .unwrap_or(false);
 
         if self.is_paused() && is_manual_pause {
@@ -379,11 +373,7 @@ impl WidgetSession {
 
     /// 如果配置标记为 dirty，从 DB 重读。
     pub fn refresh_config_if_dirty(&self) {
-        let dirty = self
-            .inner
-            .read()
-            .map(|g| g.config_dirty)
-            .unwrap_or(false);
+        let dirty = self.inner.read().map(|g| g.config_dirty).unwrap_or(false);
         if dirty {
             let fresh = config::read_config();
             if let Ok(mut g) = self.inner.write() {
@@ -523,10 +513,7 @@ impl WidgetSession {
     }
 
     pub fn watchdog_rebuilds(&self) -> u32 {
-        self.inner
-            .read()
-            .map(|g| g.watchdog_rebuilds)
-            .unwrap_or(0)
+        self.inner.read().map(|g| g.watchdog_rebuilds).unwrap_or(0)
     }
 
     /// CAS rebuild_in_progress: false→true。
@@ -673,9 +660,7 @@ fn event_detail(evt: &diagnostics::WidgetEvent) -> String {
             format!("{from} → {to}")
         }
         diagnostics::WidgetEvent::ApplyAttempt {
-            force,
-            elapsed_ms,
-            ..
+            force, elapsed_ms, ..
         } => {
             format!("force={force}, {elapsed_ms}ms")
         }
@@ -685,16 +670,12 @@ fn event_detail(evt: &diagnostics::WidgetEvent) -> String {
         diagnostics::WidgetEvent::WindowCreated { elapsed_ms } => {
             format!("took {elapsed_ms}ms")
         }
-        diagnostics::WidgetEvent::WindowDestroyed { reason } => {
-            reason.clone()
-        }
+        diagnostics::WidgetEvent::WindowDestroyed { reason } => reason.clone(),
         diagnostics::WidgetEvent::Error { source, message } => {
             format!("[{source}] {message}")
         }
         diagnostics::WidgetEvent::PingReceived => String::new(),
-        diagnostics::WidgetEvent::WatchdogTriggered {
-            seconds_since_ping,
-        } => {
+        diagnostics::WidgetEvent::WatchdogTriggered { seconds_since_ping } => {
             format!("ping missing {seconds_since_ping}s")
         }
         diagnostics::WidgetEvent::Lifecycle { action } => action.clone(),

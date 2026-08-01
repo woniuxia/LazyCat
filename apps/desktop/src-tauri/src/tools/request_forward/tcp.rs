@@ -912,10 +912,7 @@ mod tests {
         let runner = Arc::new(TcpRuleRunner::new());
         let manager = RuntimeManager::new(runner.clone());
         assert_eq!(
-            manager
-                .start(&rule)
-                .expect("start TCP rule")
-                .state,
+            manager.start(&rule).expect("start TCP rule").state,
             RuntimeState::Running
         );
         let listener_addr = runner
@@ -955,10 +952,7 @@ mod tests {
         let runner = Arc::new(runner);
         let manager = RuntimeManager::new(runner.clone());
         assert_eq!(
-            manager
-                .start(&rule)
-                .expect("start TCP rule")
-                .state,
+            manager.start(&rule).expect("start TCP rule").state,
             RuntimeState::Running
         );
         let handle = runner.only_handle().expect("read running TCP handle");
@@ -986,7 +980,10 @@ mod tests {
         let status = manager.status(rule.id);
         assert_eq!(status.state, RuntimeState::Failed);
         let last_error: serde_json::Value = serde_json::from_str(
-            status.last_error.as_deref().expect("structured runtime error"),
+            status
+                .last_error
+                .as_deref()
+                .expect("structured runtime error"),
         )
         .expect("runtime error envelope JSON");
         assert_eq!(last_error["code"], "unknown");
@@ -996,15 +993,10 @@ mod tests {
         assert!(TcpStream::connect_timeout(&listener_addr, SOCKET_TIMEOUT).is_err());
 
         assert_eq!(
-            manager
-                .start(&rule)
-                .expect("restart failed TCP rule")
-                .state,
+            manager.start(&rule).expect("restart failed TCP rule").state,
             RuntimeState::Running
         );
-        manager
-            .stop(&rule)
-            .expect("stop restarted TCP rule");
+        manager.stop(&rule).expect("stop restarted TCP rule");
         drop(downstream);
     }
 
@@ -1038,9 +1030,7 @@ mod tests {
                 .state,
             RuntimeState::Running
         );
-        manager
-            .stop(&rule)
-            .expect("stop restarted TCP rule");
+        manager.stop(&rule).expect("stop restarted TCP rule");
         drop(downstream);
     }
 

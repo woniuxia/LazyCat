@@ -168,10 +168,12 @@ fn current_lock_state(
 ) -> VaultLockState {
     VAULT_SESSION
         .lock()
-        .map(|mut guard| match ensure_session_alive(&mut guard, config, current, None) {
-            Ok(()) => VaultLockState::Unlocked,
-            Err(_) => VaultLockState::Locked,
-        })
+        .map(
+            |mut guard| match ensure_session_alive(&mut guard, config, current, None) {
+                Ok(()) => VaultLockState::Unlocked,
+                Err(_) => VaultLockState::Locked,
+            },
+        )
         .unwrap_or(VaultLockState::Locked)
 }
 
@@ -256,20 +258,12 @@ fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
-fn aes256_encrypt(
-    key: &[u8; KEY_LEN],
-    iv: &[u8],
-    plaintext: &[u8],
-) -> Result<Vec<u8>, String> {
+fn aes256_encrypt(key: &[u8; KEY_LEN], iv: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, String> {
     encrypt(Cipher::aes_256_cbc(), key, Some(iv), plaintext)
         .map_err(|e| format!("AES encrypt failed: {e}"))
 }
 
-fn aes256_decrypt(
-    key: &[u8; KEY_LEN],
-    iv: &[u8],
-    ciphertext: &[u8],
-) -> Result<Vec<u8>, String> {
+fn aes256_decrypt(key: &[u8; KEY_LEN], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
     decrypt(Cipher::aes_256_cbc(), key, Some(iv), ciphertext)
         .map_err(|e| format!("AES decrypt failed: {e}"))
 }
@@ -406,24 +400,12 @@ pub(crate) fn resolve_server_credential(
         password: String,
     }
 
-    let (category, plain_fields, iv_b64, blob_b64): (
-        String,
-        Option<String>,
-        String,
-        String,
-    ) = conn
+    let (category, plain_fields, iv_b64, blob_b64): (String, Option<String>, String, String) = conn
         .query_row(
             "SELECT category, plain_fields, iv, encrypted_blob
              FROM vault_entries WHERE id = ?1",
             [entry_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|_| "vault_entry_not_found".to_string())?;
     let metadata = parse_server_credential_metadata(entry_id, &category, plain_fields.as_deref())?;
@@ -1584,8 +1566,8 @@ fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN]) {
             let (secret_fields, plain_fields) = split_fields(&fields);
             let secret_bytes =
                 serde_json::to_vec(&secret_fields).map_err(|e| format!("serialize: {e}"))?;
-            let plain_text =
-                serde_json::to_string(&plain_fields).map_err(|e| format!("serialize plain: {e}"))?;
+            let plain_text = serde_json::to_string(&plain_fields)
+                .map_err(|e| format!("serialize plain: {e}"))?;
             let new_iv = random_bytes(IV_LEN)?;
             let new_blob = aes256_encrypt(key, &new_iv, &secret_bytes)?;
             conn.execute(
@@ -1690,13 +1672,7 @@ mod tests {
         conn
     }
 
-    fn insert_vault_entry(
-        conn: &Connection,
-        id: i64,
-        category: &str,
-        plain: &str,
-        password: &str,
-    ) {
+    fn insert_vault_entry(conn: &Connection, id: i64, category: &str, plain: &str, password: &str) {
         let key = [7u8; KEY_LEN];
         let iv = vec![9u8; IV_LEN];
         let secret = serde_json::to_vec(&json!({ "password": password })).unwrap();
@@ -1780,9 +1756,15 @@ mod tests {
     #[test]
     fn server_metadata_rejects_explicit_invalid_ports() {
         let conn = vault_test_conn();
-        for (offset, port) in [json!(0), json!(65536), json!(22.5), json!("22"), Value::Null]
-            .into_iter()
-            .enumerate()
+        for (offset, port) in [
+            json!(0),
+            json!(65536),
+            json!(22.5),
+            json!("22"),
+            Value::Null,
+        ]
+        .into_iter()
+        .enumerate()
         {
             let id = offset as i64 + 1;
             let plain = json!({
@@ -1989,10 +1971,7 @@ mod tests {
             Some(LockReason::SystemIdle)
         );
         assert!(VAULT_SESSION.lock().expect("session lock").is_none());
-        assert_eq!(
-            check_session_for_monitor(config, Some(current), None),
-            None
-        );
+        assert_eq!(check_session_for_monitor(config, Some(current), None), None);
     }
 
     #[test]
@@ -2088,7 +2067,8 @@ mod tests {
 
     #[test]
     fn test_merge_fields_legacy_format() {
-        let blob = json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" });
+        let blob =
+            json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" });
         let merged = merge_fields(None, &blob);
         assert_eq!(merged, blob);
     }
@@ -2097,7 +2077,8 @@ mod tests {
     fn test_merge_fields_stale_plain() {
         // 降级期旧版编辑：blob 为完整字段（可能已变更分类），plain_fields 残留陈旧键
         let stale_plain = r#"{"dbType":"MySQL","address":"old-host","account":"old"}"#;
-        let blob = json!({ "url": "https://new.com", "account": "new", "password": "p", "notes": "" });
+        let blob =
+            json!({ "url": "https://new.com", "account": "new", "password": "p", "notes": "" });
         let merged = merge_fields(Some(stale_plain), &blob);
         assert_eq!(merged, blob);
         assert!(merged.get("dbType").is_none());

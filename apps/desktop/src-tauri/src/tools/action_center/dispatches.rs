@@ -472,10 +472,7 @@ pub(crate) fn associate_release_package_run(
 }
 
 #[cfg(not(test))]
-pub(crate) fn finish_release_package_run(
-    run_id: &str,
-    result_code: &str,
-) -> Result<bool, String> {
+pub(crate) fn finish_release_package_run(run_id: &str, result_code: &str) -> Result<bool, String> {
     let mut conn = super::super::helpers::db_conn()?;
     finish_release_package_run_with_conn(&mut conn, run_id, result_code)
 }
@@ -919,7 +916,10 @@ mod tests {
             .unwrap_err(),
             "动作派发目标与上线包环境不匹配"
         );
-        assert_eq!(dispatch_run_state(&conn, &dispatch.id).0, "pending_confirmation");
+        assert_eq!(
+            dispatch_run_state(&conn, &dispatch.id).0,
+            "pending_confirmation"
+        );
 
         conn.execute(
             "UPDATE action_dispatches SET action_type='browser_profile.open' WHERE id=?1",
@@ -981,8 +981,7 @@ mod tests {
             )
             .unwrap();
 
-            assert!(finish_release_package_run_with_conn(&mut conn, "run-1", result_code)
-                .unwrap());
+            assert!(finish_release_package_run_with_conn(&mut conn, "run-1", result_code).unwrap());
             assert_eq!(dispatch_state(&conn, &dispatch.id).0, expected_dispatch);
             assert_eq!(todo_state(&conn, 1).0, expected_todo);
         }
@@ -1000,8 +999,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!finish_release_package_run_with_conn(&mut conn, "other-run", "succeeded")
-            .unwrap());
+        assert!(
+            !finish_release_package_run_with_conn(&mut conn, "other-run", "succeeded").unwrap()
+        );
         assert!(finish_release_package_run_with_conn(&mut conn, "run-1", "succeeded").unwrap());
         let completed_at = todo_state(&conn, 1).1;
         assert!(completed_at.is_some());
@@ -1048,8 +1048,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        finish_release_package_run_with_conn(&mut completed_conn, "run-1", "succeeded")
-            .unwrap();
+        finish_release_package_run_with_conn(&mut completed_conn, "run-1", "succeeded").unwrap();
         assert_eq!(
             todo_state(&completed_conn, 1),
             ("completed".into(), Some("2026-07-25 12:00:00".into()))
@@ -1065,10 +1064,16 @@ mod tests {
             production_environment_id,
         )
         .unwrap();
-        deleted_conn.execute("DELETE FROM todo_items WHERE id=1", []).unwrap();
-        assert!(finish_release_package_run_with_conn(&mut deleted_conn, "run-2", "succeeded")
-            .unwrap());
-        assert_eq!(dispatch_state(&deleted_conn, &deleted_dispatch.id).0, "succeeded");
+        deleted_conn
+            .execute("DELETE FROM todo_items WHERE id=1", [])
+            .unwrap();
+        assert!(
+            finish_release_package_run_with_conn(&mut deleted_conn, "run-2", "succeeded").unwrap()
+        );
+        assert_eq!(
+            dispatch_state(&deleted_conn, &deleted_dispatch.id).0,
+            "succeeded"
+        );
     }
 
     #[test]

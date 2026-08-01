@@ -179,11 +179,7 @@ fn naming_convert(payload: &Value) -> Result<Value, String> {
     }))
 }
 
-const ACTIONS: &[&str] = &[
-    "process",
-    "presets",
-    "naming_convert",
-];
+const ACTIONS: &[&str] = &["process", "presets", "naming_convert"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

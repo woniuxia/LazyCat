@@ -155,11 +155,7 @@ fn build_process_summaries(entries: &[PortUsageEntry]) -> Vec<PortProcessSummary
     out
 }
 
-const ACTIONS: &[&str] = &[
-    "usage",
-    "process_detail",
-    "kill",
-];
+const ACTIONS: &[&str] = &["usage", "process_detail", "kill"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

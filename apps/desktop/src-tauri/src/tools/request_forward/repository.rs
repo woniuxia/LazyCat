@@ -894,7 +894,11 @@ mod tests {
         .expect("filter method");
         assert_eq!(method_page.total, 2);
         assert_eq!(
-            method_page.items.iter().map(|log| log.id).collect::<Vec<_>>(),
+            method_page
+                .items
+                .iter()
+                .map(|log| log.id)
+                .collect::<Vec<_>>(),
             vec![3, 1]
         );
 

@@ -9,7 +9,6 @@ use calamine::{open_workbook_auto, Data, Reader};
 use super::helpers::db_conn;
 use super::usage::{self, UsageKey, ACTION_OPEN, RESOURCE_PM_ITEM};
 
-
 pub(crate) const STATUSES: [&str; 4] = ["todo", "in_progress", "testing", "done"];
 pub(crate) const ITEM_TYPES: [&str; 4] = ["task", "bug", "feature", "improvement"];
 pub(crate) const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
@@ -102,7 +101,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_todo_unlink" => crate::tools::pm_todo_link::item_todo_unlink(payload),
         "item_todo_create" => crate::tools::pm_todo_link::item_todo_create(payload),
         "item_todo_candidates" => crate::tools::pm_todo_link::item_todo_candidates(payload),
-        "item_todo_candidates_by_project" => crate::tools::pm_todo_link::item_todo_candidates_by_project(payload),
+        "item_todo_candidates_by_project" => {
+            crate::tools::pm_todo_link::item_todo_candidates_by_project(payload)
+        }
         "item_today_list" => crate::tools::pm_today::item_today_list(payload),
         "item_today_counts" => crate::tools::pm_today::item_today_counts(payload),
         "item_calendar_range" => crate::tools::pm_calendar::item_calendar_range(payload),
@@ -236,10 +237,18 @@ fn project_create(payload: &Value) -> Result<Value, String> {
             color,
             location.as_ref().map(|item| item.notebook_id.as_str()),
             location.as_ref().map(|item| item.notebook_name.as_str()),
-            location.as_ref().and_then(|item| item.parent_doc_id.as_deref()),
-            location.as_ref().and_then(|item| item.parent_doc_title.as_deref()),
-            location.as_ref().and_then(|item| item.parent_hpath.as_deref()),
-            location.as_ref().and_then(|item| item.parent_path.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_doc_id.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_doc_title.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_hpath.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_path.as_deref()),
             now,
             now
         ],
@@ -253,7 +262,9 @@ fn project_create(payload: &Value) -> Result<Value, String> {
 fn project_update(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("id is required")?;
     let mut conn = db_conn()?;
-    let tx = conn.transaction().map_err(|e| format!("project_update begin: {e}"))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("project_update begin: {e}"))?;
     let current_location = tx
         .query_row(
             "SELECT siyuan_notebook_id, siyuan_notebook_name,
@@ -296,10 +307,18 @@ fn project_update(payload: &Value) -> Result<Value, String> {
             color,
             location.as_ref().map(|item| item.notebook_id.as_str()),
             location.as_ref().map(|item| item.notebook_name.as_str()),
-            location.as_ref().and_then(|item| item.parent_doc_id.as_deref()),
-            location.as_ref().and_then(|item| item.parent_doc_title.as_deref()),
-            location.as_ref().and_then(|item| item.parent_hpath.as_deref()),
-            location.as_ref().and_then(|item| item.parent_path.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_doc_id.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_doc_title.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_hpath.as_deref()),
+            location
+                .as_ref()
+                .and_then(|item| item.parent_path.as_deref()),
             sort_order,
             now,
             id
@@ -307,7 +326,8 @@ fn project_update(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("project_update: {e}"))?;
 
-    tx.commit().map_err(|e| format!("project_update commit: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("project_update commit: {e}"))?;
     Ok(json!({ "updated": true }))
 }
 
@@ -364,9 +384,7 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("project_delete query children: {e}"))?;
         let mut item_ids = Vec::new();
         for row in rows {
-            item_ids.push(
-                row.map_err(|error| format!("project_delete read child item: {error}"))?,
-            );
+            item_ids.push(row.map_err(|error| format!("project_delete read child item: {error}"))?);
         }
         item_ids
     };
@@ -482,13 +500,16 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     let project_id = parse_i64(payload, "projectId");
     let conn = db_conn()?;
 
-    let (sql, qp): (&'static str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(pid) = project_id {
-        (build_item_list_sql(Some(pid)), vec![Box::new(pid)])
-    } else {
-        (build_item_list_sql(None), vec![])
-    };
+    let (sql, qp): (&'static str, Vec<Box<dyn rusqlite::types::ToSql>>) =
+        if let Some(pid) = project_id {
+            (build_item_list_sql(Some(pid)), vec![Box::new(pid)])
+        } else {
+            (build_item_list_sql(None), vec![])
+        };
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare item_list: {e}"))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare item_list: {e}"))?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = qp.iter().map(|p| p.as_ref()).collect();
     let items: Vec<Value> = stmt
         .query_map(param_refs.as_slice(), |r| {
@@ -541,7 +562,9 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             let tags = tag_map.get(&item_id).cloned().unwrap_or_default();
             let extra_pages = links_map.get(&item_id).cloned().unwrap_or_default();
             let todo_count = todo_count_map.get(&item_id).copied().unwrap_or(0);
-            item.as_object_mut().unwrap().insert("tags".to_string(), json!(tags));
+            item.as_object_mut()
+                .unwrap()
+                .insert("tags".to_string(), json!(tags));
             item.as_object_mut()
                 .unwrap()
                 .insert("siyuanExtraPages".to_string(), json!(extra_pages));
@@ -673,8 +696,7 @@ fn load_spotlight_tags(
             })
             .map_err(|error| format!("query spotlight tags: {error}"))?;
         for row in rows {
-            let (item_id, tag) =
-                row.map_err(|error| format!("read spotlight tags: {error}"))?;
+            let (item_id, tag) = row.map_err(|error| format!("read spotlight tags: {error}"))?;
             tag_map.entry(item_id).or_default().push(tag);
         }
     }
@@ -685,12 +707,19 @@ pub(crate) fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i6
     if item_ids.is_empty() {
         return HashMap::new();
     }
-    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = item_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let sql = format!(
         "SELECT item_id, tag FROM pm_item_tags WHERE item_id IN ({}) ORDER BY tag",
         placeholders.join(",")
     );
-    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut map: HashMap<i64, Vec<String>> = HashMap::new();
     if let Ok(mut stmt) = conn.prepare(&sql) {
         if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
@@ -708,13 +737,20 @@ fn batch_load_todo_counts(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, i
     if item_ids.is_empty() {
         return HashMap::new();
     }
-    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = item_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let sql = format!(
         "SELECT pm_item_id, COUNT(*) FROM pm_item_todo_links
          WHERE pm_item_id IN ({}) GROUP BY pm_item_id",
         placeholders.join(",")
     );
-    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut map: HashMap<i64, i64> = HashMap::new();
     if let Ok(mut stmt) = conn.prepare(&sql) {
         if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
@@ -728,11 +764,18 @@ fn batch_load_todo_counts(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, i
     map
 }
 
-fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<crate::tools::pm_siyuan::SiyuanPageRef>> {
+fn batch_load_siyuan_links(
+    conn: &Connection,
+    item_ids: &[i64],
+) -> HashMap<i64, Vec<crate::tools::pm_siyuan::SiyuanPageRef>> {
     if item_ids.is_empty() {
         return HashMap::new();
     }
-    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = item_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let sql = format!(
         "SELECT item_id, doc_id, doc_title, doc_hpath,
                 doc_path, notebook_id, notebook_name
@@ -740,7 +783,10 @@ fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, 
          ORDER BY item_id, id",
         placeholders.join(",")
     );
-    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut map: HashMap<i64, Vec<crate::tools::pm_siyuan::SiyuanPageRef>> = HashMap::new();
     if let Ok(mut stmt) = conn.prepare(&sql) {
         if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
@@ -767,8 +813,11 @@ fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, 
 }
 
 fn save_tags(conn: &Connection, item_id: i64, tags: &[String]) -> Result<(), String> {
-    conn.execute("DELETE FROM pm_item_tags WHERE item_id = ?1", params![item_id])
-        .map_err(|e| format!("delete tags: {e}"))?;
+    conn.execute(
+        "DELETE FROM pm_item_tags WHERE item_id = ?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("delete tags: {e}"))?;
     for tag in tags {
         let t = tag.trim();
         if t.is_empty() {
@@ -823,8 +872,9 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         Some(value) => crate::tools::pm_siyuan::parse_siyuan_page_ref_value(value)?,
         None => None,
     };
-    let extra_pages = crate::tools::pm_siyuan::parse_siyuan_page_ref_array(payload.get("siyuanExtraPages"))?
-        .unwrap_or_default();
+    let extra_pages =
+        crate::tools::pm_siyuan::parse_siyuan_page_ref_array(payload.get("siyuanExtraPages"))?
+            .unwrap_or_default();
     let now = now_rfc3339();
 
     let started_at: Option<String> = match status.as_str() {
@@ -835,9 +885,15 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         "testing" => Some(now.clone()),
         _ => None,
     };
-    let completed_at: Option<String> = if status == "done" { Some(now.clone()) } else { None };
+    let completed_at: Option<String> = if status == "done" {
+        Some(now.clone())
+    } else {
+        None
+    };
 
-    let tx = conn.transaction().map_err(|e| format!("item_create begin: {e}"))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("item_create begin: {e}"))?;
     tx.execute(
         "INSERT INTO pm_items (
             project_id, title, description, link_url, ref_code, item_type, priority, status,
@@ -876,12 +932,18 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     if !tags.is_empty() {
         save_tags(&tx, id, &tags)?;
     }
-    crate::tools::pm_siyuan::save_item_siyuan_links(&tx, id, primary_page.as_ref(), &extra_pages, &now)?;
+    crate::tools::pm_siyuan::save_item_siyuan_links(
+        &tx,
+        id,
+        primary_page.as_ref(),
+        &extra_pages,
+        &now,
+    )?;
 
-    tx.commit().map_err(|e| format!("item_create commit: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("item_create commit: {e}"))?;
     Ok(json!({ "id": id }))
 }
-
 
 fn resolve_status_flow_timestamps(
     cur_status: &str,
@@ -1042,7 +1104,9 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         Some(value) => crate::tools::pm_siyuan::parse_siyuan_page_ref_value(value)?,
         None => cur_primary_page,
     };
-    let extra_pages = match crate::tools::pm_siyuan::parse_siyuan_page_ref_array(payload.get("siyuanExtraPages"))? {
+    let extra_pages = match crate::tools::pm_siyuan::parse_siyuan_page_ref_array(
+        payload.get("siyuanExtraPages"),
+    )? {
         Some(pages) => pages,
         None => cur_extra_pages,
     };
@@ -1102,7 +1166,13 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         let tags = parse_string_array(payload, "tags");
         save_tags(&conn, id, &tags)?;
     }
-    crate::tools::pm_siyuan::save_item_siyuan_links(&conn, id, primary_page.as_ref(), &extra_pages, &now)?;
+    crate::tools::pm_siyuan::save_item_siyuan_links(
+        &conn,
+        id,
+        primary_page.as_ref(),
+        &extra_pages,
+        &now,
+    )?;
 
     Ok(json!({ "updated": true }))
 }
@@ -1115,7 +1185,9 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
     }
     let now = now_rfc3339();
     let mut conn = db_conn()?;
-    let tx = conn.transaction().map_err(|e| format!("item_change_status begin: {e}"))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("item_change_status begin: {e}"))?;
 
     let (cur_status, cur_started_at, cur_testing_at, cur_completed_at): (
         String,
@@ -1148,7 +1220,8 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("item_change_status: {e}"))?;
 
-    tx.commit().map_err(|e| format!("item_change_status commit: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("item_change_status commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1206,7 +1279,9 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
     let mut conn = db_conn()?;
     let now = now_rfc3339();
 
-    let tx = conn.transaction().map_err(|e| format!("item_reorder begin: {e}"))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("item_reorder begin: {e}"))?;
 
     if let Some(items) = payload.get("items").and_then(Value::as_array) {
         for item in items {
@@ -1224,7 +1299,8 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
                 .map_err(|e| format!("item_reorder: {e}"))?;
             }
         }
-        tx.commit().map_err(|e| format!("item_reorder commit: {e}"))?;
+        tx.commit()
+            .map_err(|e| format!("item_reorder commit: {e}"))?;
         return Ok(json!({ "ok": true }));
     }
 
@@ -1242,7 +1318,8 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("item_reorder: {e}"))?;
     }
 
-    tx.commit().map_err(|e| format!("item_reorder commit: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("item_reorder commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1604,7 +1681,8 @@ mod tests {
     #[test]
     fn pm_item_usage_uses_stable_identity_and_delete_helper_cleans_it() {
         let conn = create_pm_usage_test_conn();
-        conn.execute("INSERT INTO pm_items(id) VALUES(17)", []).unwrap();
+        conn.execute("INSERT INTO pm_items(id) VALUES(17)", [])
+            .unwrap();
 
         record_pm_item_open_with_conn(&conn, 17).unwrap();
         let key = UsageKey {
@@ -1632,18 +1710,27 @@ mod tests {
         let reversed = weekly::normalize_pm_weekly_range(Some("2026-04-12"), Some("2026-04-03"))
             .expect("reversed range should normalize");
 
-        assert_eq!(single_start, (
-            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
-        ));
-        assert_eq!(single_end, (
-            NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
-        ));
-        assert_eq!(reversed, (
-            NaiveDate::from_ymd_opt(2026, 4, 3).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
-        ));
+        assert_eq!(
+            single_start,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+            )
+        );
+        assert_eq!(
+            single_end,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
+            )
+        );
+        assert_eq!(
+            reversed,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 3).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
+            )
+        );
     }
 
     #[test]
@@ -1679,21 +1766,30 @@ mod tests {
             week_end,
         );
 
-        assert_eq!(fully_inside, (
-            NaiveDate::from_ymd_opt(2026, 4, 7).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
-        ));
-        assert_eq!(crosses_into_week, (
-            NaiveDate::from_ymd_opt(2026, 4, 4).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
-        ));
-        assert_eq!(starts_this_week_ends_next_week, (
-            NaiveDate::from_ymd_opt(2026, 4, 11).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 15).expect("valid date"),
-            NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
-        ));
+        assert_eq!(
+            fully_inside,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 7).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
+            )
+        );
+        assert_eq!(
+            crosses_into_week,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 4).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+            )
+        );
+        assert_eq!(
+            starts_this_week_ends_next_week,
+            (
+                NaiveDate::from_ymd_opt(2026, 4, 11).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 15).expect("valid date"),
+                NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
+            )
+        );
         assert!(outside.is_none());
     }
 
@@ -1942,7 +2038,8 @@ mod tests {
         )
         .expect("seed archived project");
 
-        let err = ensure_project_accepts_items(&conn, 2).expect_err("archived project should reject items");
+        let err = ensure_project_accepts_items(&conn, 2)
+            .expect_err("archived project should reject items");
         assert_eq!(err, "归档项目不能接收工作项，请先恢复项目");
     }
 
@@ -1958,11 +2055,8 @@ mod tests {
     #[test]
     fn spotlight_list_returns_only_search_projection_with_tags() {
         let conn = create_pm_spotlight_test_conn();
-        conn.execute(
-            "INSERT INTO pm_projects(id, name) VALUES(1, '客户端')",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO pm_projects(id, name) VALUES(1, '客户端')", [])
+            .unwrap();
         conn.execute_batch(
             "INSERT INTO pm_items(
                  id, project_id, title, status, priority, end_at, pinned, sort_order
@@ -1991,13 +2085,15 @@ mod tests {
     #[test]
     fn normalize_siyuan_base_url_should_trim_and_strip_trailing_slash() {
         let normalized =
-            crate::tools::pm_siyuan::normalize_siyuan_base_url("  http://127.0.0.1:6806/  ").expect("normalize");
+            crate::tools::pm_siyuan::normalize_siyuan_base_url("  http://127.0.0.1:6806/  ")
+                .expect("normalize");
         assert_eq!(normalized, "http://127.0.0.1:6806");
     }
 
     #[test]
     fn normalize_siyuan_base_url_should_reject_invalid_scheme() {
-        let err = crate::tools::pm_siyuan::normalize_siyuan_base_url("ftp://127.0.0.1:6806").expect_err("invalid scheme");
+        let err = crate::tools::pm_siyuan::normalize_siyuan_base_url("ftp://127.0.0.1:6806")
+            .expect_err("invalid scheme");
         assert!(err.contains("http://") || err.contains("https://"));
     }
 
@@ -2109,7 +2205,10 @@ mod tests {
 
     #[test]
     fn normalize_siyuan_error_message_should_map_sql_disabled() {
-        let message = crate::tools::pm_siyuan::parse_siyuan_envelope(r#"{"code":-1,"msg":"SQL is not available in publish mode"}"#).unwrap_err();
+        let message = crate::tools::pm_siyuan::parse_siyuan_envelope(
+            r#"{"code":-1,"msg":"SQL is not available in publish mode"}"#,
+        )
+        .unwrap_err();
         assert_eq!(message, "当前思源实例未开放 SQL 查询能力");
     }
 
@@ -2123,7 +2222,8 @@ mod tests {
             parent_hpath: Some("/根文档".into()),
             parent_path: Some("/root.sy".into()),
         };
-        let hpath = crate::tools::pm_siyuan::build_siyuan_target_hpath(&location, "迭代/计划").expect("build hpath");
+        let hpath = crate::tools::pm_siyuan::build_siyuan_target_hpath(&location, "迭代/计划")
+            .expect("build hpath");
         assert_eq!(hpath, "/根文档/迭代／计划");
     }
 
@@ -2137,7 +2237,8 @@ mod tests {
             parent_hpath: None,
             parent_path: None,
         };
-        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location).expect("build search scope");
+        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location)
+            .expect("build search scope");
         assert_eq!(path, "nb1");
     }
 
@@ -2151,7 +2252,8 @@ mod tests {
             parent_hpath: Some("/根文档".into()),
             parent_path: Some("/root.sy".into()),
         };
-        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location).expect("build search scope");
+        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location)
+            .expect("build search scope");
         assert_eq!(path, "nb1/root");
     }
 
@@ -2165,19 +2267,22 @@ mod tests {
             parent_hpath: Some("/b".into()),
             parent_path: None,
         };
-        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location).expect("build search scope");
+        let path = crate::tools::pm_siyuan::build_siyuan_search_scope_path(&location)
+            .expect("build search scope");
         assert_eq!(path, "nb1/20260329232612-w2j085v");
     }
 
     #[test]
     fn parse_siyuan_search_page_refs_should_map_document_blocks() {
-        let notebooks = crate::tools::pm_siyuan::notebook_map(&[crate::tools::pm_siyuan::SiyuanNotebook {
-            id: "nb1".into(),
-            name: "测试".into(),
-            icon: None,
-            closed: false,
-        }]);
-        let data: serde_json::Value = serde_json::from_str(r#"{
+        let notebooks =
+            crate::tools::pm_siyuan::notebook_map(&[crate::tools::pm_siyuan::SiyuanNotebook {
+                id: "nb1".into(),
+                name: "测试".into(),
+                icon: None,
+                closed: false,
+            }]);
+        let data: serde_json::Value = serde_json::from_str(
+            r#"{
             "blocks": [
                 {
                     "id": "doc-bb",
@@ -2193,14 +2298,20 @@ mod tests {
                     }
                 }
             ]
-        }"#).expect("parse json");
+        }"#,
+        )
+        .expect("parse json");
 
-        let pages = crate::tools::pm_siyuan::parse_siyuan_search_page_refs(&data, &notebooks).expect("parse search pages");
+        let pages = crate::tools::pm_siyuan::parse_siyuan_search_page_refs(&data, &notebooks)
+            .expect("parse search pages");
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].doc_id, "doc-bb");
         assert_eq!(pages[0].doc_title, "bba");
         assert_eq!(pages[0].doc_hpath, "/b/bba");
-        assert_eq!(pages[0].doc_path.as_deref(), Some("/20260329232612-w2j085v/202604010001-bb.sy"));
+        assert_eq!(
+            pages[0].doc_path.as_deref(),
+            Some("/20260329232612-w2j085v/202604010001-bb.sy")
+        );
         assert_eq!(pages[0].notebook_name, "测试");
     }
 
@@ -2215,7 +2326,10 @@ mod tests {
             "/首页"
         );
         assert_eq!(
-            crate::tools::pm_siyuan::normalize_siyuan_search_doc_hpath(Some("/b/bba".into()), "bba"),
+            crate::tools::pm_siyuan::normalize_siyuan_search_doc_hpath(
+                Some("/b/bba".into()),
+                "bba"
+            ),
             "/b/bba"
         );
     }
@@ -2256,7 +2370,8 @@ mod tests {
 
     #[test]
     fn build_siyuan_deep_link_should_follow_blocks_protocol() {
-        let link = crate::tools::pm_siyuan::build_siyuan_deep_link("20260329120000-abc123").expect("deep link");
+        let link = crate::tools::pm_siyuan::build_siyuan_deep_link("20260329120000-abc123")
+            .expect("deep link");
         assert_eq!(link, "siyuan://blocks/20260329120000-abc123");
     }
 
@@ -2335,7 +2450,9 @@ mod tests {
         let options = SimpleFileOptions::default();
         for (name, content) in entries {
             writer.start_file(name, options).expect("start XLSX entry");
-            writer.write_all(content.as_bytes()).expect("write XLSX entry");
+            writer
+                .write_all(content.as_bytes())
+                .expect("write XLSX entry");
         }
         writer.finish().expect("finish XLSX fixture");
     }
@@ -2346,8 +2463,8 @@ mod tests {
         let path = temp.path().join("pm-import.xlsx");
         write_xlsx_fixture(&path);
 
-        let preview = item_import_preview(&json!({"filePath": path}))
-            .expect("read Excel import preview");
+        let preview =
+            item_import_preview(&json!({"filePath": path})).expect("read Excel import preview");
         assert_eq!(preview["sheetNames"], json!(["Current", "Archive"]));
         assert_eq!(
             preview["headers"],
@@ -2417,10 +2534,7 @@ fn item_import_preview(payload: &Value) -> Result<Value, String> {
         open_workbook_auto(&file_path).map_err(|e| format!("无法打开 Excel 文件: {e}"))?;
 
     let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
-    let first_sheet = sheet_names
-        .first()
-        .ok_or("Excel 文件没有工作表")?
-        .clone();
+    let first_sheet = sheet_names.first().ok_or("Excel 文件没有工作表")?.clone();
 
     let range = workbook
         .worksheet_range(&first_sheet)
@@ -2432,9 +2546,7 @@ fn item_import_preview(payload: &Value) -> Result<Value, String> {
         .map(|row| {
             row.iter()
                 .enumerate()
-                .map(|(i, cell)| {
-                    cell_to_string(cell).unwrap_or_else(|| format!("列{}", i + 1))
-                })
+                .map(|(i, cell)| cell_to_string(cell).unwrap_or_else(|| format!("列{}", i + 1)))
                 .collect()
         })
         .unwrap_or_default();
@@ -2458,9 +2570,7 @@ fn item_import_preview(payload: &Value) -> Result<Value, String> {
 fn item_import(payload: &Value) -> Result<Value, String> {
     let file_path = parse_string(payload, "filePath").ok_or("filePath is required")?;
 
-    let mapping = payload
-        .get("mapping")
-        .ok_or("mapping is required")?;
+    let mapping = payload.get("mapping").ok_or("mapping is required")?;
     let title_col = parse_string(mapping, "title").ok_or("mapping.title is required")?;
     let project_name_col = parse_string(mapping, "projectName");
     let start_at_col = parse_string(mapping, "startAt");
@@ -2489,7 +2599,11 @@ fn item_import(payload: &Value) -> Result<Value, String> {
     let mut rows_iter = range.rows();
     let header_row = match rows_iter.next() {
         Some(row) => row,
-        None => return Ok(json!({ "imported": 0, "skippedDuplicate": 0, "skippedFilter": 0, "skippedEmptyTitle": 0 })),
+        None => {
+            return Ok(
+                json!({ "imported": 0, "skippedDuplicate": 0, "skippedFilter": 0, "skippedEmptyTitle": 0 }),
+            )
+        }
     };
 
     // Build column index map
@@ -2569,19 +2683,23 @@ fn item_import(payload: &Value) -> Result<Value, String> {
         None
     };
 
-    let mut create_project_stmt = tx.prepare(
-        "INSERT INTO pm_projects (name, description, color, created_at, updated_at)
+    let mut create_project_stmt = tx
+        .prepare(
+            "INSERT INTO pm_projects (name, description, color, created_at, updated_at)
          VALUES (?1, '', '#409eff', ?2, ?3)",
-    ).map_err(|e| format!("prepare create project: {e}"))?;
+        )
+        .map_err(|e| format!("prepare create project: {e}"))?;
 
     {
-        let mut insert_stmt = tx.prepare(
-            "INSERT INTO pm_items (
+        let mut insert_stmt = tx
+            .prepare(
+                "INSERT INTO pm_items (
                 project_id, title, description, ref_code, item_type, priority, status,
                 start_at, end_at,
                 started_at, testing_at, completed_at, created_at, updated_at
              ) VALUES (?1, ?2, ?3, ?4, 'task', 'P2', 'todo', ?5, ?6, NULL, NULL, NULL, ?7, ?8)",
-        ).map_err(|e| format!("prepare insert: {e}"))?;
+            )
+            .map_err(|e| format!("prepare insert: {e}"))?;
 
         for row in rows_iter {
             // Get title
@@ -2611,7 +2729,9 @@ fn item_import(payload: &Value) -> Result<Value, String> {
             };
 
             // Get ref_code and check duplicate
-            let ref_code = ref_code_idx.and_then(|&i| row.get(i)).and_then(|cell| cell_to_string(cell));
+            let ref_code = ref_code_idx
+                .and_then(|&i| row.get(i))
+                .and_then(|cell| cell_to_string(cell));
             if let Some(ref rc) = ref_code {
                 if existing_refs.contains(rc) {
                     skipped_duplicate += 1;
@@ -2709,8 +2829,7 @@ fn item_import(payload: &Value) -> Result<Value, String> {
         drop(create_project_stmt);
     }
 
-    tx.commit()
-        .map_err(|e| format!("import commit: {e}"))?;
+    tx.commit().map_err(|e| format!("import commit: {e}"))?;
 
     Ok(json!({
         "imported": imported,

@@ -406,9 +406,7 @@ fn close_window(app: &AppHandle, label: &str) -> Result<(), String> {
     ) {
         Ok(WindowCleanup::Closed) => Ok(()),
         Ok(WindowCleanup::DestroyedAfterCloseFailure { close_error }) => {
-            eprintln!(
-                "[reference-card] close {label} failed, destroyed instead: {close_error}"
-            );
+            eprintln!("[reference-card] close {label} failed, destroyed instead: {close_error}");
             Ok(())
         }
         Err(error) => Err(format!("清理参考卡窗口 {label} 失败: {error}")),
@@ -589,7 +587,10 @@ pub(crate) fn reference_card_ready(window: WebviewWindow) -> Result<(), String> 
 
     let initialize = || -> Result<(), String> {
         window
-            .emit(EVENT_REFERENCE_CARD_INIT, ReferenceCardInitPayload { content: text })
+            .emit(
+                EVENT_REFERENCE_CARD_INIT,
+                ReferenceCardInitPayload { content: text },
+            )
             .map_err(|error| format!("发送参考卡初始化正文失败: {error}"))?;
         window
             .show()
@@ -715,10 +716,7 @@ mod tests {
 
     #[test]
     fn cleanup_window_falls_back_to_destroy_after_close_failure() {
-        let result = cleanup_window_with(
-            || Err("close failed".to_string()),
-            || Ok(()),
-        );
+        let result = cleanup_window_with(|| Err("close failed".to_string()), || Ok(()));
 
         assert_eq!(
             result,
@@ -925,11 +923,13 @@ mod tests {
     fn capacity_error_exposes_only_a_recent_active_label() {
         let mut session = ShowSession::default();
         for index in 1..=6 {
-            let (label, ready) =
-                match session.reserve(&format!("active-{index}"), |_| true).unwrap() {
-                    ShowReservation::Create { label, ready, .. } => (label, ready),
-                    _ => panic!("card must be created"),
-                };
+            let (label, ready) = match session
+                .reserve(&format!("active-{index}"), |_| true)
+                .unwrap()
+            {
+                ShowReservation::Create { label, ready, .. } => (label, ready),
+                _ => panic!("card must be created"),
+            };
             assert!(session.take_pending(&label).is_some());
             session.complete(&label, Ok(())).unwrap();
             drop(ready);
@@ -939,10 +939,7 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("seventh card must fail"),
         };
-        assert_eq!(
-            error.to_string(),
-            "最多同时打开 6 张参考卡，请先关闭一张"
-        );
+        assert_eq!(error.to_string(), "最多同时打开 6 张参考卡，请先关闭一张");
         assert_eq!(error.recent_active_label(), Some("reference-card-6"));
     }
 

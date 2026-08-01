@@ -770,12 +770,7 @@ mod win {
     }
 }
 
-const ACTIONS: &[&str] = &[
-    "check",
-    "scan",
-    "mappings",
-    "detect_owner",
-];
+const ACTIONS: &[&str] = &["check", "scan", "mappings", "detect_owner"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

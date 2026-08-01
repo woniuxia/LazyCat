@@ -1,6 +1,6 @@
 use chrono::{Local, Utc};
-use serde::{Deserialize, Serialize};
 use rusqlite::{params, Connection, Error as RusqliteError};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -170,8 +170,7 @@ fn normalize_siyuan_error_message(msg: &str) -> String {
 }
 
 pub(super) fn parse_siyuan_envelope(text: &str) -> Result<Value, String> {
-    let envelope: Value =
-        serde_json::from_str(text).map_err(|_| "思源响应格式异常".to_string())?;
+    let envelope: Value = serde_json::from_str(text).map_err(|_| "思源响应格式异常".to_string())?;
     let code = envelope
         .get("code")
         .and_then(Value::as_i64)
@@ -231,7 +230,9 @@ pub(super) fn post_siyuan_json(
             let body = response.into_string().ok();
             Err(map_siyuan_http_error(status, body))
         }
-        Err(ureq::Error::Transport(_)) => Err("无法连接到思源服务，请检查地址和本地服务状态".into()),
+        Err(ureq::Error::Transport(_)) => {
+            Err("无法连接到思源服务，请检查地址和本地服务状态".into())
+        }
     }
 }
 
@@ -352,8 +353,7 @@ pub(super) fn parse_siyuan_location_value(value: &Value) -> Result<Option<Siyuan
     }
 
     let notebook_id = parse_string(value, "notebookId").ok_or("思源位置缺少 notebookId")?;
-    let notebook_name =
-        parse_string(value, "notebookName").ok_or("思源位置缺少 notebookName")?;
+    let notebook_name = parse_string(value, "notebookName").ok_or("思源位置缺少 notebookName")?;
 
     Ok(Some(SiyuanLocation {
         notebook_id,
@@ -393,7 +393,9 @@ pub(super) fn parse_siyuan_page_ref_value(value: &Value) -> Result<Option<Siyuan
     }))
 }
 
-pub(super) fn parse_siyuan_page_ref_array(value: Option<&Value>) -> Result<Option<Vec<SiyuanPageRef>>, String> {
+pub(super) fn parse_siyuan_page_ref_array(
+    value: Option<&Value>,
+) -> Result<Option<Vec<SiyuanPageRef>>, String> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -489,7 +491,10 @@ fn parse_string(payload: &Value, key: &str) -> Option<String> {
 }
 
 fn escape_sql_string(value: &str) -> String {
-    value.replace('\'', "''").replace('%', "\\%").replace('_', "\\_")
+    value
+        .replace('\'', "''")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn now_rfc3339() -> String {
@@ -497,10 +502,7 @@ fn now_rfc3339() -> String {
 }
 
 fn normalize_siyuan_page_title(title: &str) -> Result<String, String> {
-    let normalized = title
-        .trim()
-        .replace('/', "／")
-        .replace('\\', "＼");
+    let normalized = title.trim().replace('/', "／").replace('\\', "＼");
     if normalized.is_empty() {
         Err("页面标题不能为空".into())
     } else {
@@ -508,7 +510,10 @@ fn normalize_siyuan_page_title(title: &str) -> Result<String, String> {
     }
 }
 
-pub(super) fn build_siyuan_target_hpath(location: &SiyuanLocation, title: &str) -> Result<String, String> {
+pub(super) fn build_siyuan_target_hpath(
+    location: &SiyuanLocation,
+    title: &str,
+) -> Result<String, String> {
     let title = normalize_siyuan_page_title(title)?;
     if let Some(parent_hpath) = location
         .parent_hpath
@@ -536,8 +541,7 @@ fn build_siyuan_markdown(payload: &Value) -> String {
     let priority = parse_string(payload, "priority").unwrap_or_else(|| "P2".into());
     let start_at = parse_string(payload, "startAt").unwrap_or_else(|| "-".into());
     let end_at = parse_string(payload, "endAt").unwrap_or_else(|| "-".into());
-    let description =
-        parse_string(payload, "description").unwrap_or_else(|| "（暂无描述）".into());
+    let description = parse_string(payload, "description").unwrap_or_else(|| "（暂无描述）".into());
 
     format!(
         "- 项目：{project_name}\n- 状态：{status}\n- 优先级：{priority}\n- 开始日期：{start_at}\n- 截止日期：{end_at}\n- 创建时间：{}\n- 来源：Lazycat 项目管理\n\n## 描述\n\n{description}\n",
@@ -638,9 +642,7 @@ fn dedupe_siyuan_extra_pages(
 // ── Directory tree ────────────────────────────────────
 
 fn extract_siyuan_parent_doc_id(path: Option<&str>) -> Option<String> {
-    let path = path
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+    let path = path.map(str::trim).filter(|value| !value.is_empty())?;
     let segments: Vec<&str> = path
         .split('/')
         .map(str::trim)
@@ -727,7 +729,10 @@ pub(super) fn build_siyuan_directory(
 ) -> SiyuanDirectoryResult {
     let mut grouped_rows: HashMap<String, Vec<SiyuanDocRow>> = HashMap::new();
     for row in doc_rows {
-        grouped_rows.entry(row.box_id.clone()).or_default().push(row);
+        grouped_rows
+            .entry(row.box_id.clone())
+            .or_default()
+            .push(row);
     }
 
     let notebooks = notebooks
@@ -776,13 +781,12 @@ pub(super) fn notebook_map(notebooks: &[SiyuanNotebook]) -> HashMap<String, Siyu
         .collect()
 }
 
-pub(super) fn load_siyuan_notebooks(config: &SiyuanConfig, timeout_ms: u64) -> Result<Vec<SiyuanNotebook>, String> {
-    let notebooks_data = post_siyuan_json(
-        config,
-        "/api/notebook/lsNotebooks",
-        &json!({}),
-        timeout_ms,
-    )?;
+pub(super) fn load_siyuan_notebooks(
+    config: &SiyuanConfig,
+    timeout_ms: u64,
+) -> Result<Vec<SiyuanNotebook>, String> {
+    let notebooks_data =
+        post_siyuan_json(config, "/api/notebook/lsNotebooks", &json!({}), timeout_ms)?;
     parse_siyuan_notebooks(&notebooks_data)
 }
 
@@ -1006,10 +1010,8 @@ pub(super) fn build_siyuan_page_ref_from_search_block(
                 .and_then(|hpath| extract_siyuan_title_from_hpath(&hpath))
         })
         .unwrap_or_else(|| doc_id.clone());
-    let raw_hpath =
-        read_siyuan_search_field_string(value, &["hPath", "HPath", "hpath"]).or_else(|| {
-            read_siyuan_search_field_string(value, &["path", "Path"])
-        });
+    let raw_hpath = read_siyuan_search_field_string(value, &["hPath", "HPath", "hpath"])
+        .or_else(|| read_siyuan_search_field_string(value, &["path", "Path"]));
     let doc_hpath = normalize_siyuan_search_doc_hpath(raw_hpath, &doc_title);
 
     Some(SiyuanPageRef {
@@ -1319,9 +1321,7 @@ fn find_siyuan_executable() -> Option<std::path::PathBuf> {
         }
     }
     // 2. Try common install paths
-    siyuan_install_candidates()
-        .into_iter()
-        .find(|p| p.exists())
+    siyuan_install_candidates().into_iter().find(|p| p.exists())
 }
 
 fn siyuan_install_candidates() -> Vec<std::path::PathBuf> {
@@ -1333,7 +1333,11 @@ fn siyuan_install_candidates() -> Vec<std::path::PathBuf> {
                 .join("SiYuan")
                 .join("SiYuan.exe"),
         );
-        paths.push(std::path::PathBuf::from(&local).join("SiYuan").join("SiYuan.exe"));
+        paths.push(
+            std::path::PathBuf::from(&local)
+                .join("SiYuan")
+                .join("SiYuan.exe"),
+        );
     }
     paths.push(std::path::PathBuf::from(
         "C:\\Program Files\\SiYuan\\SiYuan.exe",

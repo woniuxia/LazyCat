@@ -142,7 +142,12 @@ fn list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "items": items }))
 }
 
-fn conflict_message(conn: &Connection, alias: &str, qualified_name: &str, id: Option<i64>) -> String {
+fn conflict_message(
+    conn: &Connection,
+    alias: &str,
+    qualified_name: &str,
+    id: Option<i64>,
+) -> String {
     let alias_exists = match id {
         Some(id) => conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM sql_entity_base_classes WHERE alias = ?1 AND id <> ?2)",
@@ -181,9 +186,8 @@ fn conflict_message(conn: &Connection, alias: &str, qualified_name: &str, id: Op
 
 fn create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let alias = validate_alias(payload)?;
-    let qualified_name = validate_java_qualified_name(
-        payload["qualifiedName"].as_str().unwrap_or_default(),
-    )?;
+    let qualified_name =
+        validate_java_qualified_name(payload["qualifiedName"].as_str().unwrap_or_default())?;
     let fields = normalize_java_fields(&payload["fields"])?;
     let fields_json = serde_json::to_string(&fields).map_err(|e| format!("序列化字段失败: {e}"))?;
     conn.execute(
@@ -205,9 +209,8 @@ fn create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String>
 fn update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = parse_id(payload)?;
     let alias = validate_alias(payload)?;
-    let qualified_name = validate_java_qualified_name(
-        payload["qualifiedName"].as_str().unwrap_or_default(),
-    )?;
+    let qualified_name =
+        validate_java_qualified_name(payload["qualifiedName"].as_str().unwrap_or_default())?;
     let fields = normalize_java_fields(&payload["fields"])?;
     let fields_json = serde_json::to_string(&fields).map_err(|e| format!("序列化字段失败: {e}"))?;
     let affected = conn
@@ -265,10 +268,7 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(
-            created["item"]["fields"],
-            json!(["createdAt", "updatedAt"])
-        );
+        assert_eq!(created["item"]["fields"], json!(["createdAt", "updatedAt"]));
 
         let listed = list_with_conn(&conn).unwrap();
         assert_eq!(listed["items"].as_array().unwrap().len(), 1);

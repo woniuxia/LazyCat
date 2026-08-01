@@ -381,12 +381,13 @@ fn select_route<'a>(
 }
 
 fn parse_cors_config(value: &Value) -> Result<CorsConfig, String> {
-    let mut config = if value.is_null() || value.as_object().map(|obj| obj.is_empty()).unwrap_or(false) {
-        default_cors_config()
-    } else {
-        serde_json::from_value::<CorsConfig>(value.clone())
-            .map_err(|e| format!("invalid cors config: {e}"))?
-    };
+    let mut config =
+        if value.is_null() || value.as_object().map(|obj| obj.is_empty()).unwrap_or(false) {
+            default_cors_config()
+        } else {
+            serde_json::from_value::<CorsConfig>(value.clone())
+                .map_err(|e| format!("invalid cors config: {e}"))?
+        };
     config.allow_origin = config.allow_origin.trim().to_string();
     config.allow_headers = config.allow_headers.trim().to_string();
     config.expose_headers = config.expose_headers.trim().to_string();
@@ -400,7 +401,10 @@ fn parse_cors_config(value: &Value) -> Result<CorsConfig, String> {
     for method in &config.allow_methods {
         validate_method(method)?;
     }
-    if config.enabled && config.allow_credentials && cors_origin_list(&config.allow_origin).contains(&"*") {
+    if config.enabled
+        && config.allow_credentials
+        && cors_origin_list(&config.allow_origin).contains(&"*")
+    {
         return Err("Allow-Origin cannot be * when credentials are allowed".into());
     }
     if let Some(max_age) = config.max_age_seconds {
@@ -426,8 +430,12 @@ fn resolve_cors_allow_origin(configured: &str, request_origin: Option<&str>) -> 
     if origins.is_empty() || origins.contains(&"*") {
         return ("*".into(), false);
     }
-    let matched = request_origin
-        .and_then(|origin| origins.iter().find(|item| item.eq_ignore_ascii_case(origin)).copied());
+    let matched = request_origin.and_then(|origin| {
+        origins
+            .iter()
+            .find(|item| item.eq_ignore_ascii_case(origin))
+            .copied()
+    });
     (matched.unwrap_or(origins[0]).to_string(), true)
 }
 
@@ -440,7 +448,8 @@ fn build_cors_headers(
     if !config.enabled {
         return Vec::new();
     }
-    let (allow_origin, needs_vary) = resolve_cors_allow_origin(&config.allow_origin, request_origin);
+    let (allow_origin, needs_vary) =
+        resolve_cors_allow_origin(&config.allow_origin, request_origin);
     let mut headers = vec![header("Access-Control-Allow-Origin", &allow_origin)];
     if needs_vary {
         headers.push(header("Vary", "Origin"));
@@ -455,12 +464,18 @@ fn build_cors_headers(
             config.allow_methods.join(", ")
         };
         headers.push(header("Access-Control-Allow-Methods", &allow_methods));
-        headers.push(header("Access-Control-Allow-Headers", &config.allow_headers));
+        headers.push(header(
+            "Access-Control-Allow-Headers",
+            &config.allow_headers,
+        ));
         if let Some(max_age) = config.max_age_seconds {
             headers.push(header("Access-Control-Max-Age", &max_age.to_string()));
         }
     } else if !config.expose_headers.is_empty() {
-        headers.push(header("Access-Control-Expose-Headers", &config.expose_headers));
+        headers.push(header(
+            "Access-Control-Expose-Headers",
+            &config.expose_headers,
+        ));
     }
     headers
 }
@@ -536,7 +551,10 @@ fn import_file_copy(source: &Path, content_type: &str) -> Result<ImportedMockFil
         .and_then(|name| name.to_str())
         .unwrap_or("file")
         .to_string();
-    let extension = source.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let extension = source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
     let stored_name = if extension.is_empty() {
         hash.clone()
     } else {
@@ -580,9 +598,11 @@ fn project_exists(conn: &Connection, id: i64) -> Result<bool, String> {
 }
 
 fn file_exists(conn: &Connection, id: i64) -> Result<bool, String> {
-    conn.query_row("SELECT COUNT(*) FROM api_mock_files WHERE id=?1", [id], |row| {
-        row.get::<_, i64>(0)
-    })
+    conn.query_row(
+        "SELECT COUNT(*) FROM api_mock_files WHERE id=?1",
+        [id],
+        |row| row.get::<_, i64>(0),
+    )
     .map(|count| count > 0)
     .map_err(|e| format!("check api mock file failed: {e}"))
 }
@@ -601,7 +621,11 @@ fn runtime_summary_json(project_id: i64, current_signature: Option<String>) -> V
         }
     };
     if let Some(service) = services.get(&project_id) {
-        let last_error = service.last_error.lock().ok().and_then(|value| value.clone());
+        let last_error = service
+            .last_error
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
         let snapshot_signature = service.snapshot_signature();
         let restart_required = current_signature
             .as_ref()
@@ -764,9 +788,11 @@ fn cleanup_file_ids(conn: &Connection, file_ids: &[i64]) -> Vec<String> {
             continue;
         }
         let stored_path = conn
-            .query_row("SELECT stored_path FROM api_mock_files WHERE id=?1", [file_id], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_row(
+                "SELECT stored_path FROM api_mock_files WHERE id=?1",
+                [file_id],
+                |row| row.get::<_, String>(0),
+            )
             .optional()
             .unwrap_or(None);
         if let Some(stored_path) = stored_path {
@@ -851,7 +877,8 @@ fn route_row_to_json(row: &rusqlite::Row<'_>, include_detail: bool) -> rusqlite:
         "file": file_json
     });
     if include_detail {
-        value["headers"] = serde_json::from_str::<Value>(&headers_json).unwrap_or_else(|_| json!([]));
+        value["headers"] =
+            serde_json::from_str::<Value>(&headers_json).unwrap_or_else(|_| json!([]));
         value["bodyText"] = json!(body_text);
         value["cors"] = serde_json::from_str::<Value>(&cors_json).unwrap_or_else(|_| json!({}));
     }
@@ -861,7 +888,9 @@ fn route_row_to_json(row: &rusqlite::Row<'_>, include_detail: bool) -> rusqlite:
 fn route_list_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let project_id = parse_required_i64(payload, "projectId")?;
     let sql = route_select_sql("WHERE r.project_id=?1 ORDER BY r.sort_order ASC, r.id ASC");
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare api mock route list failed: {e}"))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare api mock route list failed: {e}"))?;
     let routes = stmt
         .query_map([project_id], |row| route_row_to_json(row, false))
         .map_err(|e| format!("query api mock route list failed: {e}"))?
@@ -895,15 +924,18 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
     let path_pattern = parse_string(payload, "pathPattern").ok_or("pathPattern is required")?;
     validate_path_pattern(&path_pattern)?;
     let status_code = validate_status_code(payload["statusCode"].as_i64().unwrap_or(200))?;
-    let response_kind = parse_string(payload, "responseKind").unwrap_or_else(|| "static_body".into());
+    let response_kind =
+        parse_string(payload, "responseKind").unwrap_or_else(|| "static_body".into());
     validate_response_kind(&response_kind)?;
     let content_type = parse_string(payload, "contentType")
         .unwrap_or_else(|| "application/json; charset=utf-8".into());
     let headers = parse_headers(&payload["headers"])?;
-    let headers_json = serde_json::to_string(&headers).map_err(|e| format!("serialize headers failed: {e}"))?;
+    let headers_json =
+        serde_json::to_string(&headers).map_err(|e| format!("serialize headers failed: {e}"))?;
     let body_text = payload["bodyText"].as_str().unwrap_or_default().to_string();
     let cors = parse_cors_config(&payload["cors"])?;
-    let cors_json = serde_json::to_string(&cors).map_err(|e| format!("serialize cors failed: {e}"))?;
+    let cors_json =
+        serde_json::to_string(&cors).map_err(|e| format!("serialize cors failed: {e}"))?;
     let enabled = payload["enabled"].as_bool().unwrap_or(true);
     let delay_ms = validate_delay_ms(payload["delayMs"].as_i64().unwrap_or(0))?;
     let file_id = parse_optional_i64(payload, "fileId");
@@ -914,38 +946,43 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
         }
     }
     let old_file_id = if let Some(id) = id {
-        conn.query_row("SELECT file_id FROM api_mock_routes WHERE id=?1", [id], |row| row.get(0))
-            .optional()
-            .map_err(|e| format!("query old route file failed: {e}"))?
-            .flatten()
+        conn.query_row(
+            "SELECT file_id FROM api_mock_routes WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("query old route file failed: {e}"))?
+        .flatten()
     } else {
         None
     };
     let route_id = if let Some(id) = id {
-        let affected = conn.execute(
-            "UPDATE api_mock_routes
+        let affected = conn
+            .execute(
+                "UPDATE api_mock_routes
              SET project_id=?1, name=?2, method=?3, path_pattern=?4, status_code=?5,
                  response_kind=?6, content_type=?7, headers_json=?8, body_text=?9,
                  file_id=?10, cors_json=?11, enabled=?12, delay_ms=?13, updated_at=CURRENT_TIMESTAMP
              WHERE id=?14",
-            params![
-                project_id,
-                name,
-                method,
-                path_pattern,
-                status_code as i64,
-                response_kind,
-                content_type,
-                headers_json,
-                body_text,
-                file_id,
-                cors_json,
-                enabled as i64,
-                delay_ms,
-                id
-            ],
-        )
-        .map_err(|e| format!("update api mock route failed: {e}"))?;
+                params![
+                    project_id,
+                    name,
+                    method,
+                    path_pattern,
+                    status_code as i64,
+                    response_kind,
+                    content_type,
+                    headers_json,
+                    body_text,
+                    file_id,
+                    cors_json,
+                    enabled as i64,
+                    delay_ms,
+                    id
+                ],
+            )
+            .map_err(|e| format!("update api mock route failed: {e}"))?;
         if affected == 0 {
             return Err("api mock route not found".into());
         }
@@ -1028,13 +1065,19 @@ fn route_toggle_with_conn(conn: &Connection, payload: &Value) -> Result<Value, S
 fn route_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = parse_required_i64(payload, "id")?;
     let file_id: Option<i64> = conn
-        .query_row("SELECT file_id FROM api_mock_routes WHERE id=?1", [id], |row| row.get(0))
+        .query_row(
+            "SELECT file_id FROM api_mock_routes WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
         .optional()
         .map_err(|e| format!("query route file before delete failed: {e}"))?
         .flatten();
     conn.execute("DELETE FROM api_mock_routes WHERE id=?1", [id])
         .map_err(|e| format!("delete api mock route failed: {e}"))?;
-    Ok(json!({ "ok": true, "warnings": cleanup_file_ids(conn, &file_id.into_iter().collect::<Vec<_>>()) }))
+    Ok(
+        json!({ "ok": true, "warnings": cleanup_file_ids(conn, &file_id.into_iter().collect::<Vec<_>>()) }),
+    )
 }
 
 fn file_import_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
@@ -1071,8 +1114,14 @@ fn build_route_signature(routes: &[MockRouteSnapshot]) -> String {
         .map(|route| {
             let headers = serde_json::to_string(&route.headers).unwrap_or_default();
             let cors = serde_json::to_string(&route.cors).unwrap_or_default();
-            let file_hash = route.file.as_ref().map(|file| file.hash.as_str()).unwrap_or("");
-            let body_hash = blake3::hash(route.body_text.as_bytes()).to_hex().to_string();
+            let file_hash = route
+                .file
+                .as_ref()
+                .map(|file| file.hash.as_str())
+                .unwrap_or("");
+            let body_hash = blake3::hash(route.body_text.as_bytes())
+                .to_hex()
+                .to_string();
             format!(
                 "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
                 route.id,
@@ -1091,10 +1140,15 @@ fn build_route_signature(routes: &[MockRouteSnapshot]) -> String {
         })
         .collect::<Vec<_>>();
     parts.sort();
-    blake3::hash(parts.join("|").as_bytes()).to_hex().to_string()
+    blake3::hash(parts.join("|").as_bytes())
+        .to_hex()
+        .to_string()
 }
 
-fn load_enabled_route_snapshots(conn: &Connection, project_id: i64) -> Result<Vec<MockRouteSnapshot>, String> {
+fn load_enabled_route_snapshots(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<Vec<MockRouteSnapshot>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT r.id, r.name, r.method, r.path_pattern, r.status_code, r.response_kind,
@@ -1114,14 +1168,35 @@ fn load_enabled_route_snapshots(conn: &Connection, project_id: i64) -> Result<Ve
             let file_id: Option<i64> = row.get(11)?;
             let file = file_id.map(|id| MockFileSnapshot {
                 id,
-                original_name: row.get::<_, Option<String>>(12).ok().flatten().unwrap_or_default(),
-                stored_path: row.get::<_, Option<String>>(13).ok().flatten().unwrap_or_default(),
-                content_type: row.get::<_, Option<String>>(14).ok().flatten().unwrap_or_default(),
-                size: row.get::<_, Option<i64>>(15).ok().flatten().unwrap_or_default(),
-                hash: row.get::<_, Option<String>>(16).ok().flatten().unwrap_or_default(),
+                original_name: row
+                    .get::<_, Option<String>>(12)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                stored_path: row
+                    .get::<_, Option<String>>(13)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                content_type: row
+                    .get::<_, Option<String>>(14)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                size: row
+                    .get::<_, Option<i64>>(15)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                hash: row
+                    .get::<_, Option<String>>(16)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
             });
             let headers = serde_json::from_str::<Vec<HeaderRow>>(&headers_json).unwrap_or_default();
-            let cors = serde_json::from_str::<CorsConfig>(&cors_json).unwrap_or_else(|_| default_cors_config());
+            let cors = serde_json::from_str::<CorsConfig>(&cors_json)
+                .unwrap_or_else(|_| default_cors_config());
             Ok(MockRouteSnapshot {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -1187,7 +1262,13 @@ fn service_start_with_conn(conn: &Connection, payload: &Value) -> Result<Value, 
     let thread_error = Arc::clone(&last_error);
     let thread_routes = Arc::clone(&routes);
     let handle = thread::spawn(move || {
-        run_http_service(listener, thread_routes, thread_stop, thread_logs, thread_error);
+        run_http_service(
+            listener,
+            thread_routes,
+            thread_stop,
+            thread_logs,
+            thread_error,
+        );
     });
     let service = RunningMockService {
         host,
@@ -1240,7 +1321,13 @@ fn request_logs_with_conn(_conn: &Connection, payload: &Value) -> Result<Value, 
         .map_err(|e| format!("runtime registry lock failed: {e}"))?;
     let logs = services
         .get(&project_id)
-        .and_then(|service| service.logs.lock().ok().map(|logs| logs.iter().cloned().collect::<Vec<_>>()))
+        .and_then(|service| {
+            service
+                .logs
+                .lock()
+                .ok()
+                .map(|logs| logs.iter().cloned().collect::<Vec<_>>())
+        })
         .unwrap_or_default();
     Ok(json!({ "logs": logs }))
 }
@@ -1280,9 +1367,14 @@ fn run_http_service(
                 // 每连接一线程：延迟路由不阻塞其他请求，也不阻塞 stop 的 join。
                 thread::spawn(move || {
                     let guard = ConnectionGuard::acquire(&conn_active);
-                    if let Err(err) =
-                        handle_http_stream(stream, &conn_routes, &conn_logs, conn_log_id, &conn_stop, guard.over_limit())
-                    {
+                    if let Err(err) = handle_http_stream(
+                        stream,
+                        &conn_routes,
+                        &conn_logs,
+                        conn_log_id,
+                        &conn_stop,
+                        guard.over_limit(),
+                    ) {
                         if let Ok(mut last_error) = conn_error.lock() {
                             *last_error = Some(err);
                         }
@@ -1316,7 +1408,9 @@ fn handle_http_stream(
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut buffer = [0_u8; 8192];
-    let size = stream.read(&mut buffer).map_err(|e| format!("read request failed: {e}"))?;
+    let size = stream
+        .read(&mut buffer)
+        .map_err(|e| format!("read request failed: {e}"))?;
     let request = String::from_utf8_lossy(&buffer[..size]);
     let request_line = request.lines().next().ok_or("missing request line")?;
     let mut parts = request_line.split_whitespace();
@@ -1325,7 +1419,13 @@ fn handle_http_stream(
     let path = raw_path.split('?').next().unwrap_or("/").to_string();
 
     if over_limit {
-        let response = build_response(503, Vec::new(), Vec::new(), b"Service Unavailable".to_vec(), false);
+        let response = build_response(
+            503,
+            Vec::new(),
+            Vec::new(),
+            b"Service Unavailable".to_vec(),
+            false,
+        );
         let bytes = response.into_bytes();
         stream
             .write_all(&bytes)
@@ -1429,7 +1529,11 @@ fn select_preflight_route<'a>(
     let candidates = routes
         .iter()
         .filter(|route| route.cors.enabled && path_matches(&route.path_pattern, path))
-        .filter(|route| request_method.map(|method| route.method == method).unwrap_or(true));
+        .filter(|route| {
+            request_method
+                .map(|method| route.method == method)
+                .unwrap_or(true)
+        });
     candidates.max_by_key(|route| {
         (
             route_specificity(&route.path_pattern),
@@ -1466,7 +1570,10 @@ fn build_route_response(
 ) -> Result<HttpResponse, String> {
     let mut headers = route.headers.clone();
     let mut body = if route.response_kind == "file" {
-        let file = route.file.as_ref().ok_or("file response missing file record")?;
+        let file = route
+            .file
+            .as_ref()
+            .ok_or("file response missing file record")?;
         let path = validate_stored_file_path(&file.stored_path)?;
         fs::read(&path).map_err(|e| format!("read api mock file failed: {e}"))?
     } else {
@@ -1485,11 +1592,22 @@ fn build_route_response(
     if header_value(&headers, "Content-Type").is_none() {
         headers.push(header("Content-Type", &content_type));
     }
-    headers.extend(build_cors_headers(&route.cors, &route.method, request_origin, false));
+    headers.extend(build_cors_headers(
+        &route.cors,
+        &route.method,
+        request_origin,
+        false,
+    ));
     if head_only {
         body.clear();
     }
-    Ok(build_response(route.status_code, headers, Vec::new(), body, false))
+    Ok(build_response(
+        route.status_code,
+        headers,
+        Vec::new(),
+        body,
+        false,
+    ))
 }
 
 fn build_response(
@@ -1503,7 +1621,11 @@ fn build_response(
     if !skip_content_length && header_value(&headers, "Content-Length").is_none() {
         headers.push(header("Content-Length", &body.len().to_string()));
     }
-    HttpResponse { status, headers, body }
+    HttpResponse {
+        status,
+        headers,
+        body,
+    }
 }
 
 fn status_reason(status: u16) -> &'static str {
@@ -1787,13 +1909,19 @@ mod tests {
             header_value(&preflight, "Access-Control-Allow-Headers").as_deref(),
             Some("X-Token")
         );
-        assert_eq!(header_value(&preflight, "Access-Control-Max-Age").as_deref(), Some("600"));
+        assert_eq!(
+            header_value(&preflight, "Access-Control-Max-Age").as_deref(),
+            Some("600")
+        );
         assert!(header_value(&preflight, "Access-Control-Expose-Headers").is_none());
         // 通配 Origin 不需要 Vary。
         assert!(header_value(&preflight, "Vary").is_none());
 
         let actual = build_cors_headers(&cors, "GET", None, false);
-        assert_eq!(header_value(&actual, "Access-Control-Allow-Origin").as_deref(), Some("*"));
+        assert_eq!(
+            header_value(&actual, "Access-Control-Allow-Origin").as_deref(),
+            Some("*")
+        );
         assert_eq!(
             header_value(&actual, "Access-Control-Expose-Headers").as_deref(),
             Some("X-Trace")
@@ -1828,7 +1956,10 @@ mod tests {
             resolve_cors_allow_origin("http://a.com, *", Some("http://b.com")),
             ("*".to_string(), false)
         );
-        assert_eq!(resolve_cors_allow_origin("", None), ("*".to_string(), false));
+        assert_eq!(
+            resolve_cors_allow_origin("", None),
+            ("*".to_string(), false)
+        );
     }
 
     #[test]
@@ -1970,7 +2101,8 @@ mod tests {
             &json!({ "projectId": project_id, "ids": [second["id"], first["id"]] }),
         )
         .expect("reorder");
-        let routes = route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list");
+        let routes =
+            route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list");
         assert_eq!(routes["routes"][0]["name"], "Files");
         assert_eq!(routes["routes"][1]["name"], "User");
 
@@ -1995,7 +2127,8 @@ mod tests {
             }),
         )
         .expect("update route");
-        let detail = route_get_with_conn(&conn, &json!({ "id": first["id"] })).expect("get updated");
+        let detail =
+            route_get_with_conn(&conn, &json!({ "id": first["id"] })).expect("get updated");
         assert_eq!(detail["route"]["name"], "User detail");
         assert_eq!(detail["route"]["enabled"], false);
 
@@ -2019,7 +2152,8 @@ mod tests {
         assert!(missing_update.contains("route not found"));
 
         route_delete_with_conn(&conn, &json!({ "id": second["id"] })).expect("delete route");
-        let routes = route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list after delete");
+        let routes = route_list_with_conn(&conn, &json!({ "projectId": project_id }))
+            .expect("list after delete");
         assert_eq!(routes["routes"].as_array().unwrap().len(), 1);
     }
 
@@ -2033,9 +2167,11 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("source dir");
         let source = source_dir.join("shared.txt");
         fs::write(&source, b"shared").expect("source");
-        let imported =
-            file_import_with_conn(&conn, &json!({ "path": source, "contentType": "text/plain" }))
-                .expect("import");
+        let imported = file_import_with_conn(
+            &conn,
+            &json!({ "path": source, "contentType": "text/plain" }),
+        )
+        .expect("import");
         let file_id = imported["file"]["id"].as_i64().unwrap();
         let stored_path = imported["file"]["storedPath"].as_str().unwrap().to_string();
 
@@ -2075,14 +2211,22 @@ mod tests {
         route_delete_with_conn(&conn, &json!({ "id": route_a["id"] })).expect("delete a");
         assert!(fs::metadata(&stored_path).is_ok());
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM api_mock_files WHERE id=?1", [file_id], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM api_mock_files WHERE id=?1",
+                [file_id],
+                |row| row.get(0),
+            )
             .expect("file count");
         assert_eq!(count, 1);
 
         route_delete_with_conn(&conn, &json!({ "id": route_b["id"] })).expect("delete b");
         assert!(fs::metadata(&stored_path).is_err());
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM api_mock_files WHERE id=?1", [file_id], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM api_mock_files WHERE id=?1",
+                [file_id],
+                |row| row.get(0),
+            )
             .expect("file count after cleanup");
         assert_eq!(count, 0);
     }
@@ -2100,17 +2244,27 @@ mod tests {
         // 两个测试若同内容会并行互删对方的存储文件
         fs::write(&source, b"shared-duplicate").expect("source");
         let source_path = source.to_string_lossy().to_string();
-        let first_import =
-            file_import_with_conn(&conn, &json!({ "path": source_path.clone(), "contentType": "text/plain" }))
-                .expect("first import");
-        let second_import =
-            file_import_with_conn(&conn, &json!({ "path": source_path, "contentType": "text/plain" }))
-                .expect("second import");
+        let first_import = file_import_with_conn(
+            &conn,
+            &json!({ "path": source_path.clone(), "contentType": "text/plain" }),
+        )
+        .expect("first import");
+        let second_import = file_import_with_conn(
+            &conn,
+            &json!({ "path": source_path, "contentType": "text/plain" }),
+        )
+        .expect("second import");
         let first_file_id = first_import["file"]["id"].as_i64().unwrap();
         let second_file_id = second_import["file"]["id"].as_i64().unwrap();
-        let stored_path = first_import["file"]["storedPath"].as_str().unwrap().to_string();
+        let stored_path = first_import["file"]["storedPath"]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert_ne!(first_file_id, second_file_id);
-        assert_eq!(stored_path, second_import["file"]["storedPath"].as_str().unwrap());
+        assert_eq!(
+            stored_path,
+            second_import["file"]["storedPath"].as_str().unwrap()
+        );
 
         let route_a = route_save_with_conn(
             &conn,
@@ -2230,7 +2384,8 @@ mod tests {
         assert!(response.contains("X-Mock: yes"));
         assert!(response.ends_with("{\"ok\":true}"));
 
-        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        let logs =
+            request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
         assert_eq!(logs["logs"][0]["path"], "/ping");
         assert_eq!(logs["logs"][0]["status"], 201);
         service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
@@ -2280,9 +2435,11 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("source dir");
         let source = source_dir.join("hello.txt");
         fs::write(&source, b"hello file").expect("source");
-        let imported =
-            file_import_with_conn(&conn, &json!({ "path": source, "contentType": "text/plain" }))
-                .expect("import");
+        let imported = file_import_with_conn(
+            &conn,
+            &json!({ "path": source, "contentType": "text/plain" }),
+        )
+        .expect("import");
         route_save_with_conn(
             &conn,
             &json!({
@@ -2440,11 +2597,18 @@ mod tests {
         }
 
         service_start_with_conn(&conn, &json!({ "projectId": first["id"] })).expect("start first");
-        service_start_with_conn(&conn, &json!({ "projectId": second["id"] })).expect("start second");
-        assert!(http_request(first_port, "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-            .contains(&first["id"].to_string()));
-        assert!(http_request(second_port, "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-            .contains(&second["id"].to_string()));
+        service_start_with_conn(&conn, &json!({ "projectId": second["id"] }))
+            .expect("start second");
+        assert!(http_request(
+            first_port,
+            "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .contains(&first["id"].to_string()));
+        assert!(http_request(
+            second_port,
+            "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .contains(&second["id"].to_string()));
 
         let conflict = project_create_with_conn(&conn, &json!({ "name": "C", "port": first_port }))
             .expect("conflict project");
@@ -2472,12 +2636,7 @@ mod tests {
         service_stop_with_conn(&conn, &json!({ "projectId": second["id"] })).expect("stop second");
     }
 
-    fn save_delay_route(
-        conn: &Connection,
-        project_id: i64,
-        pattern: &str,
-        delay_ms: i64,
-    ) -> Value {
+    fn save_delay_route(conn: &Connection, project_id: i64, pattern: &str, delay_ms: i64) -> Value {
         route_save_with_conn(
             conn,
             &json!({
@@ -2551,7 +2710,8 @@ mod tests {
             }),
         )
         .expect("save without delay");
-        let detail = route_get_with_conn(&conn, &json!({ "id": default_route["id"] })).expect("get");
+        let detail =
+            route_get_with_conn(&conn, &json!({ "id": default_route["id"] })).expect("get");
         assert_eq!(detail["route"]["delayMs"], 0);
 
         let list = route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list");
@@ -2603,12 +2763,17 @@ mod tests {
             .expect("clear before start is ok");
 
         service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
-        http_request(port, "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
-        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        http_request(
+            port,
+            "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
+        let logs =
+            request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
         assert_eq!(logs["logs"].as_array().unwrap().len(), 1);
 
         request_logs_clear_with_conn(&conn, &json!({ "projectId": project_id })).expect("clear");
-        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        let logs =
+            request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
         assert_eq!(logs["logs"].as_array().unwrap().len(), 0);
         service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
     }
@@ -2624,7 +2789,10 @@ mod tests {
 
         service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
         let started = std::time::Instant::now();
-        let response = http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let response = http_request(
+            port,
+            "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
         let elapsed = started.elapsed();
         assert!(response.starts_with("HTTP/1.1 200"));
         assert!(elapsed >= Duration::from_millis(380), "elapsed {elapsed:?}");
@@ -2643,15 +2811,24 @@ mod tests {
 
         service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
         // 预热：确认服务已可接受连接，让后续计时不含连接重试。
-        http_request(port, "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        http_request(
+            port,
+            "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
 
         let slow = thread::spawn(move || {
-            http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            http_request(
+                port,
+                "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+            )
         });
         thread::sleep(Duration::from_millis(150));
 
         let started = std::time::Instant::now();
-        let fast = http_request(port, "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let fast = http_request(
+            port,
+            "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
         let fast_elapsed = started.elapsed();
         assert!(fast.starts_with("HTTP/1.1 200"));
         assert!(
@@ -2677,16 +2854,26 @@ mod tests {
         let holders: Vec<_> = (0..MAX_CONCURRENT_MOCK_CONNECTIONS)
             .map(|_| {
                 thread::spawn(move || {
-                    http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                    http_request(
+                        port,
+                        "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                    )
                 })
             })
             .collect();
         thread::sleep(Duration::from_millis(500));
 
-        let overflow = http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
-        assert!(overflow.starts_with("HTTP/1.1 503"), "overflow response: {overflow}");
+        let overflow = http_request(
+            port,
+            "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        );
+        assert!(
+            overflow.starts_with("HTTP/1.1 503"),
+            "overflow response: {overflow}"
+        );
 
-        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        let logs =
+            request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
         assert_eq!(logs["logs"][0]["status"], 503);
         assert_eq!(logs["logs"][0]["path"], "/slow");
         assert_eq!(logs["logs"][0]["error"], OVER_LIMIT_LOG_ERROR);
@@ -2708,7 +2895,10 @@ mod tests {
 
         service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
         let pending = thread::spawn(move || {
-            http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            http_request(
+                port,
+                "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+            )
         });
         thread::sleep(Duration::from_millis(300));
 

@@ -1,9 +1,7 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
 
-const ACTIONS: &[&str] = &[
-    "decode",
-];
+const ACTIONS: &[&str] = &["decode"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {

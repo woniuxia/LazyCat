@@ -52,16 +52,10 @@ fn validate_start_target_with_resolver(
     Ok(())
 }
 
-fn resolve_target_addrs_bounded(
-    host: String,
-    port: u16,
-) -> Result<Vec<SocketAddr>, String> {
-    resolve_target_addrs_bounded_with(
-        host,
-        port,
-        TARGET_RESOLUTION_TIMEOUT,
-        |host, port| resolve_target_addrs(&host, port),
-    )
+fn resolve_target_addrs_bounded(host: String, port: u16) -> Result<Vec<SocketAddr>, String> {
+    resolve_target_addrs_bounded_with(host, port, TARGET_RESOLUTION_TIMEOUT, |host, port| {
+        resolve_target_addrs(&host, port)
+    })
 }
 
 fn resolve_target_addrs_bounded_with(
@@ -89,9 +83,9 @@ fn resolve_target_addrs_bounded_with(
                 timeout.as_millis()
             ))
         }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            Err(format!("解析目标地址 {display_host}:{port} 失败: 解析线程异常退出"))
-        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(format!(
+            "解析目标地址 {display_host}:{port} 失败: 解析线程异常退出"
+        )),
     }
 }
 
@@ -145,7 +139,10 @@ fn local_interface_addresses() -> Result<HashSet<IpAddr>, String> {
 }
 
 fn same_address_family(left: IpAddr, right: IpAddr) -> bool {
-    matches!((left, right), (IpAddr::V4(_), IpAddr::V4(_)) | (IpAddr::V6(_), IpAddr::V6(_)))
+    matches!(
+        (left, right),
+        (IpAddr::V4(_), IpAddr::V4(_)) | (IpAddr::V6(_), IpAddr::V6(_))
+    )
 }
 
 pub(crate) fn validate_rule_input(

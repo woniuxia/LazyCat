@@ -317,7 +317,10 @@ pub(crate) fn clear_item_reminder_snooze(conn: &Connection, item_id: i64) -> Res
     Ok(())
 }
 
-pub(crate) fn mark_item_reminder_events_read(conn: &Connection, item_id: i64) -> Result<(), String> {
+pub(crate) fn mark_item_reminder_events_read(
+    conn: &Connection,
+    item_id: i64,
+) -> Result<(), String> {
     conn.execute(
         "UPDATE todo_reminder_events
          SET is_read=1, updated_at=CURRENT_TIMESTAMP

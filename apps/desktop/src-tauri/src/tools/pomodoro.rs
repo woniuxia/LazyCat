@@ -219,7 +219,9 @@ fn should_prompt_today(
 }
 
 fn is_configured_workday(config: &PomodoroConfig, now: DateTime<Local>) -> bool {
-    config.weekdays.contains(&now.weekday().number_from_monday())
+    config
+        .weekdays
+        .contains(&now.weekday().number_from_monday())
 }
 
 fn parse_time(value: &str) -> Option<NaiveTime> {
@@ -238,7 +240,8 @@ fn load_config() -> Result<PomodoroConfig, String> {
 }
 
 fn save_config(config: &PomodoroConfig) -> Result<(), String> {
-    let raw = serde_json::to_string(config).map_err(|e| format!("serialize pomodoro config failed: {e}"))?;
+    let raw = serde_json::to_string(config)
+        .map_err(|e| format!("serialize pomodoro config failed: {e}"))?;
     save_setting(CONFIG_KEY, &raw)
 }
 
@@ -252,7 +255,8 @@ fn load_session() -> Result<Option<PomodoroSession>, String> {
 }
 
 fn save_session(session: &PomodoroSession) -> Result<(), String> {
-    let raw = serde_json::to_string(session).map_err(|e| format!("serialize pomodoro session failed: {e}"))?;
+    let raw = serde_json::to_string(session)
+        .map_err(|e| format!("serialize pomodoro session failed: {e}"))?;
     save_setting(SESSION_KEY, &raw)
 }
 

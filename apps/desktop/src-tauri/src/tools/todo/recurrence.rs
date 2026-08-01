@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use std::str::FromStr;
 
 use super::helpers::*;
-use super::{load_item_reminder_configs, sync_item_reminders};
 use super::types::*;
+use super::{load_item_reminder_configs, sync_item_reminders};
 
 // ── Cron / rule utilities ─────────────────────────────────
 
@@ -243,7 +243,10 @@ pub(crate) fn parse_end_rule(payload: &Value) -> Result<(String, Option<String>)
 
 // ── Series rule helpers ───────────────────────────────────
 
-pub(crate) fn load_series_rule(conn: &Connection, series_id: i64) -> Result<Option<SeriesRuleRow>, String> {
+pub(crate) fn load_series_rule(
+    conn: &Connection,
+    series_id: i64,
+) -> Result<Option<SeriesRuleRow>, String> {
     conn.query_row(
         "SELECT series_id, rule_mode, COALESCE(rule_json,'{}'), COALESCE(cron_expression,''),
                 COALESCE(timezone,'local'), start_at, end_mode, end_value,

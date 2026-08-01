@@ -315,7 +315,9 @@ impl RuntimeManager {
     ) -> Vec<BatchOperationResult> {
         rule_ids
             .iter()
-            .map(|&rule_id| self.batch_result(rule_id, self.start_loaded(rule_id, || load_rule(rule_id))))
+            .map(|&rule_id| {
+                self.batch_result(rule_id, self.start_loaded(rule_id, || load_rule(rule_id)))
+            })
             .collect()
     }
 
@@ -326,7 +328,9 @@ impl RuntimeManager {
     ) -> Vec<BatchOperationResult> {
         rule_ids
             .iter()
-            .map(|&rule_id| self.batch_result(rule_id, self.stop_loaded(rule_id, || load_rule(rule_id))))
+            .map(|&rule_id| {
+                self.batch_result(rule_id, self.stop_loaded(rule_id, || load_rule(rule_id)))
+            })
             .collect()
     }
 
@@ -554,10 +558,7 @@ impl RuntimeManager {
         self.observability_persistence.stats(rule_id)
     }
 
-    fn start_locked(
-        &self,
-        rule: &ForwardRule,
-    ) -> Result<RuntimeStatus, String> {
+    fn start_locked(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
         let _lifecycle_guard = self.start_lifecycle_guard()?;
         if self.status(rule.id).state == RuntimeState::Running {
             return Ok(self.status(rule.id));
@@ -1159,9 +1160,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        unified_delta, unified_logs, unified_next_cursor,
-        LifecycleRepository, ObservabilityPersistence, ObservationBatch, ObservationCursor,
-        ObservationSource, ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
+        unified_delta, unified_logs, unified_next_cursor, LifecycleRepository,
+        ObservabilityPersistence, ObservationBatch, ObservationCursor, ObservationSource,
+        ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
         UnifiedObservationBatch,
     };
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
@@ -1629,8 +1630,12 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.set_auto_start(1, true).expect("seed rule 1 intent");
-        persistence.set_auto_start(2, true).expect("seed rule 2 intent");
+        persistence
+            .set_auto_start(1, true)
+            .expect("seed rule 1 intent");
+        persistence
+            .set_auto_start(2, true)
+            .expect("seed rule 2 intent");
         manager.start(&rule(1)).expect("start rule 1");
         manager.start(&rule(2)).expect("start rule 2");
         runner.fail_stop("shutdown stop failed");
@@ -1676,9 +1681,7 @@ mod tests {
         let mut manual_rule = rule(91);
         manual_rule.auto_start = false;
 
-        manager
-            .start(&manual_rule)
-            .expect("manual start succeeds");
+        manager.start(&manual_rule).expect("manual start succeeds");
 
         assert_eq!(persistence.value(manual_rule.id), None);
     }
@@ -1691,9 +1694,7 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         runner.fail_start_for(stored_rule.id, "runner start failed");
         let manager = RuntimeManager::new(runner.clone());
-        let error = manager
-            .start(&stored_rule)
-            .expect_err("start fails");
+        let error = manager.start(&stored_rule).expect_err("start fails");
 
         assert!(error.contains("runner start failed"));
         assert!(!runner.has_live_task());
@@ -1824,9 +1825,7 @@ mod tests {
         assert_eq!(log_count, 2, "stats reset must not discard unflushed logs");
         observability.accepted();
         assert_eq!(manager.stats(stored_rule.id).unwrap().event_count, 1);
-        manager
-            .stop(&stored_rule)
-            .expect("stop stats rule");
+        manager.stop(&stored_rule).expect("stop stats rule");
     }
 
     #[test]
@@ -1967,7 +1966,9 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.set_auto_start(1, false).expect("seed manual intent");
+        persistence
+            .set_auto_start(1, false)
+            .expect("seed manual intent");
 
         manager
             .start(&rule(1))
@@ -1984,12 +1985,12 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.set_auto_start(1, true).expect("seed auto-start intent");
+        persistence
+            .set_auto_start(1, true)
+            .expect("seed auto-start intent");
         manager.start(&rule(1)).expect("start succeeds");
 
-        manager
-            .stop(&rule(1))
-            .expect("runtime stop is independent");
+        manager.stop(&rule(1)).expect("runtime stop is independent");
 
         assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
         assert!(!runner.has_live_task());
@@ -2002,7 +2003,9 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.set_auto_start(1, true).expect("seed auto-start intent");
+        persistence
+            .set_auto_start(1, true)
+            .expect("seed auto-start intent");
         manager.start(&rule(1)).expect("start succeeds");
         runner.fail_stop("runner stop failed");
 
@@ -2032,8 +2035,7 @@ mod tests {
 
         let second_manager = manager.clone();
         let second_rule = rule.clone();
-        let second =
-            thread::spawn(move || second_manager.start(&second_rule));
+        let second = thread::spawn(move || second_manager.start(&second_rule));
 
         assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
         release_start.send(()).expect("release first start");
@@ -2133,7 +2135,9 @@ mod tests {
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
         for id in 1..=3 {
-            persistence.set_auto_start(id, false).expect("seed manual intent");
+            persistence
+                .set_auto_start(id, false)
+                .expect("seed manual intent");
         }
 
         let results = manager.start_all_loaded(&[1, 2, 3], |id| Ok(rule(id)));
@@ -2170,7 +2174,10 @@ mod tests {
         });
 
         assert_eq!(
-            results.iter().map(|result| result.rule_id).collect::<Vec<_>>(),
+            results
+                .iter()
+                .map(|result| result.rule_id)
+                .collect::<Vec<_>>(),
             vec![3, 99, 1]
         );
         assert!(results[0].ok);
@@ -2276,8 +2283,13 @@ mod tests {
             match runner.start(rule) {
                 Err(error) => assert!(error.contains("不能直接转发到自身")),
                 Ok(handle) => {
-                    runner.stop(handle).expect("cleanup unexpectedly started rule");
-                    panic!("{} self target unexpectedly started", rule.protocol.as_str());
+                    runner
+                        .stop(handle)
+                        .expect("cleanup unexpectedly started rule");
+                    panic!(
+                        "{} self target unexpectedly started",
+                        rule.protocol.as_str()
+                    );
                 }
             }
         }

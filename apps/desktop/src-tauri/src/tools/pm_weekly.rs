@@ -44,7 +44,11 @@ pub fn resolve_pm_weekly_window_hit(
         return None;
     }
 
-    Some((normalized_start, normalized_end, std::cmp::min(normalized_end, week_end)))
+    Some((
+        normalized_start,
+        normalized_end,
+        std::cmp::min(normalized_end, week_end),
+    ))
 }
 
 pub fn resolve_current_week_window(
@@ -175,8 +179,12 @@ pub fn weekly_work(payload: &Value) -> Result<Value, String> {
                 project_color,
                 project_status,
             ) = row.ok()?;
-            let (normalized_start, normalized_end, sort_date) =
-                resolve_pm_weekly_window_hit(start_at.as_deref(), end_at.as_deref(), window_start, window_end)?;
+            let (normalized_start, normalized_end, sort_date) = resolve_pm_weekly_window_hit(
+                start_at.as_deref(),
+                end_at.as_deref(),
+                window_start,
+                window_end,
+            )?;
             let sort_at = format_pm_weekly_date(sort_date);
             Some((
                 sort_at.clone(),

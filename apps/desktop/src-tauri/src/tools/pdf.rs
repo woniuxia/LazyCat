@@ -811,7 +811,13 @@ mod tests {
         .expect("merge PDFs");
         assert_eq!(merge["pages"], 3);
         assert_eq!(merge["sources"], 2);
-        assert_eq!(Document::load(&merged).expect("load merged PDF").get_pages().len(), 3);
+        assert_eq!(
+            Document::load(&merged)
+                .expect("load merged PDF")
+                .get_pages()
+                .len(),
+            3
+        );
 
         let split = execute(
             "split",
@@ -830,7 +836,10 @@ mod tests {
         for (file, expected_pages) in files.iter().zip([2, 1]) {
             let path = file["path"].as_str().expect("split path");
             assert_eq!(
-                Document::load(path).expect("load split PDF").get_pages().len(),
+                Document::load(path)
+                    .expect("load split PDF")
+                    .get_pages()
+                    .len(),
                 expected_pages
             );
         }

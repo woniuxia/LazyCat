@@ -16,7 +16,11 @@ use super::types::*;
 
 // ── DB helpers for items ──────────────────────────────────
 
-pub(crate) fn sync_item_assignees(conn: &Connection, item_id: i64, ids: &[i64]) -> Result<(), String> {
+pub(crate) fn sync_item_assignees(
+    conn: &Connection,
+    item_id: i64,
+    ids: &[i64],
+) -> Result<(), String> {
     conn.execute(
         "DELETE FROM todo_item_assignees WHERE item_id=?1",
         params![item_id],
@@ -79,7 +83,11 @@ pub(crate) fn load_item_links(conn: &Connection, item_id: i64) -> Result<Vec<Val
     Ok(out)
 }
 
-pub(crate) fn sync_item_links(conn: &Connection, item_id: i64, links: &[Value]) -> Result<(), String> {
+pub(crate) fn sync_item_links(
+    conn: &Connection,
+    item_id: i64,
+    links: &[Value],
+) -> Result<(), String> {
     conn.execute(
         "DELETE FROM todo_item_links WHERE item_id=?1",
         params![item_id],
@@ -104,7 +112,10 @@ pub(crate) fn sync_item_links(conn: &Connection, item_id: i64, links: &[Value]) 
     Ok(())
 }
 
-pub(crate) fn load_item_event_at(conn: &Connection, item_id: i64) -> Result<Option<String>, String> {
+pub(crate) fn load_item_event_at(
+    conn: &Connection,
+    item_id: i64,
+) -> Result<Option<String>, String> {
     conn.query_row(
         "SELECT event_at FROM todo_items WHERE id=?1",
         params![item_id],
@@ -230,10 +241,7 @@ fn item_is_overdue(status: &str, event_at: Option<&str>, now: &DateTime<Utc>) ->
             .unwrap_or(false)
 }
 
-pub(crate) fn item_list_with_conn(
-    conn: &Connection,
-    payload: &Value,
-) -> Result<Value, String> {
+pub(crate) fn item_list_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let status_filter = parse_string(payload, "status");
     let include_inactive = payload
         .get("includeInactive")
@@ -281,38 +289,58 @@ pub(crate) fn item_list_with_conn(
     let rows = stmt
         .query_map([], |row| {
             // Columns 0-24 are always present; columns 25+ depend on has_project_col
-            let base: (i64, String, Option<i64>, String, String, String,
-                       Option<String>, bool, String, Option<i64>, Option<i64>,
-                       String, String, Option<String>,
-                       Option<String>, Option<String>,
-                       Option<String>, Option<String>, Option<String>, Option<String>,
-                       Option<String>, Option<String>, Option<String>,
-                       Option<i64>, Option<i64>) = (
-                row.get(0)?,   // id
-                row.get(1)?,   // title
-                row.get(2)?,   // type_id
-                row.get(3)?,   // priority
-                row.get(4)?,   // description
-                row.get(5)?,   // status
-                row.get(6)?,   // event_at
-                row.get::<_, i64>(7)? != 0,  // pinned
-                row.get(8)?,   // kind
-                row.get(9)?,   // series_id
-                row.get(10)?,  // parent_id
-                row.get(11)?,  // created_at
-                row.get(12)?,  // updated_at
-                row.get(13)?,  // completed_at
-                row.get(14)?,  // type_name
-                row.get(15)?,  // type_color
-                row.get(16)?,  // rule_mode
-                row.get(17)?,  // rule_json
-                row.get(18)?,  // cron_expression
-                row.get(19)?,  // timezone
-                row.get(20)?,  // start_at
-                row.get(21)?,  // end_mode
-                row.get(22)?,  // end_value
-                row.get(23)?,  // occurrence_index
-                row.get(24)?,  // active
+            let base: (
+                i64,
+                String,
+                Option<i64>,
+                String,
+                String,
+                String,
+                Option<String>,
+                bool,
+                String,
+                Option<i64>,
+                Option<i64>,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                Option<i64>,
+            ) = (
+                row.get(0)?,                // id
+                row.get(1)?,                // title
+                row.get(2)?,                // type_id
+                row.get(3)?,                // priority
+                row.get(4)?,                // description
+                row.get(5)?,                // status
+                row.get(6)?,                // event_at
+                row.get::<_, i64>(7)? != 0, // pinned
+                row.get(8)?,                // kind
+                row.get(9)?,                // series_id
+                row.get(10)?,               // parent_id
+                row.get(11)?,               // created_at
+                row.get(12)?,               // updated_at
+                row.get(13)?,               // completed_at
+                row.get(14)?,               // type_name
+                row.get(15)?,               // type_color
+                row.get(16)?,               // rule_mode
+                row.get(17)?,               // rule_json
+                row.get(18)?,               // cron_expression
+                row.get(19)?,               // timezone
+                row.get(20)?,               // start_at
+                row.get(21)?,               // end_mode
+                row.get(22)?,               // end_value
+                row.get(23)?,               // occurrence_index
+                row.get(24)?,               // active
             );
             let project_id: Option<i64> = if has_project_col { row.get(25)? } else { None };
             let project_name: Option<String> = if has_project_col { row.get(26)? } else { None };
@@ -323,14 +351,34 @@ pub(crate) fn item_list_with_conn(
 
     let mut items = Vec::new();
     for row in rows {
-        let (base, project_id_from_sql, project_name_from_sql, project_color_from_sql) = row.map_err(|e| e.to_string())?;
+        let (base, project_id_from_sql, project_name_from_sql, project_color_from_sql) =
+            row.map_err(|e| e.to_string())?;
         let (
-            id, title, type_id, priority, description, status_raw,
-            event_at, pinned, kind, series_id, _parent_id,
-            created_at, updated_at, completed_at,
-            type_name, type_color,
-            rule_mode, rule_json, cron_expression, timezone,
-            start_at, end_mode, end_value, occurrence_index, rule_active,
+            id,
+            title,
+            type_id,
+            priority,
+            description,
+            status_raw,
+            event_at,
+            pinned,
+            kind,
+            series_id,
+            _parent_id,
+            created_at,
+            updated_at,
+            completed_at,
+            type_name,
+            type_color,
+            rule_mode,
+            rule_json,
+            cron_expression,
+            timezone,
+            start_at,
+            end_mode,
+            end_value,
+            occurrence_index,
+            rule_active,
         ) = base;
 
         // A1 归一化
@@ -436,8 +484,14 @@ pub(crate) fn item_list_with_conn(
             if has_project_col {
                 obj.insert("projectId".to_string(), json!(project_id_from_sql));
                 if project_id_from_sql.is_some() {
-                    obj.insert("projectName".to_string(), json!(project_name_from_sql.unwrap_or_default()));
-                    obj.insert("projectColor".to_string(), json!(project_color_from_sql.unwrap_or_default()));
+                    obj.insert(
+                        "projectName".to_string(),
+                        json!(project_name_from_sql.unwrap_or_default()),
+                    );
+                    obj.insert(
+                        "projectColor".to_string(),
+                        json!(project_color_from_sql.unwrap_or_default()),
+                    );
                 } else {
                     obj.insert("projectName".to_string(), Value::Null);
                     obj.insert("projectColor".to_string(), Value::Null);
@@ -468,7 +522,11 @@ pub(crate) fn item_list_with_conn(
         let item_ids: Vec<i64> = items.iter().filter_map(|i| i["id"].as_i64()).collect();
         if !item_ids.is_empty() {
             // Batch query PM links for all items
-            let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+            let placeholders: Vec<String> = item_ids
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", i + 1))
+                .collect();
             let sql = format!(
                 "SELECT l.todo_item_id, l.pm_item_id, p.title, p.project_id, p.status \
                  FROM pm_item_todo_links l \
@@ -476,8 +534,13 @@ pub(crate) fn item_list_with_conn(
                  WHERE l.todo_item_id IN ({})",
                 placeholders.join(",")
             );
-            let params: Vec<&dyn rusqlite::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-            let mut stmt = conn.prepare(&sql).map_err(|e| format!("查询 PM 关联失败: {e}"))?;
+            let params: Vec<&dyn rusqlite::ToSql> = item_ids
+                .iter()
+                .map(|id| id as &dyn rusqlite::ToSql)
+                .collect();
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
             let link_rows: Vec<(i64, i64, String, i64, String)> = stmt
                 .query_map(params.as_slice(), |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
@@ -488,7 +551,9 @@ pub(crate) fn item_list_with_conn(
 
             let link_map: std::collections::HashMap<i64, (i64, String, i64, String)> = link_rows
                 .into_iter()
-                .map(|(todo_id, pm_id, pm_title, pm_proj_id, pm_status)| (todo_id, (pm_id, pm_title, pm_proj_id, pm_status)))
+                .map(|(todo_id, pm_id, pm_title, pm_proj_id, pm_status)| {
+                    (todo_id, (pm_id, pm_title, pm_proj_id, pm_status))
+                })
                 .collect();
 
             for item in items.iter_mut() {
@@ -1041,10 +1106,7 @@ pub(crate) fn item_delete(payload: &Value) -> Result<Value, String> {
     Ok(result)
 }
 
-pub(crate) fn item_delete_with_conn(
-    conn: &Connection,
-    payload: &Value,
-) -> Result<Value, String> {
+pub(crate) fn item_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
     let scope = parse_scope(payload);
 

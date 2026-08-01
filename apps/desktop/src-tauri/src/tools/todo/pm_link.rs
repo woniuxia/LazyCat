@@ -80,9 +80,8 @@ pub(crate) fn item_set_pm_link(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("项目工作项不存在: {e}"))?;
 
         // Todo must have a project to link to PM
-        let todo_pid = todo_project_id.ok_or_else(|| {
-            "请先选择项目，或从项目管理工作项内绑定该任务".to_string()
-        })?;
+        let todo_pid = todo_project_id
+            .ok_or_else(|| "请先选择项目，或从项目管理工作项内绑定该任务".to_string())?;
 
         // Same project required
         if todo_pid != pm_project_id {
