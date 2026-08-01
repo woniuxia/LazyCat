@@ -119,6 +119,87 @@ pub(crate) fn item_list(payload: &Value) -> Result<Value, String> {
     item_list_with_conn(&conn, payload)
 }
 
+pub(crate) fn spotlight_list() -> Result<Value, String> {
+    let conn = db_conn()?;
+    spotlight_list_with_conn(&conn)
+}
+
+pub(crate) fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id, i.title, i.priority, i.status, i.event_at, i.pinned,
+                    i.kind, i.created_at, ty.name, sr.active
+             FROM todo_items i
+             LEFT JOIN todo_types ty ON ty.id = i.type_id
+             LEFT JOIN todo_series_rules sr ON sr.series_id = i.series_id
+             ORDER BY i.id DESC",
+        )
+        .map_err(|error| format!("查询 Spotlight 事项失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)? != 0,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+            ))
+        })
+        .map_err(|error| format!("映射 Spotlight 事项失败: {error}"))?;
+
+    let now = Utc::now();
+    let mut items = Vec::new();
+    for row in rows {
+        let (
+            id,
+            title,
+            priority,
+            status_raw,
+            event_at,
+            pinned,
+            kind,
+            created_at,
+            type_name,
+            rule_active,
+        ) = row.map_err(|error| format!("读取 Spotlight 事项失败: {error}"))?;
+        let rule_active = rule_active.map(|value| value == 1).unwrap_or(true);
+        if kind == SERIES_KIND_RECURRING && !rule_active && status_raw == STATUS_COMPLETED {
+            continue;
+        }
+        let display_at = event_at
+            .clone()
+            .unwrap_or_else(|| format_db_datetime(&created_at));
+        let is_overdue = item_is_overdue(&status_raw, event_at.as_deref(), &now);
+        items.push(json!({
+            "id": id,
+            "title": title,
+            "status": normalize_status_a1(&status_raw),
+            "priority": priority,
+            "eventAt": event_at,
+            "displayAt": display_at,
+            "isOverdue": is_overdue,
+            "pinned": pinned,
+            "typeName": type_name,
+        }));
+    }
+    sort_item_rows(&mut items);
+    Ok(json!({ "items": items }))
+}
+
+fn item_is_overdue(status: &str, event_at: Option<&str>, now: &DateTime<Utc>) -> bool {
+    is_open_status(status)
+        && event_at
+            .and_then(parse_rfc3339)
+            .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
+            .map(|value| value.with_timezone(&Utc).timestamp_millis() < now.timestamp_millis())
+            .unwrap_or(false)
+}
+
 pub(crate) fn item_list_with_conn(
     conn: &Connection,
     payload: &Value,
@@ -249,13 +330,7 @@ pub(crate) fn item_list_with_conn(
         let display_at = event_at.clone().unwrap_or_else(|| created_at_fmt.clone());
 
         // isOverdue
-        let is_overdue = is_open_status(&status_raw)
-            && event_at
-                .as_deref()
-                .and_then(parse_rfc3339)
-                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                .map(|dt| dt.with_timezone(&Utc) < Utc::now())
-                .unwrap_or(false);
+        let is_overdue = item_is_overdue(&status_raw, event_at.as_deref(), &Utc::now());
 
         // Build recurrence object
         let recurrence = if kind == SERIES_KIND_RECURRING && rule_mode.is_some() {

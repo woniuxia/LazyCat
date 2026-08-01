@@ -33,6 +33,7 @@ const ACTIONS: &[&str] = &[
     "assignee_upsert",
     "assignee_delete",
     "item_list",
+    "spotlight_list",
     "item_create",
     "item_update",
     "item_upsert",
@@ -65,6 +66,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "assignee_upsert" => assignee_upsert(payload),
         "assignee_delete" => assignee_delete(payload),
         "item_list" => item_list(payload),
+        "spotlight_list" => spotlight_list(),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
         "item_upsert" => item_upsert(payload),
@@ -377,6 +379,41 @@ mod tests {
         .unwrap();
         let list = item_list_with_conn(&conn, &json!({})).unwrap();
         assert!(list["items"][0]["actionBinding"].is_null());
+    }
+
+    #[test]
+    fn spotlight_list_returns_lightweight_normalized_active_items() {
+        let conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_types(id, name, color) VALUES(5, '发布', '#fff')",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO todo_items(
+                 id, title, type_id, priority, status, event_at, pinned, kind, series_id, created_at
+             ) VALUES
+                 (1, '已逾期事项', 5, 'P0', 'pending', '2020-01-01T00:00:00Z', 1, 'one_off', NULL, '2020-01-01 00:00:00'),
+                 (2, '停用周期已办', NULL, 'P2', 'completed', NULL, 0, 'recurring', 2, '2020-01-02 00:00:00'),
+                 (3, '停用周期待办', NULL, 'P1', 'in_progress', '2099-01-01T00:00:00Z', 0, 'recurring', 3, '2020-01-03 00:00:00');
+             INSERT INTO todo_series_rules(series_id, active) VALUES(2, 0), (3, 0);",
+        )
+        .unwrap();
+
+        let result = spotlight_list_with_conn(&conn).unwrap();
+        let items = result["items"].as_array().unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], 1);
+        assert_eq!(items[0]["typeName"], "发布");
+        assert_eq!(items[0]["status"], "pending");
+        assert_eq!(items[0]["displayAt"], "2020-01-01T00:00:00Z");
+        assert_eq!(items[0]["isOverdue"], true);
+        assert!(items[0].get("description").is_none());
+        assert!(items[0].get("assignees").is_none());
+        assert_eq!(items[1]["id"], 3);
+        assert_eq!(items[1]["status"], "pending");
+        assert_eq!(items[1]["isOverdue"], false);
     }
 
     #[test]

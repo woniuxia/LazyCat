@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::helpers::db_conn;
 
@@ -23,6 +23,7 @@ const MIGRATION_NAME: &str = "usage_v1";
 const DAY_MS: i64 = 86_400_000;
 const LEGACY_DAY: i64 = 0;
 const DEFAULT_WINDOW_DAYS: i64 = 30;
+const RESOURCE_SUMMARY_QUERY_BATCH_SIZE: usize = 200;
 
 const ACTIONS: &[&str] = &["summaries", "tool_summaries", "record_tool_open"];
 
@@ -40,6 +41,21 @@ pub struct UsageSummary {
     pub window_count: i64,
     pub last_used_at: Option<i64>,
     pub action_counts: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResourceSummaryRequest {
+    resource_type: String,
+    scope_id: String,
+    resource_id: String,
+    actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ActionUsageSummary {
+    total_count: i64,
+    window_count: i64,
+    last_used_at: Option<i64>,
 }
 
 #[cfg(test)]
@@ -272,6 +288,11 @@ fn tool_summaries(payload: &Value) -> Result<Value, String> {
 }
 
 fn resource_summaries(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    resource_summaries_with_conn(&conn, payload)
+}
+
+fn resource_summaries_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let refs = payload["refs"].as_array().ok_or("refs is required")?;
     if refs.len() > 512 {
         return Err("refs exceeds 512 items".into());
@@ -284,8 +305,7 @@ fn resource_summaries(payload: &Value) -> Result<Value, String> {
         RESOURCE_VAULT_ENTRY,
         RESOURCE_DATA_DICTIONARY_RECORD,
     ];
-    let conn = db_conn()?;
-    let mut items = Vec::new();
+    let mut requests = Vec::with_capacity(refs.len());
     for item in refs {
         let resource_type = item["resourceType"]
             .as_str()
@@ -307,25 +327,132 @@ fn resource_summaries(payload: &Value) -> Result<Value, String> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let result = summary(
-            &conn,
-            UsageKey {
-                resource_type,
-                scope_id,
-                resource_id,
-            },
-            DEFAULT_WINDOW_DAYS,
-            &actions,
-        )?;
+        requests.push(ResourceSummaryRequest {
+            resource_type: resource_type.to_string(),
+            scope_id: scope_id.to_string(),
+            resource_id: resource_id.to_string(),
+            actions: actions.into_iter().map(str::to_string).collect(),
+        });
+    }
+
+    let summaries = batch_resource_summaries(conn, &requests, DEFAULT_WINDOW_DAYS)?;
+    let mut items = Vec::with_capacity(requests.len());
+    for request in requests {
+        let key = (
+            request.resource_type.clone(),
+            request.scope_id.clone(),
+            request.resource_id.clone(),
+        );
+        let mut result = UsageSummary::default();
+        if let Some(action_summaries) = summaries.get(&key) {
+            for (action, action_summary) in action_summaries {
+                if !request.actions.is_empty() && !request.actions.contains(action) {
+                    continue;
+                }
+                result.total_count += action_summary.total_count;
+                result.window_count += action_summary.window_count;
+                result.last_used_at = match (result.last_used_at, action_summary.last_used_at) {
+                    (Some(current), Some(candidate)) => Some(current.max(candidate)),
+                    (None, candidate) => candidate,
+                    (current, None) => current,
+                };
+                result
+                    .action_counts
+                    .insert(action.clone(), action_summary.total_count);
+            }
+        }
         items.push(json!({
-            "resourceType": resource_type,
-            "scopeId": scope_id,
-            "resourceId": resource_id,
-            "actions": actions,
+            "resourceType": request.resource_type,
+            "scopeId": request.scope_id,
+            "resourceId": request.resource_id,
+            "actions": request.actions,
             "summary": result,
         }));
     }
     Ok(json!({ "items": items }))
+}
+
+fn batch_resource_summaries(
+    conn: &Connection,
+    requests: &[ResourceSummaryRequest],
+    window_days: i64,
+) -> Result<HashMap<(String, String, String), BTreeMap<String, ActionUsageSummary>>, String> {
+    let mut seen = HashSet::new();
+    let mut keys = Vec::with_capacity(requests.len());
+    for request in requests {
+        let key = (
+            request.resource_type.clone(),
+            request.scope_id.clone(),
+            request.resource_id.clone(),
+        );
+        if seen.insert(key.clone()) {
+            keys.push(key);
+        }
+    }
+
+    let cutoff_day = current_day() - window_days.max(1) + 1;
+    let mut summaries = HashMap::new();
+    for chunk in keys.chunks(RESOURCE_SUMMARY_QUERY_BATCH_SIZE) {
+        let requested_values = std::iter::repeat_n("(?, ?, ?)", chunk.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "WITH requested(resource_type, scope_id, resource_id) AS (VALUES {requested_values})
+             SELECT u.resource_type, u.scope_id, u.resource_id, u.action,
+                    SUM(u.use_count),
+                    SUM(CASE WHEN u.day_utc != {LEGACY_DAY} AND u.day_utc >= {cutoff_day}
+                             THEN u.use_count ELSE 0 END),
+                    MAX(u.last_used_at_ms)
+             FROM usage_daily u
+             JOIN requested r
+               ON r.resource_type = u.resource_type
+              AND r.scope_id = u.scope_id
+              AND r.resource_id = u.resource_id
+             GROUP BY u.resource_type, u.scope_id, u.resource_id, u.action"
+        );
+        let query_params = chunk
+            .iter()
+            .flat_map(|(resource_type, scope_id, resource_id)| {
+                [
+                    resource_type.as_str(),
+                    scope_id.as_str(),
+                    resource_id.as_str(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|error| format!("prepare batched usage summaries failed: {error}"))?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(query_params), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|error| format!("query batched usage summaries failed: {error}"))?;
+        for row in rows {
+            let (resource_type, scope_id, resource_id, action, total, window, last_used_at) =
+                row.map_err(|error| format!("read batched usage summaries failed: {error}"))?;
+            summaries
+                .entry((resource_type, scope_id, resource_id))
+                .or_insert_with(BTreeMap::new)
+                .insert(
+                    action,
+                    ActionUsageSummary {
+                        total_count: total,
+                        window_count: window,
+                        last_used_at: (last_used_at > 0).then_some(last_used_at),
+                    },
+                );
+        }
+    }
+    Ok(summaries)
 }
 
 fn record_tool_open(payload: &Value) -> Result<Value, String> {
@@ -893,5 +1020,135 @@ mod tests {
         assert_eq!(result.action_counts.get(ACTION_REVEAL), Some(&1));
         assert_eq!(result.action_counts.get(ACTION_COPY), Some(&2));
         assert!(result.last_used_at.is_some());
+    }
+
+    #[test]
+    fn resource_summaries_batch_preserves_order_actions_and_empty_results() {
+        let conn = connection();
+        ensure_schema_and_migrate(&conn).unwrap();
+        let now = Utc::now().timestamp_millis();
+        let key = UsageKey {
+            resource_type: RESOURCE_VAULT_ENTRY,
+            scope_id: "",
+            resource_id: "42",
+        };
+        record_at(&conn, key.clone(), ACTION_REVEAL, now - 1_000, 2).unwrap();
+        record_at(&conn, key, ACTION_COPY, now, 3).unwrap();
+        record_at(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_DATA_DICTIONARY_RECORD,
+                scope_id: "7",
+                resource_id: "primary-value",
+            },
+            ACTION_VIEW,
+            now,
+            4,
+        )
+        .unwrap();
+
+        let result = resource_summaries_with_conn(
+            &conn,
+            &json!({
+                "refs": [
+                    {
+                        "resourceType": RESOURCE_VAULT_ENTRY,
+                        "resourceId": "missing",
+                        "actions": [ACTION_COPY]
+                    },
+                    {
+                        "resourceType": RESOURCE_VAULT_ENTRY,
+                        "resourceId": "42",
+                        "actions": [ACTION_COPY]
+                    },
+                    {
+                        "resourceType": RESOURCE_VAULT_ENTRY,
+                        "resourceId": "42",
+                        "actions": []
+                    },
+                    {
+                        "resourceType": RESOURCE_DATA_DICTIONARY_RECORD,
+                        "scopeId": "7",
+                        "resourceId": "primary-value",
+                        "actions": [ACTION_VIEW]
+                    }
+                ]
+            }),
+        )
+        .unwrap();
+        let items = result["items"].as_array().unwrap();
+
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0]["resourceId"], "missing");
+        assert_eq!(items[0]["summary"]["totalCount"], 0);
+        assert_eq!(items[1]["summary"]["totalCount"], 3);
+        assert_eq!(items[1]["summary"]["actionCounts"][ACTION_COPY], 3);
+        assert!(items[1]["summary"]["actionCounts"]
+            .get(ACTION_REVEAL)
+            .is_none());
+        assert_eq!(items[2]["summary"]["totalCount"], 5);
+        assert_eq!(items[2]["summary"]["actionCounts"][ACTION_REVEAL], 2);
+        assert_eq!(items[2]["summary"]["actionCounts"][ACTION_COPY], 3);
+        assert_eq!(items[3]["scopeId"], "7");
+        assert_eq!(items[3]["summary"]["totalCount"], 4);
+    }
+
+    #[test]
+    fn resource_summaries_batch_handles_more_than_one_sqlite_parameter_batch() {
+        let conn = connection();
+        ensure_schema_and_migrate(&conn).unwrap();
+        let last_id = RESOURCE_SUMMARY_QUERY_BATCH_SIZE;
+        let refs = (0..=last_id)
+            .map(|index| {
+                json!({
+                    "resourceType": RESOURCE_LAUNCHER_ENTRY,
+                    "resourceId": index.to_string(),
+                    "actions": [ACTION_LAUNCH]
+                })
+            })
+            .collect::<Vec<_>>();
+        record_at(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_LAUNCHER_ENTRY,
+                scope_id: "",
+                resource_id: &last_id.to_string(),
+            },
+            ACTION_LAUNCH,
+            Utc::now().timestamp_millis(),
+            6,
+        )
+        .unwrap();
+
+        let result = resource_summaries_with_conn(&conn, &json!({ "refs": refs })).unwrap();
+        let items = result["items"].as_array().unwrap();
+
+        assert_eq!(items.len(), RESOURCE_SUMMARY_QUERY_BATCH_SIZE + 1);
+        assert_eq!(items[last_id]["resourceId"], last_id.to_string());
+        assert_eq!(items[last_id]["summary"]["totalCount"], 6);
+    }
+
+    #[test]
+    fn resource_summaries_rejects_invalid_refs_before_querying() {
+        let conn = connection();
+        ensure_schema_and_migrate(&conn).unwrap();
+
+        let invalid_type = resource_summaries_with_conn(
+            &conn,
+            &json!({
+                "refs": [{ "resourceType": "unknown", "resourceId": "1" }]
+            }),
+        )
+        .unwrap_err();
+        let invalid_id = resource_summaries_with_conn(
+            &conn,
+            &json!({
+                "refs": [{ "resourceType": RESOURCE_TOOL, "resourceId": "  " }]
+            }),
+        )
+        .unwrap_err();
+
+        assert_eq!(invalid_type, "invalid resourceType");
+        assert_eq!(invalid_id, "invalid resourceId");
     }
 }

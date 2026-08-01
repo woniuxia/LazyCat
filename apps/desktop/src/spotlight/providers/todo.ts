@@ -42,9 +42,10 @@ function dueStatus(item: TodoListItem): { text: string; tone: StatusTone } | und
 }
 
 async function prefetchTodo(): Promise<SpotlightItem[]> {
-  const raw = (await invokeToolByChannel("tool:todo:item-list", {
-    includeInactive: false,
-  })) as { items?: TodoListItem[] } | TodoListItem[] | null;
+  const raw = (await invokeToolByChannel("tool:todo:spotlight-list", {})) as
+    | { items?: TodoListItem[] }
+    | TodoListItem[]
+    | null;
   const list = Array.isArray(raw) ? raw : raw?.items;
   if (!Array.isArray(list)) throw new Error("任务列表返回格式无效");
 

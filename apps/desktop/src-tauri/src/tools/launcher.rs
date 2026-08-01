@@ -9,6 +9,7 @@ use super::usage::{self, UsageKey, ACTION_LAUNCH, RESOURCE_LAUNCHER_ENTRY};
 const ACTIONS: &[&str] = &[
     "scan",
     "list",
+    "spotlight_list",
     "add",
     "add_manual",
     "update",
@@ -34,6 +35,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "scan" => scan_shortcuts(),
         "list" => list_entries(),
+        "spotlight_list" => spotlight_list_entries(),
         "add" => add_entries(payload),
         "add_manual" => add_manual(payload),
         "update" => update_entry(payload),
@@ -234,6 +236,37 @@ fn list_entries() -> Result<Value, String> {
         .map_err(|e| format!("list map failed: {e}"))?;
 
     let items: Vec<Value> = rows.filter_map(|r| r.ok()).collect();
+    Ok(json!({ "items": items }))
+}
+
+fn spotlight_list_entries() -> Result<Value, String> {
+    let conn = db_conn()?;
+    spotlight_list_entries_with_conn(&conn)
+}
+
+fn spotlight_list_entries_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, exe_path, arguments, group_name
+             FROM launcher_entries
+             ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|error| format!("spotlight list query failed: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "exe_path": row.get::<_, String>(2)?,
+                "arguments": row.get::<_, String>(3)?,
+                "group_name": row.get::<_, String>(4)?,
+            }))
+        })
+        .map_err(|error| format!("spotlight list map failed: {error}"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|error| format!("spotlight list read failed: {error}"))?);
+    }
     Ok(json!({ "items": items }))
 }
 
@@ -751,4 +784,43 @@ fn delete_group(payload: &Value) -> Result<Value, String> {
     .map_err(|e| format!("update entries failed: {e}"))?;
 
     Ok(json!({ "ok": true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spotlight_list_excludes_icons_usage_and_filesystem_checks() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE launcher_entries (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 exe_path TEXT NOT NULL,
+                 arguments TEXT NOT NULL DEFAULT '',
+                 icon_base64 TEXT NOT NULL DEFAULT '',
+                 group_name TEXT NOT NULL DEFAULT '',
+                 sort_order INTEGER NOT NULL DEFAULT 0,
+                 launch_count INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO launcher_entries(
+                 id, name, exe_path, arguments, icon_base64, group_name, sort_order, launch_count
+             ) VALUES(
+                 7, 'IDE', 'C:\\missing\\ide.exe', '--reuse-window', 'large-icon', '开发', 2, 99
+             );",
+        )
+        .expect("create launcher schema");
+
+        let result = spotlight_list_entries_with_conn(&conn).unwrap();
+        let item = &result["items"][0];
+
+        assert_eq!(item["id"], 7);
+        assert_eq!(item["name"], "IDE");
+        assert_eq!(item["arguments"], "--reuse-window");
+        assert_eq!(item["group_name"], "开发");
+        assert!(item.get("icon_base64").is_none());
+        assert!(item.get("launch_count").is_none());
+        assert!(item.get("path_exists").is_none());
+    }
 }

@@ -10,7 +10,6 @@ interface LauncherEntry {
   exe_path: string;
   arguments?: string;
   group_name?: string;
-  launch_count?: number;
 }
 
 function makeField(text: string, weight: number) {
@@ -24,7 +23,7 @@ function isDirPath(p: string): boolean {
 }
 
 async function prefetchLauncher(): Promise<SpotlightItem[]> {
-  const raw = (await invokeToolByChannel("tool:launcher:list", {})) as
+  const raw = (await invokeToolByChannel("tool:launcher:spotlight-list", {})) as
     | { items?: LauncherEntry[] }
     | LauncherEntry[]
     | null;

@@ -24,6 +24,7 @@ const ACTIONS: &[&str] = &[
     "project_delete",
     "item_counts",
     "item_list",
+    "spotlight_list",
     "item_create",
     "item_update",
     "item_change_status",
@@ -74,6 +75,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "project_delete" => project_delete(payload),
         "item_counts" => item_counts(),
         "item_list" => item_list(payload),
+        "spotlight_list" => spotlight_list(),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
         "item_change_status" => item_change_status(payload),
@@ -541,6 +543,92 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         .collect();
 
     Ok(json!(result))
+}
+
+fn spotlight_list() -> Result<Value, String> {
+    let conn = db_conn()?;
+    spotlight_list_with_conn(&conn)
+}
+
+fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id, i.project_id, p.name, i.title, i.status,
+                    i.priority, i.end_at, i.pinned
+             FROM pm_items i
+             LEFT JOIN pm_projects p ON p.id = i.project_id
+             ORDER BY i.pinned DESC, i.sort_order ASC,
+                      CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
+                      i.id DESC",
+        )
+        .map_err(|error| format!("prepare spotlight_list: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "projectId": row.get::<_, i64>(1)?,
+                "projectName": row.get::<_, Option<String>>(2)?,
+                "title": row.get::<_, String>(3)?,
+                "status": row.get::<_, String>(4)?,
+                "priority": row.get::<_, String>(5)?,
+                "endAt": row.get::<_, Option<String>>(6)?,
+                "pinned": row.get::<_, bool>(7)?,
+            }))
+        })
+        .map_err(|error| format!("query spotlight_list: {error}"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|error| format!("read spotlight_list: {error}"))?);
+    }
+
+    let item_ids = items
+        .iter()
+        .filter_map(|item| item["id"].as_i64())
+        .collect::<Vec<_>>();
+    let tag_map = load_spotlight_tags(conn, &item_ids)?;
+    for item in &mut items {
+        let item_id = item["id"].as_i64().unwrap_or_default();
+        item.as_object_mut()
+            .expect("spotlight item must be an object")
+            .insert(
+                "tags".to_string(),
+                json!(tag_map.get(&item_id).cloned().unwrap_or_default()),
+            );
+    }
+    Ok(json!(items))
+}
+
+fn load_spotlight_tags(
+    conn: &Connection,
+    item_ids: &[i64],
+) -> Result<HashMap<i64, Vec<String>>, String> {
+    const BATCH_SIZE: usize = 500;
+
+    let mut tag_map = HashMap::<i64, Vec<String>>::new();
+    for chunk in item_ids.chunks(BATCH_SIZE) {
+        let placeholders = std::iter::repeat("?")
+            .take(chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT item_id, tag FROM pm_item_tags
+             WHERE item_id IN ({placeholders}) ORDER BY item_id, tag"
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|error| format!("prepare spotlight tags: {error}"))?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| format!("query spotlight tags: {error}"))?;
+        for row in rows {
+            let (item_id, tag) =
+                row.map_err(|error| format!("read spotlight tags: {error}"))?;
+            tag_map.entry(item_id).or_default().push(tag);
+        }
+    }
+    Ok(tag_map)
 }
 
 pub(crate) fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<String>> {
@@ -1428,6 +1516,32 @@ mod tests {
         conn
     }
 
+    fn create_pm_spotlight_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE pm_projects (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL
+             );
+             CREATE TABLE pm_items (
+                 id INTEGER PRIMARY KEY,
+                 project_id INTEGER NOT NULL,
+                 title TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 priority TEXT NOT NULL,
+                 end_at TEXT DEFAULT NULL,
+                 pinned INTEGER NOT NULL DEFAULT 0,
+                 sort_order INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE pm_item_tags (
+                 item_id INTEGER NOT NULL,
+                 tag TEXT NOT NULL
+             );",
+        )
+        .expect("create PM Spotlight schema");
+        conn
+    }
+
     #[test]
     fn normalize_pm_weekly_range_should_fold_single_side_and_swap_reverse_dates() {
         let single_start = weekly::normalize_pm_weekly_range(Some("2026-04-08"), None)
@@ -1758,6 +1872,39 @@ mod tests {
 
         assert!(!overview_sql.contains("WHERE p.status = 'active'"));
         assert!(project_sql.contains("WHERE i.project_id = ?1"));
+    }
+
+    #[test]
+    fn spotlight_list_returns_only_search_projection_with_tags() {
+        let conn = create_pm_spotlight_test_conn();
+        conn.execute(
+            "INSERT INTO pm_projects(id, name) VALUES(1, '客户端')",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO pm_items(
+                 id, project_id, title, status, priority, end_at, pinned, sort_order
+             ) VALUES
+                 (10, 1, '普通工作项', 'todo', 'P2', NULL, 0, 1),
+                 (11, 1, '置顶工作项', 'in_progress', 'P0', '2026-08-02', 1, 9);
+             INSERT INTO pm_item_tags(item_id, tag) VALUES
+                 (11, '前端'), (11, '紧急'), (10, '后端');",
+        )
+        .unwrap();
+
+        let result = spotlight_list_with_conn(&conn).unwrap();
+        let items = result.as_array().unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], 11);
+        assert_eq!(items[0]["projectName"], "客户端");
+        assert_eq!(items[0]["tags"], json!(["前端", "紧急"]));
+        assert_eq!(items[0]["endAt"], "2026-08-02");
+        assert!(items[0].get("description").is_none());
+        assert!(items[0].get("siyuanPrimaryPage").is_none());
+        assert!(items[0].get("todoCount").is_none());
+        assert_eq!(items[1]["tags"], json!(["后端"]));
     }
 
     #[test]

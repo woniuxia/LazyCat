@@ -13,18 +13,13 @@ import type {
 interface PmListItem {
   id: number;
   projectId: number;
+  projectName?: string | null;
   title: string;
   status: string;
   priority?: string;
   endAt?: string | null;
   pinned?: boolean;
   tags?: string[];
-}
-
-interface PmProject {
-  id: number;
-  name: string;
-  color?: string | null;
 }
 
 function makeField(text: string, weight: number) {
@@ -64,21 +59,13 @@ function dueStatus(item: PmListItem): { text: string; tone: StatusTone } | undef
   return { text: due.toLocaleDateString(), tone: "info" };
 }
 
-async function loadProjectMap(): Promise<Map<number, PmProject>> {
-  const list = (await invokeToolByChannel("tool:pm:project-list", {})) as PmProject[];
-  if (!Array.isArray(list)) throw new Error("项目列表返回格式无效");
-  return new Map(list.map((project) => [project.id, project]));
-}
-
 async function prefetchPm(): Promise<SpotlightItem[]> {
-  const projectMap = await loadProjectMap();
-  const raw = (await invokeToolByChannel("tool:pm:item-list", {})) as PmListItem[];
+  const raw = (await invokeToolByChannel("tool:pm:spotlight-list", {})) as PmListItem[];
   if (!Array.isArray(raw)) throw new Error("项目工作项列表返回格式无效");
   const list = raw;
 
   return list.map<SpotlightItem>((it) => {
-    const project = projectMap.get(it.projectId);
-    const projectName = project?.name ?? "";
+    const projectName = it.projectName ?? "";
     const tagsField = it.tags?.length ? it.tags.join(" ") : "";
     return {
       providerId: "pm",
