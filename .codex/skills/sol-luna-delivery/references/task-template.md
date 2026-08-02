@@ -18,6 +18,10 @@ Provide only the repository facts, file paths, current behavior, and constraints
 
 List decisions already made by Sol or the user. The executor must not revisit them.
 
+## Executable Design
+
+Write the directly executable detailed design frozen by Sol. Do not delegate approach selection or requirement interpretation to Luna. For `implementation`, name exact target files and relevant symbols or sections, required changes, applicable behavior/data/control-flow contracts, edge/failure/compatibility constraints, and test changes or validation order. For `read-only-analysis`, name exact evidence sources, search or inspection method, applicable classification/deduplication rules, and independent completeness checks.
+
 ## Non-goals
 
 List behavior and adjacent work that must remain unchanged. Write `None` only when the scope truly has no exclusions.
@@ -36,7 +40,7 @@ List files, behaviors, destructive actions, services, commits, packaging, or oth
 
 ## Steps
 
-Provide an ordered, directly executable sequence. State where the executor may choose mechanical details and where it must stop. Prefer exact target reads and batch independent read-only commands. Do not repeatedly read complete large files or broadly scan dependency repositories. Limit individual command output. Run targeted validation first and any full build only once at the end.
+Provide the execution order derived from the frozen `Executable Design`; it must not substitute for that design. Leave only explicitly named mechanical choices to Luna and state where it must stop. Prefer exact target reads and batch independent read-only commands. Do not repeatedly read complete large files or broadly scan dependency repositories. Limit individual command output. Run targeted validation first and any full build only once at the end.
 
 ## Acceptance Criteria
 

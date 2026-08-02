@@ -16,6 +16,10 @@ The caller will replace this fixture with a real task packet before any live exe
 
 The wording, target file, and expected result must already be fixed by Sol.
 
+## Executable Design
+
+Sol's frozen design is to replace the single wording in `docs/example.md` only. Preserve all other content and files; validate the replacement with the task-specific link or keyword check followed by `git diff --check`.
+
 ## Non-goals
 
 Do not change product code, dependencies, behavior, or adjacent documentation.

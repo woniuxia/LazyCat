@@ -137,6 +137,10 @@ The fake executor is local and must not access a real model.
 
 The test case controls all behavior through a fake command.
 
+## Executable Design
+
+Sol froze the deterministic fake-command path: use only the supplied temporary repository and allowed paths, preserve wrapper behavior, and validate through the wrapper's exit status and evidence files. Luna must not choose an approach.
+
 ## Non-goals
 
 No network or product behavior.
@@ -777,6 +781,28 @@ return
   $repo = New-TestRepository -Name "preflight"
   $paths = New-CasePaths -Name "preflight"
   Write-TaskPacket -Path $paths.Task -Type read-only-analysis -AllowedPaths @()
+
+  $missingDesignPaths = New-CasePaths -Name "preflight-missing-design"
+  Write-TaskPacket -Path $missingDesignPaths.Task -Type read-only-analysis -AllowedPaths @()
+  $missingDesignContent = Get-Content -LiteralPath $missingDesignPaths.Task -Raw -Encoding UTF8
+  $missingDesignContent = [Regex]::Replace($missingDesignContent, "(?ms)^## Executable Design\r?\n.*?(?=^## [^\r\n]+)", "")
+  [IO.File]::WriteAllText($missingDesignPaths.Task, $missingDesignContent, [Text.UTF8Encoding]::new($false))
+  $missingDesignCheck = Invoke-TestShell -Arguments @(
+    "-NoProfile", "-File", $scriptRoot,
+    "-RepoRoot", $repo,
+    "-TaskPath", $missingDesignPaths.Task,
+    "-TaskType", "read-only-analysis",
+    "-ReasoningEffort", "xhigh",
+    "-ResultPath", $missingDesignPaths.Result,
+    "-EventLogPath", $missingDesignPaths.Event,
+    "-StderrLogPath", $missingDesignPaths.Stderr,
+    "-CodexCommand", $fakeCodex,
+    "-ValidateOnly"
+  )
+  Assert-True -Condition ($missingDesignCheck.ExitCode -ne 0) -Message "Missing Executable Design should fail preflight."
+  Assert-Contains -Value $missingDesignCheck.Output -Expected "Task packet section is missing or empty: Executable Design" -Message "Missing Executable Design failure is unclear."
+  Complete-Test "missing Executable Design preflight"
+
   $previousErrorAction = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {

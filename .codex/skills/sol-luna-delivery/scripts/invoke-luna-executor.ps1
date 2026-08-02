@@ -45,6 +45,7 @@ $requiredSections = @(
   "Goal",
   "Context",
   "Confirmed Decisions",
+  "Executable Design",
   "Non-goals",
   "Allowed Scope",
   "Allowed Changed Paths",
@@ -1367,6 +1368,8 @@ You are already the Luna executor. Do not invoke the Sol-Luna wrapper, start ano
 Use exact target paths and focused ranges. Batch independent read-only commands when practical, limit individual tool output, and do not repeatedly read complete large files. Do not broadly scan dependency repositories. Run targeted validation before broader checks, and run a full build at most once at the end when the packet requires it.
 
 If required information is missing, instructions conflict, the worktree changes unexpectedly, or the task reaches a new product or architecture decision, stop and return status "blocked" with evidence. Never report success when a required validation failed or was not run.
+
+Execute the packet's frozen `Executable Design` as written. Make only explicitly delegated mechanical choices; do not select an approach, fill design gaps, or redesign confirmed decisions. If the repository facts do not match the design, or implementation would require changing or completing it, return status "blocked" with evidence.
 
 Do not emit progress or interim agent messages. Use tools as needed, then emit exactly one final JSON object that matches the provided output schema. In commands, retain changed-state, validation, and failure-relevant commands; omit routine successful exploration unless it supports a finding. Echo taskType and reasoningEffort exactly as supplied by the host.
 

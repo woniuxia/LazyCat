@@ -1,18 +1,17 @@
 ---
 name: sol-luna-delivery
-description: 使用 GPT-5.6 Sol xhigh 负责复杂思考、复杂实现、任务设计和最终审查，只把简单、边界冻结、低风险且可确定性验收的工作交给 GPT-5.6 Luna。用户提到 Sol/Luna 分工、子代理执行、模型额度、token 限额或已确认简单任务的委派执行时，都应使用本 skill。
-compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasoning, and PowerShell.
+description: 使用 GPT-5.6 Sol xhigh 负责复杂思考、复杂实现、可执行详细设计和最终审查；固定由 Sol 先研究、决策并冻结可直接执行的详细设计和任务包，再把简单、低风险且可确定性验收的有界执行交给 GPT-5.6 Luna，最后由 Sol 验收。用户提到 Sol/Luna 分工、子代理执行、模型额度、token 限额或已确认简单任务的委派执行时，都应使用本 skill。
 ---
 
 # Sol-Luna Delivery
 
-用 Sol 保证复杂问题和最终决策质量，用 Luna 承担简单、冻结且可确定性验收的工作。目标是按能力路由并降低 Sol 等待期间的 token 消耗，不以提高 Luna 委派率或降低原始 token 总量为目标。Git 工作区是唯一事实源；任务包和执行摘要只用于交接，不能替代真实 diff 和验证结果。
+流程固定为 `Sol 研究与详细设计 -> 冻结设计和任务包 -> Luna 执行 -> Sol 审查验收`。Sol 先完成研究、决策和可直接执行的详细设计并冻结任务包，Luna 再承担简单、边界冻结且可确定性验收的执行。目标是按能力路由并降低 Sol 等待期间的 token 消耗，不以提高 Luna 委派率或降低原始 token 总量为目标。Git 工作区是唯一事实源；任务包和执行摘要只用于交接，不能替代真实 diff 和验证结果。
 
 ## 固定角色
 
-- Sol 主代理始终使用 `gpt-5.6-sol` 和 `xhigh`，负责调研、歧义处理、方案、复杂实现、任务包、风险判断和最终审查。
+- Sol 主代理始终使用 `gpt-5.6-sol` 和 `xhigh`，负责调研、歧义处理、方案、可直接执行的详细设计、任务包、复杂实现、风险判断和最终审查；Sol 是设计负责人。
 - Luna 执行代理固定使用 `gpt-5.6-luna`，默认 `xhigh`。只有任务满足降级条件时，Sol 才能在派发前显式选择 `high`、`medium` 或 `low`。
-- Luna 不处理复杂根因、跨模块不变量、并发、事务、兼容性、安全、解析器或文件系统语义，也不做产品、架构和数据模型决策。执行中遇到这些问题或任何新决策点时返回 `blocked`。
+- Luna 不处理复杂根因、跨模块不变量、并发、事务、兼容性、安全、解析器或文件系统语义，也不做产品、架构、数据模型和实现方案决策。Luna 必须按 Sol 冻结的详细设计执行，不补齐设计空白；执行中遇到设计与仓库事实不一致或任何新决策点时返回 `blocked`。
 - Luna 不提交、不回滚用户改动、不启动产品 UI、不打包或发布，除非任务包逐项明确授权。
 - 同一工作区同时只能有一个写入型 Luna。独立的只读分析可以并行，但必须限制并发并由 Sol 综合。
 - 当前提示已经声明自己是 Luna 执行代理并包含冻结任务包时，直接执行任务包，不再调用本 skill 的包装脚本或创建下级执行代理。
@@ -23,7 +22,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 
 ## 路由任务
 
-先判断任务是否简单且已冻结，再判断委派收益。难以判断 Sol/Luna 时选 Sol；难以判断 Luna effort 时选 `high`。不得用 Luna `xhigh` 承接本应属于 Sol 的复杂任务。
+先判断任务是否简单且已冻结、且 Sol 是否已完成可直接执行的详细设计，再判断委派收益。难以判断 Sol/Luna 时选 Sol；难以判断 Luna effort 时选 `high`。不得用 Luna `xhigh` 承接本应属于 Sol 的复杂任务。
 
 每次选择 Luna 时，路由结论必须显式声明 Sol 保留真实 diff 检查、关键验证复跑、最终审查、验收裁决和提交责任；不能只在通用规则中隐含这一点。
 
@@ -41,6 +40,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 只有以下条件全部满足时才使用 Luna；不满足任一项就由 Sol `xhigh` 处理：
 
 - 没有需求或产品歧义；
+- Sol 已完成并冻结可直接执行的详细设计；
 - 不涉及架构、数据模型、兼容性、安全或高风险操作；
 - 输入、步骤、输出和验收标准均已确定；
 - 错误能被测试或确定性规则发现；
@@ -48,22 +48,23 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 
 在 Luna 资格成立后，只有局部任务且分支少而明确时才降到 `high`；代码盘点如果需要追踪封装、理解上下文、归类用途或判断遗漏，也必须至少使用 `high`。只有对显式输入执行相同转换、无需理解内容和分类时才降到 `medium`；只有纯计数、格式转换或指定命令，且不读取源码内容、不推断语义时才降到 `low`。任务使用低于 `xhigh` 的 effort 时，在调用脚本时提供具体 `DowngradeReason`。不要让 Luna 自行改变 effort，也不要在失败后自动提高 effort 重跑。
 
-## 冻结任务包
+## Sol 详细设计与冻结任务包
 
-委派前读取 [references/task-template.md](references/task-template.md)，生成一个自包含但紧凑的任务包。完整意味着执行代理不需要补需求；紧凑意味着引用本地文件，不复制完整对话或大段源码。
+委派前读取 [references/task-template.md](references/task-template.md)。Sol 必须先完成研究和决策，再把可直接执行的详细设计写入一个自包含但紧凑的冻结任务包；完整意味着执行代理不需要补需求或选择方案，紧凑意味着引用本地文件，不复制完整对话或大段源码。
 
 任务包必须说明：
 
 - `read-only-analysis` 或 `implementation`；
 - 目标、上下文和已确认决策；
+- `Executable Design`：由 Sol 冻结的可直接执行详细设计。`implementation` 必须写明精确目标文件及相关符号/区段、必要改动、适用时的行为/数据/控制流契约、边界/失败/兼容性约束，以及测试改动或验证顺序；`read-only-analysis` 必须写明精确证据源、搜索或检查方法、适用时的分类/去重规则，以及完整性检查。
 - 非目标、允许范围和禁止范围；
 - `Allowed Changed Paths` JSON 数组；实施任务逐项列出允许修改的仓库相对文件，只读任务固定为 `[]`；不得使用“对应测试”“相关文件”等占位文本，路径未知时由 Sol 先查明再派发；
-- 可直接执行的步骤及优先级；
+- 可直接执行的步骤及优先级；`Steps` 只表示依据 `Executable Design` 的执行顺序，不能替代详细设计；仅可把明确点名的机械选择留给 Luna。
 - 验收标准和需要实际运行的验证；
 - 遇到歧义、冲突、失败或范围变化时的停止条件；
 - 任务特有的输出证据。
 
-脚本会检查所有必需章节非空，并校验任务类型。缺少影响结果的信息时由 Sol 补齐，不要把判断责任转嫁给 Luna。
+脚本会检查所有必需章节非空，并校验任务类型。只有写明 `Executable Design` 的冻结任务包才可委派；仅陈述目标、要求 Luna 自行检查仓库并选择方案的模糊任务包不得委派。Luna 发现设计与仓库事实不一致，或实现需要改变/补完设计时，必须返回 `blocked`，由 Sol 收回设计责任。
 
 ## 执行 Luna
 

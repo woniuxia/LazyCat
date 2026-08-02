@@ -21,7 +21,8 @@
         "选择 gpt-5.6-luna",
         "选择 read-only-analysis",
         "选择 high 并写出局部明确但仍需少量归类判断的具体降级理由",
-        "任务包包含所有必需章节，并以 JSON 数组声明 Allowed Changed Paths 为 []"
+        "任务包包含所有必需章节，并以 JSON 数组声明 Allowed Changed Paths 为 []",
+        "任务包包含由 Sol 完成并冻结的 Executable Design，明确证据源、检索/归类方法和完整性检查，不把方法选择交给 Luna"
       ]
     },
     {
@@ -32,7 +33,8 @@
       "expectations": [
         "选择 gpt-5.6-luna xhigh",
         "选择 implementation",
-        "任务包完整且不让 Luna 重新设计，并精确声明 Allowed Changed Paths",
+        "任务包完整且包含由 Sol 完成并冻结的 Executable Design，不让 Luna 重新设计，并精确声明 Allowed Changed Paths",
+        "Executable Design 明确目标文件、符号或区段、必要改动、行为约束、失败/兼容性边界和验证顺序",
         "保留 Sol 最终审查和提交责任"
       ]
     },
@@ -66,7 +68,8 @@
       "expectations": [
         "选择 gpt-5.6-luna low",
         "给出纯统计、无需读取内容且结果可机械核对的降级理由",
-        "选择 read-only-analysis 且 Allowed Changed Paths 为 []"
+        "选择 read-only-analysis 且 Allowed Changed Paths 为 []",
+        "任务包包含由 Sol 完成并冻结的 Executable Design，明确指定统计方法且不把方案选择交给 Luna"
       ]
     }
   ]
