@@ -36,7 +36,7 @@ describe("buildClipboardSuggestionItems", () => {
     expect(items).toHaveLength(2);
     expect(items[0].payload?.suggestionAction).toEqual({
       kind: "open-tool",
-      toolId: "formatter",
+      toolId: "json-workbench",
       text,
     });
     expect(items[1].payload?.suggestionAction).toEqual({

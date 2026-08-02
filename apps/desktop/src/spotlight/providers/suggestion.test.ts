@@ -116,7 +116,7 @@ describe("suggestionProvider.defaultAction", () => {
     const items = buildClipboardSuggestionItems('{"port":8080}');
 
     expect(items.map((item) => item.itemId)).toEqual([
-      "suggestion:tool:formatter",
+      "suggestion:tool:json-workbench",
       "suggestion:reference-card",
     ]);
     expect(items[0].ranking).toMatchObject({ contextual: true, sourceOrder: 0 });
