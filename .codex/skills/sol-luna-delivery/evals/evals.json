@@ -1,0 +1,40 @@
+{
+  "skill_name": "sol-luna-delivery",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "设计一个跨前端、IPC、Rust 和 SQLite 的后台任务恢复机制。当前还没有确定状态所有权和恢复语义。请判断由谁处理并说明下一步；不要修改文件。",
+      "expected_output": "保留给 Sol xhigh，在状态所有权和恢复语义明确前不委派 Luna。",
+      "files": [],
+      "expectations": [
+        "选择 Sol xhigh 处理复杂设计",
+        "不生成可直接交给 Luna 的实施任务",
+        "明确指出状态所有权和恢复语义需要先确定"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "请盘点 apps/desktop/src 下所有 localStorage 使用点，按 key、读写位置、用途输出表格。范围和输出已经明确，只做只读分析。请决定执行模型和推理强度，生成完整任务包但不要真正执行。",
+      "expected_output": "委派 Luna，因任务机械且可确定性检查而把 effort 从默认 xhigh 降到 low 或 medium，并生成完整只读任务包。",
+      "files": [],
+      "expectations": [
+        "选择 gpt-5.6-luna",
+        "选择 read-only-analysis",
+        "选择 low 或 medium 并写出具体降级理由",
+        "任务包包含所有必需章节"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "方案已确认：只修改 apps/desktop/src/components/RequestForwardPanel.vue、apps/desktop/src/bridge/tauri.ts、apps/desktop/src-tauri/src/tools/request_forward/validation.rs 及其现有测试。前端提交前去除目标地址首尾空格；Rust 拒绝空地址并返回原有 validation error 类型；不新增持久化、依赖或 UI。验收运行对应前端单测、cargo test request_forward 和 pnpm typecheck。dirty 文件冲突、错误类型需要改变或测试无法运行时停止。预计执行和测试较耗时。请决定执行模型和推理强度，生成完整任务包但不要修改文件。",
+      "expected_output": "由 Luna 默认 xhigh 执行，Sol 保留最终 diff 与验证审查责任。",
+      "files": [],
+      "expectations": [
+        "选择 gpt-5.6-luna xhigh",
+        "选择 implementation",
+        "任务包完整且不让 Luna 重新设计",
+        "保留 Sol 最终审查和提交责任"
+      ]
+    }
+  ]
+}

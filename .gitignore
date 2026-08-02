@@ -20,7 +20,12 @@ apps/desktop/src-tauri/WebView2
 .claude
 .worktrees
 .playwright-mcp
-.codex
+.codex/*
+!.codex/config.toml
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/sol-luna-delivery/
+!.codex/skills/sol-luna-delivery/**
 .superpowers
 
 # Local build cache config

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskType": {
+      "type": "string",
+      "enum": ["read-only-analysis", "implementation"]
+    },
+    "reasoningEffort": {
+      "type": "string",
+      "enum": ["xhigh", "high", "medium", "low"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["success", "failed", "blocked"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "scopeInspected": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string" },
+          "exitCode": { "type": "integer" },
+          "purpose": { "type": "string" }
+        },
+        "required": ["command", "exitCode", "purpose"],
+        "additionalProperties": false
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "not-run"]
+          },
+          "evidence": { "type": "string" }
+        },
+        "required": ["name", "status", "evidence"],
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "high", "medium", "low", "info"]
+          },
+          "summary": { "type": "string" },
+          "evidence": { "type": "string" }
+        },
+        "required": ["severity", "summary", "evidence"],
+        "additionalProperties": false
+      }
+    },
+    "uninspectedScope": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "scopeDeviations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "remainingIssues": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": [
+    "taskType",
+    "reasoningEffort",
+    "status",
+    "summary",
+    "scopeInspected",
+    "changedFiles",
+    "commands",
+    "validation",
+    "findings",
+    "uninspectedScope",
+    "scopeDeviations",
+    "remainingIssues"
+  ],
+  "additionalProperties": false
+}
