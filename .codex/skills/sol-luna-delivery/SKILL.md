@@ -82,7 +82,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .codex\skills\sol-luna-deliv
 - 把 reasoning effort 显式传给 Codex；
 - 分析任务使用 `read-only`，实施任务使用 `workspace-write`；
 - 通过 [references/executor-result.schema.json](references/executor-result.schema.json) 约束最终结果；
-- 默认 3600 秒超时并在超时后终止执行进程树；
+- 默认 3600 秒总硬超时（所有尝试共享），每 60 秒输出心跳，并在超时后终止执行进程树；
+- 持久化 Codex session（不使用 `--ephemeral`），实时从 `thread.started.thread_id` 捕获 session ID，并在仓库外保存 state manifest；本阶段不提供包装器重启后的恢复；
+- 仅当非零退出且未得到有效结构化结果时才恢复一次，默认等待 15 秒；有 session ID 时只允许 `codex exec resume <SESSION_ID>`，无 session ID 时仅在 HEAD 与工作区相对首轮基线完全未变时允许 fresh initial；
+- 超时、有效 `failed`/`blocked` 结果、零退出但无效结果、最终验证失败、越界或 HEAD 变化均不重试；第 2 次尝试使用独立 result/event/stderr 文件，再聚合 event/stderr，并仅在成功时覆盖 canonical result；
 - 实时保存 Codex JSONL 事件并单独保存 stderr，供进度、失败和 token usage 审计；
 - 为同一仓库的实施任务持有非阻塞写入锁；
 - 校验 Luna 没有创建提交；

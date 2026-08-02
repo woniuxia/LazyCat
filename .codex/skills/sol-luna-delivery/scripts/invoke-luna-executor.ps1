@@ -24,6 +24,15 @@ param(
   [ValidateRange(1, 86400)]
   [int]$TimeoutSeconds = 3600,
 
+  [ValidateRange(1, 86400)]
+  [int]$HeartbeatSeconds = 60,
+
+  [ValidateRange(0, 10)]
+  [int]$MaxResumeAttempts = 1,
+
+  [ValidateRange(0, 86400)]
+  [int]$RetryDelaySeconds = 15,
+
   [string]$CodexCommand = "codex",
 
   [switch]$ValidateOnly
@@ -164,7 +173,7 @@ function Get-AllowedChangedPaths {
   if ($Type -eq "read-only-analysis" -and $paths.Count -ne 0) {
     throw "Read-only task packets must use an empty Allowed Changed Paths array."
   }
-  return $paths
+  Write-Output -NoEnumerate $paths
 }
 
 function Get-GitValue {
@@ -610,6 +619,436 @@ function Stop-ProcessTree {
   $null = $Process.WaitForExit(5000)
 }
 
+function Get-AttemptPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$CanonicalPath,
+
+    [Parameter(Mandatory = $true)]
+    [int]$AttemptNumber
+  )
+
+  if ($AttemptNumber -eq 1) {
+    return $CanonicalPath
+  }
+
+  $directory = Split-Path -Parent $CanonicalPath
+  $extension = [IO.Path]::GetExtension($CanonicalPath)
+  $stem = [IO.Path]::GetFileNameWithoutExtension($CanonicalPath)
+  return Join-Path $directory ("{0}.attempt-{1}{2}" -f $stem, $AttemptNumber, $extension)
+}
+
+function Get-AttemptEventSummary {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [ref]$ObservedLength
+  )
+
+  $threadId = $null
+  $usage = $null
+  $latestEventUtc = $null
+  $hasNewContent = $false
+  $readError = $null
+  if (Test-Path -LiteralPath $Path -PathType Leaf) {
+    try {
+      $item = Get-Item -LiteralPath $Path -Force
+      $length = [int64]$item.Length
+      if ($length -ne $ObservedLength.Value) {
+        $hasNewContent = $true
+        $latestEventUtc = $item.LastWriteTimeUtc
+        $ObservedLength.Value = $length
+      }
+      foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
+        try {
+          $event = $line | ConvertFrom-Json -ErrorAction Stop
+          if ($event.type -eq "thread.started" -and $event.thread_id -is [string] -and ![string]::IsNullOrWhiteSpace($event.thread_id)) {
+            $threadId = $event.thread_id
+          }
+          if ($event.type -eq "turn.completed" -and $null -ne $event.usage) {
+            $usage = $event.usage
+          }
+        } catch {
+          # A concurrently written or diagnostic line is ignored until the next poll.
+        }
+      }
+    } catch {
+      $readError = $_.Exception.Message
+    }
+  }
+
+  return [PSCustomObject]@{
+    ThreadId = $threadId
+    Usage = $usage
+    LatestEventUtc = $latestEventUtc
+    HasNewContent = $hasNewContent
+    ReadError = $readError
+  }
+}
+
+function Write-Heartbeat {
+  param(
+    [Parameter(Mandatory = $true)]
+    [DateTime]$ExecutionStartedUtc,
+
+    [Parameter(Mandatory = $true)]
+    [int]$AttemptNumber,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AttemptKind,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ProcessState,
+
+    [string]$SessionId,
+
+    [DateTime]$LatestEventUtc
+  )
+
+  $elapsedSeconds = [math]::Floor(([DateTime]::UtcNow - $ExecutionStartedUtc).TotalSeconds)
+  $sessionText = if ([string]::IsNullOrWhiteSpace($SessionId)) { "pending" } else { $SessionId }
+  $eventAge = if ($LatestEventUtc.Year -eq 1) {
+    "pending"
+  } else {
+    [math]::Max(0, [math]::Floor(([DateTime]::UtcNow - $LatestEventUtc).TotalSeconds)).ToString([Globalization.CultureInfo]::InvariantCulture) + "s"
+  }
+  Write-Host ("HEARTBEAT elapsed={0}s attempt={1} kind={2} process={3} session={4} latest-event-age={5}" -f $elapsedSeconds, $AttemptNumber, $AttemptKind, $ProcessState, $sessionText, $eventAge)
+}
+
+function Write-StateManifest {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Collections.IDictionary]$State,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $State.updatedUtc = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+  $temporaryPath = "{0}.tmp-{1}-{2}" -f $Path, $PID, [Guid]::NewGuid().ToString('N')
+  $backupPath = "{0}.bak-{1}-{2}" -f $Path, $PID, [Guid]::NewGuid().ToString('N')
+  try {
+    $json = ConvertTo-Json -InputObject $State -Depth 12 -Compress
+    [IO.File]::WriteAllText($temporaryPath, $json, [Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+      [IO.File]::Replace($temporaryPath, $Path, $backupPath)
+    } else {
+      [IO.File]::Move($temporaryPath, $Path)
+    }
+  } catch {
+    throw "State manifest update failed at ${Path}: $($_.Exception.Message)"
+  } finally {
+    if (Test-Path -LiteralPath $temporaryPath) {
+      Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $backupPath) {
+      Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Assert-RetrySafety {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Root,
+
+    [Parameter(Mandatory = $true)]
+    [string]$BaselineHead,
+
+    [Parameter(Mandatory = $true)]
+    [hashtable]$BaselineSnapshot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Type,
+
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [Collections.Generic.HashSet[string]]$AllowedChangedPaths,
+
+    [Parameter(Mandatory = $true)]
+    [bool]$SessionAvailable
+  )
+
+  $currentHead = Get-GitValue -Root $Root -Arguments @("rev-parse", "HEAD") -Action "Read retry HEAD"
+  if ($currentHead -ne $BaselineHead) {
+    throw "Retry blocked because HEAD moved. Baseline: $BaselineHead; current: $currentHead."
+  }
+  $currentSnapshot = Get-WorkspaceSnapshot -Root $Root
+  $delta = @(Compare-WorkspaceSnapshots -Before $BaselineSnapshot -After $currentSnapshot)
+  if ($Type -eq "read-only-analysis" -and $delta.Count -gt 0) {
+    throw "Retry blocked because the read-only workspace changed: $($delta -join ', ')"
+  }
+  if ($Type -eq "implementation") {
+    if (!$SessionAvailable -and $delta.Count -gt 0) {
+      throw "Retry blocked because an implementation changed the workspace before a session ID was captured: $($delta -join ', ')"
+    }
+    $outsideScope = @($delta | Where-Object { !$AllowedChangedPaths.Contains($_) })
+    if ($outsideScope.Count -gt 0) {
+      throw "Retry blocked because current changes are outside Allowed Changed Paths: $($outsideScope -join ', ')"
+    }
+  }
+  return $delta
+}
+
+function Merge-AttemptLogs {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$CanonicalEventPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$CanonicalStderrPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AttemptEventPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AttemptStderrPath,
+
+    [Parameter(Mandatory = $true)]
+    [int]$AttemptNumber
+  )
+
+  if ($AttemptNumber -eq 1) {
+    return
+  }
+  $utf8 = [Text.UTF8Encoding]::new($false)
+  try {
+    if (Test-Path -LiteralPath $AttemptEventPath -PathType Leaf) {
+      if (!(Test-Path -LiteralPath $CanonicalEventPath -PathType Leaf)) {
+        [IO.File]::WriteAllText($CanonicalEventPath, "", $utf8)
+      }
+      $eventText = [IO.File]::ReadAllText($AttemptEventPath, $utf8)
+      if ($eventText.Length -gt 0) {
+        [IO.File]::AppendAllText($CanonicalEventPath, $eventText, $utf8)
+        if (!$eventText.EndsWith("`n")) {
+          [IO.File]::AppendAllText($CanonicalEventPath, "`r`n", $utf8)
+        }
+      }
+    }
+    if (Test-Path -LiteralPath $AttemptStderrPath -PathType Leaf) {
+      $stderrText = [IO.File]::ReadAllText($AttemptStderrPath, $utf8)
+      $boundary = "`r`n--- Sol-Luna retry attempt $AttemptNumber stderr ---`r`n"
+      [IO.File]::AppendAllText($CanonicalStderrPath, $boundary + $stderrText, $utf8)
+    }
+  } finally {
+    if ($utf8 -is [IDisposable]) {
+      $utf8.Dispose()
+    }
+  }
+}
+
+function Invoke-CodexAttempt {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Management.Automation.CommandInfo]$Command,
+
+    [Parameter(Mandatory = $true)]
+    [string]$RunnerContent,
+
+    [Parameter(Mandatory = $true)]
+    [string[]]$Arguments,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Prompt,
+
+    [Parameter(Mandatory = $true)]
+    [int]$AttemptNumber,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AttemptKind,
+
+    [Parameter(Mandatory = $true)]
+    [string]$EventPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$StderrPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ResultPath,
+
+    [Parameter(Mandatory = $true)]
+    [DateTime]$DeadlineUtc,
+
+    [Parameter(Mandatory = $true)]
+    [DateTime]$ExecutionStartedUtc,
+
+    [Parameter(Mandatory = $true)]
+    [int]$HeartbeatSeconds,
+
+    [Parameter(Mandatory = $true)]
+    [System.Collections.IDictionary]$State,
+
+    [Parameter(Mandatory = $true)]
+    [string]$StatePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedTaskType,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedEffort,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SchemaPath
+  )
+
+  $temporaryDirectory = Split-Path -Parent $ResultPath
+  $temporaryStem = ".sol-luna-{0}-{1}-{2}" -f $PID, $AttemptNumber, [Guid]::NewGuid().ToString('N')
+  $promptPath = Join-Path $temporaryDirectory "$temporaryStem.prompt.txt"
+  $runnerPath = Join-Path $temporaryDirectory "$temporaryStem.runner.ps1"
+  $argumentsPath = Join-Path $temporaryDirectory "$temporaryStem.arguments.json"
+  $exitCodePath = Join-Path $temporaryDirectory "$temporaryStem.exit-code.txt"
+  $temporaryPaths = @($promptPath, $runnerPath, $argumentsPath, $exitCodePath)
+  $startedUtc = [DateTime]::UtcNow
+  $attemptRecord = [ordered]@{
+    attempt = $AttemptNumber
+    kind = $AttemptKind
+    eventPath = $EventPath
+    stderrPath = $StderrPath
+    resultPath = $ResultPath
+    sessionId = $null
+    exitCode = $null
+    startedUtc = $startedUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    completedUtc = $null
+    status = "starting"
+    error = $null
+  }
+  $null = $State.attempts.Add($attemptRecord)
+  $State.status = "running"
+  $State.currentAttempt = $AttemptNumber
+  Write-StateManifest -State $State -Path $StatePath
+
+  $process = $null
+  $exitCode = $null
+  $result = $null
+  $resultValid = $false
+  $resultError = $null
+  $attemptError = $null
+  $timedOut = $false
+  $sessionId = if ([string]::IsNullOrWhiteSpace($State.sessionId)) { $null } else { [string]$State.sessionId }
+  $usage = $null
+  $observedLength = [int64]0
+  $latestEventUtc = [DateTime]::MinValue
+
+  try {
+    [IO.File]::WriteAllText($promptPath, $Prompt, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($runnerPath, $RunnerContent, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($argumentsPath, (ConvertTo-Json -InputObject @($Arguments) -Compress), [Text.UTF8Encoding]::new($false))
+    $process = Start-CodexProcess -Command $Command -RunnerPath $runnerPath -ArgumentsPath $argumentsPath -ExitCodePath $exitCodePath -PromptPath $promptPath -StdoutPath $EventPath -StderrPath $StderrPath
+    $nextHeartbeatUtc = [DateTime]::UtcNow.AddSeconds($HeartbeatSeconds)
+    while (!$process.WaitForExit(250)) {
+      $eventInfo = Get-AttemptEventSummary -Path $EventPath -ObservedLength ([ref]$observedLength)
+      if ($eventInfo.HasNewContent -and $null -ne $eventInfo.LatestEventUtc) {
+        $latestEventUtc = $eventInfo.LatestEventUtc
+      }
+      if ($null -ne $eventInfo.ThreadId) {
+        $attemptRecord.sessionId = $eventInfo.ThreadId
+        if ($State.sessionId -ne $eventInfo.ThreadId) {
+          $State.sessionId = $eventInfo.ThreadId
+          Write-StateManifest -State $State -Path $StatePath
+        }
+        $sessionId = $eventInfo.ThreadId
+      }
+      if ($null -ne $eventInfo.Usage) {
+        $usage = $eventInfo.Usage
+      }
+      if ([DateTime]::UtcNow -ge $DeadlineUtc) {
+        Stop-ProcessTree -Process $process
+        $timedOut = $true
+        $attemptError = "timeout"
+        break
+      }
+      if ([DateTime]::UtcNow -ge $nextHeartbeatUtc) {
+        Write-Heartbeat -ExecutionStartedUtc $ExecutionStartedUtc -AttemptNumber $AttemptNumber -AttemptKind $AttemptKind -ProcessState "running" -SessionId $sessionId -LatestEventUtc $latestEventUtc
+        do { $nextHeartbeatUtc = $nextHeartbeatUtc.AddSeconds($HeartbeatSeconds) } while ($nextHeartbeatUtc -le [DateTime]::UtcNow)
+      }
+    }
+    if (!$timedOut) {
+      $process.WaitForExit()
+      $eventInfo = Get-AttemptEventSummary -Path $EventPath -ObservedLength ([ref]$observedLength)
+      if ($eventInfo.HasNewContent -and $null -ne $eventInfo.LatestEventUtc) {
+        $latestEventUtc = $eventInfo.LatestEventUtc
+      }
+      if ($null -ne $eventInfo.ThreadId) {
+        $attemptRecord.sessionId = $eventInfo.ThreadId
+        if ($State.sessionId -ne $eventInfo.ThreadId) {
+          $State.sessionId = $eventInfo.ThreadId
+        }
+        $sessionId = $eventInfo.ThreadId
+      }
+      if ($null -ne $eventInfo.Usage) {
+        $usage = $eventInfo.Usage
+      }
+    }
+    if (!$timedOut) {
+      if (Test-Path -LiteralPath $exitCodePath -PathType Leaf) {
+        $exitCodeText = [IO.File]::ReadAllText($exitCodePath).Trim()
+        $parsedExitCode = 0
+        if ([int]::TryParse($exitCodeText, [ref]$parsedExitCode)) {
+          $exitCode = $parsedExitCode
+        } else {
+          $attemptError = "invalid runner exit code"
+        }
+      } else {
+        $attemptError = "runner did not create an exit-code file"
+      }
+      if ($null -eq $attemptError -and (Test-Path -LiteralPath $ResultPath -PathType Leaf)) {
+        try {
+          $result = Get-Content -LiteralPath $ResultPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+          Assert-ExecutorResult -Result $result -ExpectedTaskType $ExpectedTaskType -ExpectedEffort $ExpectedEffort
+          $resultValid = $true
+        } catch {
+          $resultError = $_.Exception.Message
+        }
+      } elseif ($null -eq $attemptError) {
+        $resultError = "result file is missing"
+      }
+    }
+  } catch {
+    $attemptError = $_.Exception.Message
+    if ($null -ne $process -and !$process.HasExited) {
+      Stop-ProcessTree -Process $process
+    }
+  } finally {
+    if ($null -ne $process) {
+      try { $process.Dispose() } catch { }
+    }
+    foreach ($temporaryPath in $temporaryPaths) {
+      if (Test-Path -LiteralPath $temporaryPath) {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+
+  $completedUtc = [DateTime]::UtcNow
+  $attemptRecord.exitCode = $exitCode
+  $attemptRecord.completedUtc = $completedUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+  $attemptRecord.sessionId = $sessionId
+  $attemptRecord.status = if ($timedOut) { "timed-out" } elseif ($null -ne $attemptError) { "failed" } elseif ($resultValid) { "completed" } else { "invalid-result" }
+  $attemptRecord.error = if ($timedOut) { "timeout" } elseif ($null -ne $attemptError) { "process-failure" } elseif (!$resultValid) { "invalid-result" } else { $null }
+  if ($null -ne $State.sessionId -and [string]::IsNullOrWhiteSpace($attemptRecord.sessionId)) {
+    $attemptRecord.sessionId = $State.sessionId
+  }
+  Write-StateManifest -State $State -Path $StatePath
+
+  return [PSCustomObject]@{
+    Attempt = $AttemptNumber
+    Kind = $AttemptKind
+    EventPath = $EventPath
+    StderrPath = $StderrPath
+    ResultPath = $ResultPath
+    ExitCode = $exitCode
+    TimedOut = $timedOut
+    Result = $result
+    ResultValid = $resultValid
+    ResultError = $resultError
+    AttemptError = $attemptError
+    SessionId = $sessionId
+    Usage = $usage
+  }
+}
+
 if ($ReasoningEffort -ne "xhigh") {
   if ([string]::IsNullOrWhiteSpace($DowngradeReason) -or $DowngradeReason -eq "none") {
     throw "DowngradeReason is required when ReasoningEffort is lower than xhigh."
@@ -648,9 +1087,11 @@ $stderrCandidate = if ([string]::IsNullOrWhiteSpace($StderrLogPath)) {
 }
 $eventLogFullPath = Resolve-NewExternalFilePath -Path $eventCandidate -Root $resolvedRepoRoot -Label "Event log path"
 $stderrLogFullPath = Resolve-NewExternalFilePath -Path $stderrCandidate -Root $resolvedRepoRoot -Label "Stderr log path"
+$stateCandidate = [IO.Path]::ChangeExtension($resultFullPath, ".state.json")
+$stateFullPath = Resolve-NewExternalFilePath -Path $stateCandidate -Root $resolvedRepoRoot -Label "State manifest path"
 
 $outputPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-foreach ($path in @($resultFullPath, $eventLogFullPath, $stderrLogFullPath)) {
+foreach ($path in @($resultFullPath, $eventLogFullPath, $stderrLogFullPath, $stateFullPath)) {
   if (!$outputPaths.Add($path)) {
     throw "Result, event, and stderr paths must be distinct."
   }
@@ -677,23 +1118,59 @@ if ($ValidateOnly) {
   Write-Host "Reasoning effort: $ReasoningEffort"
   Write-Host "Sandbox: $sandbox"
   Write-Host "Timeout seconds: $TimeoutSeconds"
+  Write-Host "Heartbeat seconds: $HeartbeatSeconds"
+  Write-Host "Max resume attempts: $MaxResumeAttempts"
+  Write-Host "Retry delay seconds: $RetryDelaySeconds"
   Write-Host "Repository: $resolvedRepoRoot"
   Write-Host "Result: $resultFullPath"
   Write-Host "Event log: $eventLogFullPath"
   Write-Host "Stderr log: $stderrLogFullPath"
+  Write-Host "State manifest: $stateFullPath"
   exit 0
 }
 
 $writerMutex = $null
 $ownsWriterMutex = $false
-if ($TaskType -eq "implementation") {
-  $writerMutex = Acquire-WriterMutex -Root $resolvedRepoRoot
-  $ownsWriterMutex = $true
-}
+$executionErrors = [Collections.Generic.List[string]]::new()
+$finalHead = "unavailable"
+$actualChangedPaths = @()
+$result = $null
+$usage = $null
+$state = $null
 
-$baselineHead = Get-GitValue -Root $resolvedRepoRoot -Arguments @("rev-parse", "HEAD") -Action "Read baseline HEAD"
-$baselineSnapshot = Get-WorkspaceSnapshot -Root $resolvedRepoRoot
-$prompt = @"
+try {
+  if ($TaskType -eq "implementation") {
+    $writerMutex = Acquire-WriterMutex -Root $resolvedRepoRoot
+    $ownsWriterMutex = $true
+  }
+
+  $baselineHead = Get-GitValue -Root $resolvedRepoRoot -Arguments @("rev-parse", "HEAD") -Action "Read baseline HEAD"
+  $baselineSnapshot = Get-WorkspaceSnapshot -Root $resolvedRepoRoot
+  $executionStartedUtc = [DateTime]::UtcNow
+  $deadlineUtc = $executionStartedUtc.AddSeconds($TimeoutSeconds)
+  $state = [ordered]@{
+    version = 1
+    status = "starting"
+    taskType = $TaskType
+    model = $model
+    effort = $ReasoningEffort
+    repository = $resolvedRepoRoot
+    baselineHead = $baselineHead
+    sessionId = $null
+    currentAttempt = 0
+    maxRetries = $MaxResumeAttempts
+    canonicalOutputPaths = [ordered]@{
+      result = $resultFullPath
+      event = $eventLogFullPath
+      stderr = $stderrLogFullPath
+    }
+    attempts = [Collections.ArrayList]::new()
+    lastError = $null
+    updatedUtc = $null
+  }
+  Write-StateManifest -State $state -Path $stateFullPath
+
+  $prompt = @"
 You are the bounded Luna execution agent in a Sol-led workflow.
 
 Execution contract:
@@ -716,111 +1193,185 @@ $taskContent
 </task_packet>
 "@
 
-$arguments = @(
-  "exec",
-  "-C", $resolvedRepoRoot,
-  "-m", $model,
-  "-c", "model_reasoning_effort=`"$ReasoningEffort`"",
-  "-s", $sandbox,
-  "--ephemeral",
-  "--output-schema", $schemaPath,
-  "--json",
-  "-o", $resultFullPath,
-  "-"
-)
+  $runnerContent = @(
+    'param(',
+    '  [Parameter(Mandatory = $true)]',
+    '  [string]$CommandPath,',
+    '',
+    '  [Parameter(Mandatory = $true)]',
+    '  [string]$ArgumentsPath,',
+    '',
+    '  [Parameter(Mandatory = $true)]',
+    '  [string]$ExitCodePath',
+    ')',
+    '',
+    '$ErrorActionPreference = "Stop"',
+    '$commandExitCode = 1',
+    'try {',
+    '  $parsedArguments = Get-Content -LiteralPath $ArgumentsPath -Raw -Encoding UTF8 | ConvertFrom-Json',
+    '  $commandArguments = @($parsedArguments)',
+    '  $command = Get-Command $CommandPath -ErrorAction Stop',
+    '  $global:LASTEXITCODE = $null',
+    '  if ($command.CommandType -eq [Management.Automation.CommandTypes]::ExternalScript) {',
+    '    & $command.Source @commandArguments',
+    '  } elseif ($command.CommandType -eq [Management.Automation.CommandTypes]::Application) {',
+    '    & $command.Source @commandArguments',
+    '  } else {',
+    '    throw "Command must resolve to an application or external script: $($command.CommandType)"',
+    '  }',
+    '  $commandExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }',
+    '} catch {',
+    '  [Console]::Error.WriteLine($_.Exception.Message)',
+    '  $commandExitCode = 1',
+    '} finally {',
+    '  [IO.File]::WriteAllText($ExitCodePath, $commandExitCode.ToString([Globalization.CultureInfo]::InvariantCulture), [Text.UTF8Encoding]::new($false))',
+    '}',
+    'exit $commandExitCode'
+  ) -join "`n"
 
-$temporaryStem = ".sol-luna-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString('N')
-$temporaryDirectory = Split-Path -Parent $resultFullPath
-$promptPath = Join-Path $temporaryDirectory "$temporaryStem.prompt.txt"
-$runnerPath = Join-Path $temporaryDirectory "$temporaryStem.runner.ps1"
-$argumentsPath = Join-Path $temporaryDirectory "$temporaryStem.arguments.json"
-$exitCodePath = Join-Path $temporaryDirectory "$temporaryStem.exit-code.txt"
-$temporaryPaths = @($promptPath, $runnerPath, $argumentsPath, $exitCodePath)
-$runnerContent = @'
-param(
-  [Parameter(Mandatory = $true)]
-  [string]$CommandPath,
-
-  [Parameter(Mandatory = $true)]
-  [string]$ArgumentsPath,
-
-  [Parameter(Mandatory = $true)]
-  [string]$ExitCodePath
-)
-
-$ErrorActionPreference = "Stop"
-$commandExitCode = 1
-try {
-  $parsedArguments = Get-Content -LiteralPath $ArgumentsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-  $commandArguments = @($parsedArguments)
-  $command = Get-Command $CommandPath -ErrorAction Stop
-  $global:LASTEXITCODE = $null
-  if ($command.CommandType -eq [Management.Automation.CommandTypes]::ExternalScript) {
-    & $command.Source @commandArguments
-  } elseif ($command.CommandType -eq [Management.Automation.CommandTypes]::Application) {
-    & $command.Source @commandArguments
-  } else {
-    throw "Command must resolve to an application or external script: $($command.CommandType)"
-  }
-  $commandExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-} catch {
-  [Console]::Error.WriteLine($_.Exception.Message)
-  $commandExitCode = 1
-} finally {
-  [IO.File]::WriteAllText($ExitCodePath, $commandExitCode.ToString([Globalization.CultureInfo]::InvariantCulture), [Text.UTF8Encoding]::new($false))
-}
-exit $commandExitCode
-'@
-$process = $null
-$result = $null
-$executionErrors = [Collections.Generic.List[string]]::new()
-$finalHead = "unavailable"
-$actualChangedPaths = @()
-$usage = $null
-
-try {
-  [IO.File]::WriteAllText($promptPath, $prompt, [Text.UTF8Encoding]::new($false))
-  [IO.File]::WriteAllText($runnerPath, $runnerContent, [Text.UTF8Encoding]::new($false))
-  [IO.File]::WriteAllText($argumentsPath, (ConvertTo-Json -InputObject @($arguments) -Compress), [Text.UTF8Encoding]::new($false))
-  $process = Start-CodexProcess -Command $codexCommandInfo -RunnerPath $runnerPath -ArgumentsPath $argumentsPath -ExitCodePath $exitCodePath -PromptPath $promptPath -StdoutPath $eventLogFullPath -StderrPath $stderrLogFullPath
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-  while (!$process.WaitForExit(250)) {
-    if ([DateTime]::UtcNow -ge $deadline) {
-      Stop-ProcessTree -Process $process
-      throw "Luna executor timed out after $TimeoutSeconds seconds."
+  $attemptNumber = 1
+  while ($true) {
+    $hasSession = ![string]::IsNullOrWhiteSpace([string]$state.sessionId)
+    $attemptKind = if ($attemptNumber -eq 1) { "initial" } elseif ($hasSession) { "resume" } else { "fresh-initial" }
+    $attemptResultPath = Get-AttemptPath -CanonicalPath $resultFullPath -AttemptNumber $attemptNumber
+    $attemptEventPath = Get-AttemptPath -CanonicalPath $eventLogFullPath -AttemptNumber $attemptNumber
+    $attemptStderrPath = Get-AttemptPath -CanonicalPath $stderrLogFullPath -AttemptNumber $attemptNumber
+    if ($attemptNumber -gt 1) {
+      $attemptResultPath = Resolve-NewExternalFilePath -Path $attemptResultPath -Root $resolvedRepoRoot -Label "Attempt $attemptNumber result path"
+      $attemptEventPath = Resolve-NewExternalFilePath -Path $attemptEventPath -Root $resolvedRepoRoot -Label "Attempt $attemptNumber event log path"
+      $attemptStderrPath = Resolve-NewExternalFilePath -Path $attemptStderrPath -Root $resolvedRepoRoot -Label "Attempt $attemptNumber stderr log path"
     }
-  }
-  $process.WaitForExit()
 
-  if (!(Test-Path -LiteralPath $exitCodePath -PathType Leaf)) {
-    throw "Luna executor runner did not create the exit-code file."
-  }
-  $exitCodeText = [IO.File]::ReadAllText($exitCodePath).Trim()
-  $codexExitCode = 0
-  if (![int]::TryParse($exitCodeText, [ref]$codexExitCode)) {
-    throw "Luna executor runner wrote an invalid exit code: '$exitCodeText'."
-  }
-  if ($codexExitCode -ne 0) {
-    throw "Luna executor failed with exit code $codexExitCode."
-  }
-  if (!(Test-Path -LiteralPath $resultFullPath -PathType Leaf)) {
-    throw "Luna executor did not create the result file."
-  }
-
-  try {
-    $result = Get-Content -LiteralPath $resultFullPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
-  } catch {
-    throw "Luna executor result is not valid JSON: $($_.Exception.Message)"
-  }
-  Assert-ExecutorResult -Result $result -ExpectedTaskType $TaskType -ExpectedEffort $ReasoningEffort
-} catch {
-  $executionErrors.Add($_.Exception.Message)
-} finally {
-  foreach ($temporaryPath in $temporaryPaths) {
-    if (Test-Path -LiteralPath $temporaryPath) {
-      Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    $attemptArguments = if ($attemptNumber -eq 1 -or !$hasSession) {
+      @(
+        "exec",
+        "-C", $resolvedRepoRoot,
+        "-m", $model,
+        "-c", "model_reasoning_effort=`"$ReasoningEffort`"",
+        "-s", $sandbox,
+        "--output-schema", $schemaPath,
+        "--json",
+        "-o", $attemptResultPath,
+        "-"
+      )
+    } else {
+      @(
+        "exec",
+        "resume", $state.sessionId,
+        "-m", $model,
+        "-c", "model_reasoning_effort=`"$ReasoningEffort`"",
+        "--output-schema", $schemaPath,
+        "--json",
+        "-o", $attemptResultPath,
+        "-"
+      )
     }
+    if ($attemptNumber -gt 1 -and $hasSession) {
+      $attemptPrompt = "Continue the frozen task from the previous attempt. Preserve all repository changes already made and complete the task packet. Return exactly one final JSON result."
+    } else {
+      $attemptPrompt = $prompt
+    }
+
+    $outcome = Invoke-CodexAttempt `
+      -Command $codexCommandInfo `
+      -RunnerContent $runnerContent `
+      -Arguments $attemptArguments `
+      -Prompt $attemptPrompt `
+      -AttemptNumber $attemptNumber `
+      -AttemptKind $attemptKind `
+      -EventPath $attemptEventPath `
+      -StderrPath $attemptStderrPath `
+      -ResultPath $attemptResultPath `
+      -DeadlineUtc $deadlineUtc `
+      -ExecutionStartedUtc $executionStartedUtc `
+      -HeartbeatSeconds $HeartbeatSeconds `
+      -State $state `
+      -StatePath $stateFullPath `
+      -ExpectedTaskType $TaskType `
+      -ExpectedEffort $ReasoningEffort `
+      -SchemaPath $schemaPath
+
+    Merge-AttemptLogs `
+      -CanonicalEventPath $eventLogFullPath `
+      -CanonicalStderrPath $stderrLogFullPath `
+      -AttemptEventPath $attemptEventPath `
+      -AttemptStderrPath $attemptStderrPath `
+      -AttemptNumber $attemptNumber
+
+    if ($outcome.ResultValid) {
+      $result = $outcome.Result
+      if ($null -ne $outcome.Usage) {
+        $usage = $outcome.Usage
+      }
+      if ($outcome.ExitCode -ne 0) {
+        $executionErrors.Add("Luna executor returned a valid result with exit code $($outcome.ExitCode).")
+      }
+      break
+    }
+
+    if ($outcome.TimedOut) {
+      $executionErrors.Add("Luna executor timed out after $TimeoutSeconds seconds.")
+      $state.status = "timed-out"
+      $state.lastError = "Attempt $attemptNumber reached the hard timeout."
+      break
+    }
+
+    $invalidResultDetail = if ($null -ne $outcome.ResultError) { $outcome.ResultError } else { "no valid structured result" }
+    if ($null -eq $outcome.ExitCode -or $outcome.ExitCode -eq 0) {
+      $executionErrors.Add("Luna executor result is not valid JSON or did not complete: $invalidResultDetail")
+      $state.status = "failed"
+      $state.lastError = "Attempt $attemptNumber ended without a valid structured result and was not retryable."
+      break
+    }
+
+    $state.lastError = "Attempt $attemptNumber ended with a nonzero exit without a valid structured result."
+    if ($attemptNumber -gt $MaxResumeAttempts) {
+      $executionErrors.Add("Luna executor failed with exit code $($outcome.ExitCode) and exhausted retry attempts.")
+      $state.status = "failed"
+      break
+    }
+
+    try {
+      $null = Assert-RetrySafety `
+        -Root $resolvedRepoRoot `
+        -BaselineHead $baselineHead `
+        -BaselineSnapshot $baselineSnapshot `
+        -Type $TaskType `
+        -AllowedChangedPaths $allowedChangedPaths `
+        -SessionAvailable (![string]::IsNullOrWhiteSpace([string]$state.sessionId))
+    } catch {
+      $executionErrors.Add($_.Exception.Message)
+      $state.status = "blocked"
+      $state.lastError = "Retry safety checks blocked continuation after attempt $attemptNumber."
+      break
+    }
+
+    if ([DateTime]::UtcNow -ge $deadlineUtc) {
+      $executionErrors.Add("Luna executor reached the hard deadline before retry attempt $($attemptNumber + 1).")
+      $state.status = "timed-out"
+      break
+    }
+    $remainingSeconds = ($deadlineUtc - [DateTime]::UtcNow).TotalSeconds
+    if ($RetryDelaySeconds -gt $remainingSeconds) {
+      $executionErrors.Add("Luna executor cannot honor the retry delay before the hard deadline.")
+      $state.status = "timed-out"
+      break
+    }
+
+    $state.status = "retry-waiting"
+    $state.currentAttempt = $attemptNumber
+    Write-StateManifest -State $state -Path $stateFullPath
+    if ($RetryDelaySeconds -gt 0) {
+      Start-Sleep -Seconds $RetryDelaySeconds
+    }
+    if ([DateTime]::UtcNow -ge $deadlineUtc) {
+      $executionErrors.Add("Luna executor reached the hard deadline during retry delay.")
+      $state.status = "timed-out"
+      break
+    }
+    $attemptNumber++
   }
+
   try {
     $finalHead = Get-GitValue -Root $resolvedRepoRoot -Arguments @("rev-parse", "HEAD") -Action "Read final HEAD"
     $finalSnapshot = Get-WorkspaceSnapshot -Root $resolvedRepoRoot
@@ -828,86 +1379,96 @@ try {
   } catch {
     $executionErrors.Add("Capture final Git state failed: $($_.Exception.Message)")
   }
+
+  if ($finalHead -ne "unavailable" -and $finalHead -ne $baselineHead) {
+    $executionErrors.Add("Luna executor created or changed a commit. Baseline: $baselineHead; final: $finalHead.")
+  }
+  if ($TaskType -eq "read-only-analysis" -and $actualChangedPaths.Count -gt 0) {
+    $executionErrors.Add("Read-only Luna task changed Git-visible paths: $($actualChangedPaths -join ', ')")
+  }
+  if ($TaskType -eq "implementation") {
+    $outsideScope = @($actualChangedPaths | Where-Object { !$allowedChangedPaths.Contains($_) })
+    if ($outsideScope.Count -gt 0) {
+      $executionErrors.Add("Implementation changed paths outside Allowed Changed Paths: $($outsideScope -join ', ')")
+    }
+  }
+
+  if ($null -ne $result) {
+    $reportedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    try {
+      foreach ($path in @($result.changedFiles)) {
+        $normalized = ConvertTo-RepositoryPath -Path $path -Root $resolvedRepoRoot -Label "Executor changedFiles path"
+        if (!$reportedPaths.Add($normalized)) {
+          throw "Executor changedFiles contains a duplicate: $normalized"
+        }
+      }
+      $missingReports = @($actualChangedPaths | Where-Object { !$reportedPaths.Contains($_) })
+      $falseReports = @($reportedPaths | Where-Object { $actualChangedPaths -notcontains $_ })
+      if ($missingReports.Count -gt 0 -or $falseReports.Count -gt 0) {
+        $executionErrors.Add("Executor changedFiles does not match actual changes. Missing: $($missingReports -join ', '); unexpected: $($falseReports -join ', ')")
+      }
+    } catch {
+      $executionErrors.Add($_.Exception.Message)
+    }
+
+    if (@($result.validation | Where-Object { $_.status -eq "failed" }).Count -gt 0) {
+      $executionErrors.Add("Luna executor reported failed validation.")
+    }
+    if (@($result.scopeDeviations).Count -gt 0) {
+      $executionErrors.Add("Luna executor reported scope deviations.")
+    }
+    if ($result.status -ne "success") {
+      $executionErrors.Add("Luna executor returned status '$($result.status)'.")
+    }
+  }
+
+  $eventObservedLength = [int64]0
+  $eventSummary = Get-AttemptEventSummary -Path $eventLogFullPath -ObservedLength ([ref]$eventObservedLength)
+  if ($null -ne $eventSummary.Usage) {
+    $usage = $eventSummary.Usage
+  }
+
+  if ($executionErrors.Count -eq 0 -and $attemptNumber -gt 1) {
+    try {
+      [IO.File]::Copy($attemptResultPath, $resultFullPath, $true)
+    } catch {
+      $executionErrors.Add("Copy successful retry result to the canonical path failed: $($_.Exception.Message)")
+    }
+  }
+
+  if ($executionErrors.Count -eq 0) {
+    $state.status = "succeeded"
+  } elseif ($state.status -notin @("timed-out", "blocked")) {
+    $state.status = "failed"
+    $state.lastError = $executionErrors[0]
+  } elseif ([string]::IsNullOrWhiteSpace([string]$state.lastError)) {
+    $state.lastError = $executionErrors[0]
+  }
+  Write-StateManifest -State $state -Path $stateFullPath
+
+  $actualSummary = if ($actualChangedPaths.Count -eq 0) { "<none>" } else { $actualChangedPaths -join ", " }
+  if ($executionErrors.Count -gt 0) {
+    $details = $executionErrors -join " | "
+    throw "$details Final HEAD: $finalHead. Actual changed paths: $actualSummary. Event log: $eventLogFullPath. Stderr log: $stderrLogFullPath. State manifest: $stateFullPath."
+  }
+
+  if (Test-Path -LiteralPath $eventLogFullPath -PathType Leaf) {
+    Get-Content -LiteralPath $eventLogFullPath -Encoding UTF8 | Write-Output
+  }
+  Write-Host "Luna executor completed with status '$($result.status)'."
+  Write-Host "Result: $resultFullPath"
+  Write-Host "Event log: $eventLogFullPath"
+  Write-Host "Stderr log: $stderrLogFullPath"
+  Write-Host "State manifest: $stateFullPath"
+  Write-Host "Actual changed paths: $actualSummary"
+  if ($null -ne $usage) {
+    Write-Host "Usage: input=$($usage.input_tokens), cached-input=$($usage.cached_input_tokens), output=$($usage.output_tokens), reasoning-output=$($usage.reasoning_output_tokens)"
+  }
+} finally {
   if ($ownsWriterMutex -and $null -ne $writerMutex) {
-    try { $writerMutex.ReleaseMutex() } catch { $executionErrors.Add("Release writer mutex failed: $($_.Exception.Message)") }
+    try { $writerMutex.ReleaseMutex() } catch { }
   }
   if ($null -ne $writerMutex) {
     $writerMutex.Dispose()
   }
-  if ($null -ne $process) {
-    $process.Dispose()
-  }
-}
-
-if ($finalHead -ne "unavailable" -and $finalHead -ne $baselineHead) {
-  $executionErrors.Add("Luna executor created or changed a commit. Baseline: $baselineHead; final: $finalHead.")
-}
-if ($TaskType -eq "read-only-analysis" -and $actualChangedPaths.Count -gt 0) {
-  $executionErrors.Add("Read-only Luna task changed Git-visible paths: $($actualChangedPaths -join ', ')")
-}
-if ($TaskType -eq "implementation") {
-  $outsideScope = @($actualChangedPaths | Where-Object { !$allowedChangedPaths.Contains($_) })
-  if ($outsideScope.Count -gt 0) {
-    $executionErrors.Add("Implementation changed paths outside Allowed Changed Paths: $($outsideScope -join ', ')")
-  }
-}
-
-if ($null -ne $result) {
-  $reportedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-  try {
-    foreach ($path in @($result.changedFiles)) {
-      $normalized = ConvertTo-RepositoryPath -Path $path -Root $resolvedRepoRoot -Label "Executor changedFiles path"
-      if (!$reportedPaths.Add($normalized)) {
-        throw "Executor changedFiles contains a duplicate: $normalized"
-      }
-    }
-    $missingReports = @($actualChangedPaths | Where-Object { !$reportedPaths.Contains($_) })
-    $falseReports = @($reportedPaths | Where-Object { $actualChangedPaths -notcontains $_ })
-    if ($missingReports.Count -gt 0 -or $falseReports.Count -gt 0) {
-      $executionErrors.Add("Executor changedFiles does not match actual changes. Missing: $($missingReports -join ', '); unexpected: $($falseReports -join ', ')")
-    }
-  } catch {
-    $executionErrors.Add($_.Exception.Message)
-  }
-
-  if (@($result.validation | Where-Object { $_.status -eq "failed" }).Count -gt 0) {
-    $executionErrors.Add("Luna executor reported failed validation.")
-  }
-  if (@($result.scopeDeviations).Count -gt 0) {
-    $executionErrors.Add("Luna executor reported scope deviations.")
-  }
-  if ($result.status -ne "success") {
-    $executionErrors.Add("Luna executor returned status '$($result.status)'.")
-  }
-}
-
-if (Test-Path -LiteralPath $eventLogFullPath -PathType Leaf) {
-  foreach ($eventLine in Get-Content -LiteralPath $eventLogFullPath -Encoding UTF8) {
-    try {
-      $event = $eventLine | ConvertFrom-Json -ErrorAction Stop
-      if ($event.type -eq "turn.completed" -and $null -ne $event.usage) {
-        $usage = $event.usage
-      }
-    } catch {
-      # Raw event logs are retained even when a diagnostic line is not JSON.
-    }
-  }
-}
-
-$actualSummary = if ($actualChangedPaths.Count -eq 0) { "<none>" } else { $actualChangedPaths -join ", " }
-if ($executionErrors.Count -gt 0) {
-  $details = $executionErrors -join " | "
-  throw "$details Final HEAD: $finalHead. Actual changed paths: $actualSummary. Event log: $eventLogFullPath. Stderr log: $stderrLogFullPath."
-}
-
-if (Test-Path -LiteralPath $eventLogFullPath -PathType Leaf) {
-  Get-Content -LiteralPath $eventLogFullPath -Encoding UTF8 | Write-Output
-}
-Write-Host "Luna executor completed with status '$($result.status)'."
-Write-Host "Result: $resultFullPath"
-Write-Host "Event log: $eventLogFullPath"
-Write-Host "Stderr log: $stderrLogFullPath"
-Write-Host "Actual changed paths: $actualSummary"
-if ($null -ne $usage) {
-  Write-Host "Usage: input=$($usage.input_tokens), cached-input=$($usage.cached_input_tokens), output=$($usage.output_tokens), reasoning-output=$($usage.reasoning_output_tokens)"
 }
