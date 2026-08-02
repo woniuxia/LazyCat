@@ -41,6 +41,23 @@ function Assert-Contains {
   }
 }
 
+function Assert-NotContains {
+  param(
+    [AllowEmptyString()]
+    [string]$Value,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Unexpected,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Message
+  )
+
+  if ($Value.IndexOf($Unexpected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    throw "$Message Unexpected '$Unexpected'."
+  }
+}
+
 function Complete-Test {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -366,6 +383,9 @@ if ($null -ne $sessionId) {
 if ($mode -eq "retry-resume") {
   if ($attempt -eq 1) {
     [IO.File]::WriteAllText((Join-Path $repoRoot "allowed.txt"), "partial", [Text.UTF8Encoding]::new($false))
+    [Console]::Out.WriteLine('{"type":"item.completed","item":{"type":"command_execution","exit_code":9}}')
+    [Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":2,"cached_input_tokens":1,"output_tokens":3,"reasoning_output_tokens":1}}')
+    [Console]::Out.Flush()
     [Console]::Error.WriteLine("retry-resume initial failure")
     throw "retry-resume initial failure"
   }
@@ -432,6 +452,11 @@ if ($mode -eq "malformed") {
   [IO.File]::WriteAllText($resultPath, "{bad", [Text.UTF8Encoding]::new($false))
   return
 }
+if ($mode -eq "large-event") {
+  $largeMarker = "LARGE-EVENT-MUST-STAY-IN-JSONL-" + ("x" * 32768)
+  [Console]::Out.WriteLine((ConvertTo-Json -InputObject @{ type = "item.completed"; item = @{ type = "agent_message"; text = $largeMarker } } -Compress))
+  [Console]::Out.Flush()
+}
 
 $result = [ordered]@{
   taskType = $taskType
@@ -452,7 +477,9 @@ if ($mode -eq "invalid-shape") {
 }
 $json = ConvertTo-Json -InputObject $result -Depth 8 -Compress
 [IO.File]::WriteAllText($resultPath, $json, [Text.UTF8Encoding]::new($false))
-[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"type":"command_execution","exit_code":0}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"type":"command_execution","exit_code":7}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":11,"cached_input_tokens":3,"output_tokens":5,"reasoning_output_tokens":2}}')
 [Console]::Out.Flush()
 return
 '@
@@ -485,7 +512,24 @@ return
   $readOnlyInvocations = @(Get-FakeInvocationRecords -Path $case.Paths.ArgsLog)
   Assert-True -Condition ($readOnlyInvocations.Count -eq 1) -Message "Initial invocation count is incorrect."
   Assert-True -Condition (@($readOnlyInvocations[0].arguments) -notcontains "--ephemeral") -Message "Initial invocation must persist its Codex session."
+  Assert-NotContains -Value $case.Output -Unexpected "thread.started" -Message "Success output must not replay thread events."
+  Assert-NotContains -Value $case.Output -Unexpected "item.completed" -Message "Success output must not replay item events."
+  Assert-True -Condition ([Text.Encoding]::UTF8.GetByteCount($case.Output) -lt 4096) -Message "Success output must remain below 4 KB."
+  $readOnlySummary = $case.Output | ConvertFrom-Json
+  Assert-True -Condition ($readOnlySummary.status -eq "success" -and $readOnlySummary.usage.input_tokens -eq 11 -and $readOnlySummary.usage.cached_input_tokens -eq 3 -and $readOnlySummary.usage.output_tokens -eq 5 -and $readOnlySummary.usage.reasoning_output_tokens -eq 2) -Message "Compact summary usage is incorrect."
+  $readOnlyState = Get-Content -Raw $case.Paths.State | ConvertFrom-Json
+  Assert-True -Condition ($readOnlyState.version -eq 2 -and $readOnlyState.durationSeconds -ge 0 -and $readOnlyState.commandCount -eq 2 -and $readOnlyState.failedCommandCount -eq 1 -and $readOnlyState.eventBytes -gt 0 -and $readOnlyState.stderrBytes -ge 0 -and ![string]::IsNullOrWhiteSpace($readOnlyState.lastEventUtc)) -Message "State v2 objective metrics are incomplete."
+  Assert-True -Condition ($readOnlyState.attempts[0].usage.input_tokens -eq 11 -and $readOnlyState.attempts[0].commandCount -eq 2 -and $readOnlyState.attempts[0].failedCommandCount -eq 1 -and $readOnlyState.attempts[0].eventBytes -gt 0) -Message "Attempt metrics are incomplete."
+  Assert-True -Condition (@(Get-ChildItem -LiteralPath (Split-Path -Parent $case.Paths.State) -Filter "$([IO.Path]::GetFileName($case.Paths.State)).tmp-*" -File).Count -eq 0) -Message "Atomic state update left a temporary file."
   Complete-Test "read-only success"
+
+  $repo = New-TestRepository -Name "large-event"
+  $case = Invoke-WrapperCase -Name "large-event" -Repo $repo -Type read-only-analysis -AllowedPaths @() -Mode "large-event"
+  Assert-True -Condition ($case.ExitCode -eq 0) -Message "Large event case failed: $($case.Output)"
+  Assert-True -Condition ((Get-Item -LiteralPath $case.Paths.Event).Length -gt 32768) -Message "Large event fixture did not create a large JSONL file."
+  Assert-NotContains -Value $case.Output -Unexpected "LARGE-EVENT-MUST-STAY-IN-JSONL" -Message "Large event content leaked into success output."
+  Assert-True -Condition ([Text.Encoding]::UTF8.GetByteCount($case.Output) -lt 4096) -Message "Large event success output must remain below 4 KB."
+  Complete-Test "large event log is not replayed"
 
   $repo = New-TestRepository -Name "retry-resume"
   $case = Invoke-WrapperCase -Name "retry-resume" -Repo $repo -Type implementation -AllowedPaths @("allowed.txt") -Mode "retry-resume"
@@ -502,6 +546,11 @@ return
   Assert-True -Condition ((Get-Content -Raw (Join-Path $repo "allowed.txt")) -eq "completed") -Message "The resumed session did not complete its allowed partial change."
   $resumeState = Get-Content -Raw $case.Paths.State | ConvertFrom-Json
   Assert-True -Condition ($resumeState.status -eq "succeeded" -and $resumeState.sessionId -eq "resume-session" -and @($resumeState.attempts).Count -eq 2) -Message "State manifest did not persist the successful resumed execution."
+  Assert-True -Condition ($null -eq $resumeState.lastError) -Message "A successful retry must clear the top-level lastError."
+  Assert-True -Condition ($resumeState.usage.input_tokens -eq 13 -and $resumeState.usage.cached_input_tokens -eq 4 -and $resumeState.usage.output_tokens -eq 8 -and $resumeState.usage.reasoning_output_tokens -eq 3) -Message "Retry usage was not aggregated across attempts."
+  Assert-True -Condition ($resumeState.attempts[0].usage.input_tokens -eq 2 -and $resumeState.attempts[1].usage.input_tokens -eq 11) -Message "Per-attempt usage is incorrect."
+  Assert-True -Condition ($resumeState.commandCount -eq 3 -and $resumeState.failedCommandCount -eq 2) -Message "Retry command metrics were not aggregated."
+  Assert-True -Condition ($resumeState.eventBytes -eq (Get-Item -LiteralPath $case.Paths.Event).Length -and $resumeState.stderrBytes -eq (Get-Item -LiteralPath $case.Paths.Stderr).Length) -Message "Top-level log byte metrics must match canonical files."
   Complete-Test "captured session resume and canonical aggregation"
 
   $repo = New-TestRepository -Name "retry-final-failed"
@@ -534,7 +583,8 @@ return
   $repo = New-TestRepository -Name "implementation"
   $case = Invoke-WrapperCase -Name "implementation" -Repo $repo -Type implementation -AllowedPaths @("allowed.txt") -Mode "write-allowed"
   Assert-True -Condition ($case.ExitCode -eq 0) -Message "Implementation success failed: $($case.Output)"
-  Assert-Contains -Value $case.Output -Expected "Actual changed paths: allowed.txt" -Message "Implementation must report actual path."
+  $implementationSummary = $case.Output | ConvertFrom-Json
+  Assert-True -Condition ($implementationSummary.actualChangedPathCount -eq 1) -Message "Implementation summary must report its changed path count."
   Complete-Test "implementation exact scope"
 
   $repo = New-TestRepository -Name "dirty" -WithAllowedFile

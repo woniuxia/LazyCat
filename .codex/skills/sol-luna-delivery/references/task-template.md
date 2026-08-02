@@ -28,7 +28,7 @@ List the files, directories, commands, and external actions the executor may use
 
 ## Allowed Changed Paths
 
-Provide a JSON array of exact repository-relative file paths. Use `[]` for read-only tasks. Wildcards, directories, absolute paths, and parent traversal are not allowed.
+Provide a JSON array of exact repository-relative file paths. Use `[]` for read-only tasks. Wildcards, directories, absolute paths, parent traversal, and prose placeholders such as "corresponding tests" are not allowed. Sol must discover every path before delegation.
 
 ## Forbidden Scope
 
@@ -36,7 +36,7 @@ List files, behaviors, destructive actions, services, commits, packaging, or oth
 
 ## Steps
 
-Provide an ordered, directly executable sequence. State where the executor may choose mechanical details and where it must stop.
+Provide an ordered, directly executable sequence. State where the executor may choose mechanical details and where it must stop. Prefer exact target reads and batch independent read-only commands. Do not repeatedly read complete large files or broadly scan dependency repositories. Limit individual command output. Run targeted validation first and any full build only once at the end.
 
 ## Acceptance Criteria
 
@@ -52,4 +52,4 @@ Define ambiguity, conflicts, failures, scope changes, dirty-worktree changes, or
 
 ## Output Requirements
 
-List task-specific evidence that must appear in the structured result, such as file and line references, test commands, exit codes, or remaining gaps.
+List task-specific evidence that must appear in the structured result, such as file and line references, changed files, failed or validation-relevant commands, exit codes, or remaining gaps. Do not repeat routine successful exploration commands unless they are needed to support a finding.

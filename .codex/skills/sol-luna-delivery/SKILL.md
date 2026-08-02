@@ -1,18 +1,18 @@
 ---
 name: sol-luna-delivery
-description: 使用 GPT-5.6 Sol xhigh 负责复杂思考、任务设计和最终审查，并把边界明确且耗时的实现或大量简单只读分析交给 GPT-5.6 Luna。用户提到 Sol/Luna 分工、子代理执行、模型额度、token 限额、已确认计划的委派执行，或任务适合复杂规划后批量落地时，都应使用本 skill。
+description: 使用 GPT-5.6 Sol xhigh 负责复杂思考、复杂实现、任务设计和最终审查，只把简单、边界冻结、低风险且可确定性验收的工作交给 GPT-5.6 Luna。用户提到 Sol/Luna 分工、子代理执行、模型额度、token 限额或已确认简单任务的委派执行时，都应使用本 skill。
 compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasoning, and PowerShell.
 ---
 
 # Sol-Luna Delivery
 
-用 Sol 保存复杂推理额度和最终决策质量，用 Luna 承担边界明确但工作量较大的执行。Git 工作区是唯一事实源；任务包和执行摘要只用于交接，不能替代真实 diff 和验证结果。
+用 Sol 保证复杂问题和最终决策质量，用 Luna 承担简单、冻结且可确定性验收的工作。目标是按能力路由并降低 Sol 等待期间的 token 消耗，不以提高 Luna 委派率或降低原始 token 总量为目标。Git 工作区是唯一事实源；任务包和执行摘要只用于交接，不能替代真实 diff 和验证结果。
 
 ## 固定角色
 
-- Sol 主代理始终使用 `gpt-5.6-sol` 和 `xhigh`，负责调研、歧义处理、方案、任务包、风险判断和最终审查。
+- Sol 主代理始终使用 `gpt-5.6-sol` 和 `xhigh`，负责调研、歧义处理、方案、复杂实现、任务包、风险判断和最终审查。
 - Luna 执行代理固定使用 `gpt-5.6-luna`，默认 `xhigh`。只有任务满足降级条件时，Sol 才能在派发前显式选择 `high`、`medium` 或 `low`。
-- Luna 不做产品、架构、数据模型、兼容性或安全决策。执行中遇到新决策点时返回 `blocked`。
+- Luna 不处理复杂根因、跨模块不变量、并发、事务、兼容性、安全、解析器或文件系统语义，也不做产品、架构和数据模型决策。执行中遇到这些问题或任何新决策点时返回 `blocked`。
 - Luna 不提交、不回滚用户改动、不启动产品 UI、不打包或发布，除非任务包逐项明确授权。
 - 同一工作区同时只能有一个写入型 Luna。独立的只读分析可以并行，但必须限制并发并由 Sol 综合。
 - 当前提示已经声明自己是 Luna 执行代理并包含冻结任务包时，直接执行任务包，不再调用本 skill 的包装脚本或创建下级执行代理。
@@ -23,19 +23,22 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 
 ## 路由任务
 
-先判断是否需要复杂思考，再判断委派收益：
+先判断任务是否简单且已冻结，再判断委派收益。难以判断 Sol/Luna 时选 Sol；难以判断 Luna effort 时选 `high`。不得用 Luna `xhigh` 承接本应属于 Sol 的复杂任务。
 
-| 任务                                       | 执行者 | Reasoning effort      |
-| ------------------------------------------ | ------ | --------------------- |
-| 需求取舍、架构设计、复杂根因、跨模块不变量 | Sol    | `xhigh`               |
-| 最终审查、风险判断、验收裁决               | Sol    | `xhigh`               |
-| 方案完整、边界明确且执行耗时               | Luna   | 默认 `xhigh`          |
-| 明确但存在少量局部分支                     | Luna   | `high`                |
-| 批量分析、常规多文件修改                   | Luna   | `medium`              |
-| 机械检索、统计、格式调整、指定命令         | Luna   | `low`                 |
-| 一两个命令即可完成的小任务                 | Sol    | `xhigh`，避免交接开销 |
+每次选择 Luna 时，路由结论必须显式声明 Sol 保留真实 diff 检查、关键验证复跑、最终审查、验收裁决和提交责任；不能只在通用规则中隐含这一点。
 
-只有以下条件全部满足时才降低 Luna 的 effort：
+| 任务                                                         | 执行者 | Reasoning effort      |
+| ------------------------------------------------------------ | ------ | --------------------- |
+| 需求取舍、架构设计、复杂根因、跨模块不变量                   | Sol    | `xhigh`               |
+| 复杂实现、并发、事务、兼容性、安全、解析器、文件系统语义     | Sol    | `xhigh`               |
+| 最终审查、风险判断、验收裁决                                 | Sol    | `xhigh`               |
+| 已冻结、低风险、可确定性验收的多文件或耗时简单实施           | Luna   | 默认 `xhigh`          |
+| 已冻结的局部简单任务，只有少量明确分支；需阅读源码并归类用途  | Luna   | `high`                |
+| 对显式列出的项目执行相同转换，无需理解内容或分类的批量操作    | Luna   | `medium`              |
+| 纯计数、格式转换、指定命令，不读取源码内容或推断语义          | Luna   | `low`                 |
+| 一两个命令即可完成的小任务                                   | Sol    | `xhigh`，避免交接开销 |
+
+只有以下条件全部满足时才使用 Luna；不满足任一项就由 Sol `xhigh` 处理：
 
 - 没有需求或产品歧义；
 - 不涉及架构、数据模型、兼容性、安全或高风险操作；
@@ -43,7 +46,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 - 错误能被测试或确定性规则发现；
 - 失败可以安全停止且没有难恢复的副作用。
 
-任务使用低于 `xhigh` 的 effort 时，在调用脚本时提供具体 `DowngradeReason`。不要让 Luna 自行改变 effort，也不要在失败后自动提高 effort 重跑。
+在 Luna 资格成立后，只有局部任务且分支少而明确时才降到 `high`；代码盘点如果需要追踪封装、理解上下文、归类用途或判断遗漏，也必须至少使用 `high`。只有对显式输入执行相同转换、无需理解内容和分类时才降到 `medium`；只有纯计数、格式转换或指定命令，且不读取源码内容、不推断语义时才降到 `low`。任务使用低于 `xhigh` 的 effort 时，在调用脚本时提供具体 `DowngradeReason`。不要让 Luna 自行改变 effort，也不要在失败后自动提高 effort 重跑。
 
 ## 冻结任务包
 
@@ -54,7 +57,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 - `read-only-analysis` 或 `implementation`；
 - 目标、上下文和已确认决策；
 - 非目标、允许范围和禁止范围；
-- `Allowed Changed Paths` JSON 数组；实施任务逐项列出允许修改的仓库相对文件，只读任务固定为 `[]`；
+- `Allowed Changed Paths` JSON 数组；实施任务逐项列出允许修改的仓库相对文件，只读任务固定为 `[]`；不得使用“对应测试”“相关文件”等占位文本，路径未知时由 Sol 先查明再派发；
 - 可直接执行的步骤及优先级；
 - 验收标准和需要实际运行的验证；
 - 遇到歧义、冲突、失败或范围变化时的停止条件；
@@ -87,6 +90,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .codex\skills\sol-luna-deliv
 - 仅当非零退出且未得到有效结构化结果时才恢复一次，默认等待 15 秒；有 session ID 时只允许 `codex exec resume <SESSION_ID>`，无 session ID 时仅在 HEAD 与工作区相对首轮基线完全未变时允许 fresh initial；
 - 超时、有效 `failed`/`blocked` 结果、零退出但无效结果、最终验证失败、越界或 HEAD 变化均不重试；第 2 次尝试使用独立 result/event/stderr 文件，再聚合 event/stderr，并仅在成功时覆盖 canonical result；
 - 实时保存 Codex JSONL 事件并单独保存 stderr，供进度、失败和 token usage 审计；
+- 运行期间只探测事件文件元数据并限量读取日志头捕获 session，进程结束后才完整解析一次事件；
+- state manifest 记录每次 attempt 和整轮的 usage、耗时、命令统计、日志字节数与最后事件时间；
+- 成功时只向调用方输出紧凑执行摘要和产物路径，不回显完整 JSONL；
 - 为同一仓库的实施任务持有非阻塞写入锁；
 - 校验 Luna 没有创建提交；
 - 对比执行前后的 Git 可见文件状态，校验只读任务没有改动，并校验实施任务的真实改动、路径白名单和 `changedFiles` 一致；
@@ -107,6 +113,8 @@ Luna 完成后，Sol 必须以仓库事实审查：
 ## Token 纪律
 
 - 不传完整线程历史；只传冻结结论、必要路径和验收标准。
+- 优先精确读取目标范围，限制单次工具输出；不要反复读取完整大文件或广泛扫描依赖仓库。
+- 可独立的只读命令一次批量执行；验证先定向、后综合，完整构建最多在最终阶段运行一次。
 - 对重复结果分组汇总，同时保留关键文件和行号证据。
 - 输出使用结构化 Schema，避免过程叙述。
 - 事件中存在 usage 数据时记录真实值；没有时只记录请求模型、effort、耗时和退出码，不估算 token。

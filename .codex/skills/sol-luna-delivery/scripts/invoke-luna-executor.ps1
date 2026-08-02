@@ -638,7 +638,63 @@ function Get-AttemptPath {
   return Join-Path $directory ("{0}.attempt-{1}{2}" -f $stem, $AttemptNumber, $extension)
 }
 
-function Get-AttemptEventSummary {
+function Get-UsageTokenValue {
+  param(
+    [AllowNull()]
+    [object]$Usage,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  if ($null -eq $Usage) {
+    return [int64]0
+  }
+  $value = if ($Usage -is [System.Collections.IDictionary]) {
+    $Usage[$Name]
+  } else {
+    $property = $Usage.PSObject.Properties[$Name]
+    if ($null -eq $property) { $null } else { $property.Value }
+  }
+  $parsed = [int64]0
+  if ($null -ne $value -and [int64]::TryParse([string]$value, [ref]$parsed)) {
+    return $parsed
+  }
+  return [int64]0
+}
+
+function ConvertTo-UsageRecord {
+  param([AllowNull()][object]$Usage)
+
+  if ($null -eq $Usage) {
+    return $null
+  }
+  return [ordered]@{
+    input_tokens = Get-UsageTokenValue -Usage $Usage -Name "input_tokens"
+    cached_input_tokens = Get-UsageTokenValue -Usage $Usage -Name "cached_input_tokens"
+    output_tokens = Get-UsageTokenValue -Usage $Usage -Name "output_tokens"
+    reasoning_output_tokens = Get-UsageTokenValue -Usage $Usage -Name "reasoning_output_tokens"
+  }
+}
+
+function Add-UsageRecords {
+  param(
+    [AllowNull()][object]$Left,
+    [AllowNull()][object]$Right
+  )
+
+  if ($null -eq $Left -and $null -eq $Right) {
+    return $null
+  }
+  return [ordered]@{
+    input_tokens = (Get-UsageTokenValue -Usage $Left -Name "input_tokens") + (Get-UsageTokenValue -Usage $Right -Name "input_tokens")
+    cached_input_tokens = (Get-UsageTokenValue -Usage $Left -Name "cached_input_tokens") + (Get-UsageTokenValue -Usage $Right -Name "cached_input_tokens")
+    output_tokens = (Get-UsageTokenValue -Usage $Left -Name "output_tokens") + (Get-UsageTokenValue -Usage $Right -Name "output_tokens")
+    reasoning_output_tokens = (Get-UsageTokenValue -Usage $Left -Name "reasoning_output_tokens") + (Get-UsageTokenValue -Usage $Right -Name "reasoning_output_tokens")
+  }
+}
+
+function Get-AttemptEventMetadata {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
@@ -647,32 +703,18 @@ function Get-AttemptEventSummary {
     [ref]$ObservedLength
   )
 
-  $threadId = $null
-  $usage = $null
   $latestEventUtc = $null
   $hasNewContent = $false
   $readError = $null
+  $eventBytes = [int64]0
   if (Test-Path -LiteralPath $Path -PathType Leaf) {
     try {
       $item = Get-Item -LiteralPath $Path -Force
-      $length = [int64]$item.Length
-      if ($length -ne $ObservedLength.Value) {
+      $eventBytes = [int64]$item.Length
+      if ($eventBytes -ne $ObservedLength.Value) {
         $hasNewContent = $true
         $latestEventUtc = $item.LastWriteTimeUtc
-        $ObservedLength.Value = $length
-      }
-      foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
-        try {
-          $event = $line | ConvertFrom-Json -ErrorAction Stop
-          if ($event.type -eq "thread.started" -and $event.thread_id -is [string] -and ![string]::IsNullOrWhiteSpace($event.thread_id)) {
-            $threadId = $event.thread_id
-          }
-          if ($event.type -eq "turn.completed" -and $null -ne $event.usage) {
-            $usage = $event.usage
-          }
-        } catch {
-          # A concurrently written or diagnostic line is ignored until the next poll.
-        }
+        $ObservedLength.Value = $eventBytes
       }
     } catch {
       $readError = $_.Exception.Message
@@ -680,10 +722,106 @@ function Get-AttemptEventSummary {
   }
 
   return [PSCustomObject]@{
-    ThreadId = $threadId
-    Usage = $usage
     LatestEventUtc = $latestEventUtc
     HasNewContent = $hasNewContent
+    EventBytes = $eventBytes
+    ReadError = $readError
+  }
+}
+
+function Get-ThreadIdFromEventHead {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [int]$MaxLines = 64,
+    [int64]$MaxBytes = 65536
+  )
+
+  if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $null
+  }
+  $stream = $null
+  $reader = $null
+  try {
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 4096, $false)
+    $lineCount = 0
+    while (!$reader.EndOfStream -and $lineCount -lt $MaxLines -and $stream.Position -le $MaxBytes) {
+      $lineCount++
+      $line = $reader.ReadLine()
+      try {
+        $event = $line | ConvertFrom-Json -ErrorAction Stop
+        if ($event.type -eq "thread.started" -and $event.thread_id -is [string] -and ![string]::IsNullOrWhiteSpace($event.thread_id)) {
+          return $event.thread_id
+        }
+      } catch {
+        # The last line may still be in flight; retry the bounded head scan after growth.
+      }
+    }
+  } catch {
+    return $null
+  } finally {
+    if ($null -ne $reader) { $reader.Dispose() }
+    elseif ($null -ne $stream) { $stream.Dispose() }
+  }
+  return $null
+}
+
+function Get-CompletedEventSummary {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $threadId = $null
+  $usage = $null
+  $commandCount = 0
+  $failedCommandCount = 0
+  $eventBytes = [int64]0
+  $latestEventUtc = $null
+  $readError = $null
+  $stream = $null
+  $reader = $null
+  if (Test-Path -LiteralPath $Path -PathType Leaf) {
+    try {
+      $item = Get-Item -LiteralPath $Path -Force
+      $eventBytes = [int64]$item.Length
+      $latestEventUtc = $item.LastWriteTimeUtc
+      $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+      $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 4096, $false)
+      while (!$reader.EndOfStream) {
+        $line = $reader.ReadLine()
+        try {
+          $event = $line | ConvertFrom-Json -ErrorAction Stop
+          if ($event.type -eq "thread.started" -and $event.thread_id -is [string] -and ![string]::IsNullOrWhiteSpace($event.thread_id)) {
+            $threadId = $event.thread_id
+          }
+          if ($event.type -eq "turn.completed" -and $null -ne $event.usage) {
+            $usage = Add-UsageRecords -Left $usage -Right (ConvertTo-UsageRecord -Usage $event.usage)
+          }
+          if ($event.type -eq "item.completed" -and $null -ne $event.item -and $event.item.type -eq "command_execution") {
+            $commandCount++
+            $exitCodeProperty = $event.item.PSObject.Properties["exit_code"]
+            $statusProperty = $event.item.PSObject.Properties["status"]
+            if (($null -ne $exitCodeProperty -and [int]$exitCodeProperty.Value -ne 0) -or ($null -ne $statusProperty -and $statusProperty.Value -eq "failed")) {
+              $failedCommandCount++
+            }
+          }
+        } catch {
+          # Ignore non-JSON diagnostics and a final partial line; stderr remains authoritative.
+        }
+      }
+    } catch {
+      $readError = $_.Exception.Message
+    } finally {
+      if ($null -ne $reader) { $reader.Dispose() }
+      elseif ($null -ne $stream) { $stream.Dispose() }
+    }
+  }
+
+  return [PSCustomObject]@{
+    ThreadId = $threadId
+    Usage = $usage
+    CommandCount = $commandCount
+    FailedCommandCount = $failedCommandCount
+    EventBytes = $eventBytes
+    LatestEventUtc = $latestEventUtc
     ReadError = $readError
   }
 }
@@ -911,8 +1049,15 @@ function Invoke-CodexAttempt {
     exitCode = $null
     startedUtc = $startedUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
     completedUtc = $null
+    durationSeconds = $null
     status = "starting"
     error = $null
+    usage = $null
+    commandCount = 0
+    failedCommandCount = 0
+    eventBytes = 0
+    stderrBytes = 0
+    lastEventUtc = $null
   }
   $null = $State.attempts.Add($attemptRecord)
   $State.status = "running"
@@ -938,20 +1083,20 @@ function Invoke-CodexAttempt {
     $process = Start-CodexProcess -Command $Command -RunnerPath $runnerPath -ArgumentsPath $argumentsPath -ExitCodePath $exitCodePath -PromptPath $promptPath -StdoutPath $EventPath -StderrPath $StderrPath
     $nextHeartbeatUtc = [DateTime]::UtcNow.AddSeconds($HeartbeatSeconds)
     while (!$process.WaitForExit(250)) {
-      $eventInfo = Get-AttemptEventSummary -Path $EventPath -ObservedLength ([ref]$observedLength)
+      $eventInfo = Get-AttemptEventMetadata -Path $EventPath -ObservedLength ([ref]$observedLength)
       if ($eventInfo.HasNewContent -and $null -ne $eventInfo.LatestEventUtc) {
         $latestEventUtc = $eventInfo.LatestEventUtc
       }
-      if ($null -ne $eventInfo.ThreadId) {
-        $attemptRecord.sessionId = $eventInfo.ThreadId
-        if ($State.sessionId -ne $eventInfo.ThreadId) {
-          $State.sessionId = $eventInfo.ThreadId
-          Write-StateManifest -State $State -Path $StatePath
+      if ($eventInfo.HasNewContent -and [string]::IsNullOrWhiteSpace($sessionId)) {
+        $capturedThreadId = Get-ThreadIdFromEventHead -Path $EventPath
+        if (![string]::IsNullOrWhiteSpace($capturedThreadId)) {
+          $attemptRecord.sessionId = $capturedThreadId
+          if ($State.sessionId -ne $capturedThreadId) {
+            $State.sessionId = $capturedThreadId
+            Write-StateManifest -State $State -Path $StatePath
+          }
+          $sessionId = $capturedThreadId
         }
-        $sessionId = $eventInfo.ThreadId
-      }
-      if ($null -ne $eventInfo.Usage) {
-        $usage = $eventInfo.Usage
       }
       if ([DateTime]::UtcNow -ge $DeadlineUtc) {
         Stop-ProcessTree -Process $process
@@ -966,19 +1111,20 @@ function Invoke-CodexAttempt {
     }
     if (!$timedOut) {
       $process.WaitForExit()
-      $eventInfo = Get-AttemptEventSummary -Path $EventPath -ObservedLength ([ref]$observedLength)
+      $eventInfo = Get-AttemptEventMetadata -Path $EventPath -ObservedLength ([ref]$observedLength)
       if ($eventInfo.HasNewContent -and $null -ne $eventInfo.LatestEventUtc) {
         $latestEventUtc = $eventInfo.LatestEventUtc
       }
-      if ($null -ne $eventInfo.ThreadId) {
-        $attemptRecord.sessionId = $eventInfo.ThreadId
-        if ($State.sessionId -ne $eventInfo.ThreadId) {
-          $State.sessionId = $eventInfo.ThreadId
+      if ([string]::IsNullOrWhiteSpace($sessionId)) {
+        $capturedThreadId = Get-ThreadIdFromEventHead -Path $EventPath
+        if (![string]::IsNullOrWhiteSpace($capturedThreadId)) {
+          $attemptRecord.sessionId = $capturedThreadId
+          if ($State.sessionId -ne $capturedThreadId) {
+            $State.sessionId = $capturedThreadId
+            Write-StateManifest -State $State -Path $StatePath
+          }
+          $sessionId = $capturedThreadId
         }
-        $sessionId = $eventInfo.ThreadId
-      }
-      if ($null -ne $eventInfo.Usage) {
-        $usage = $eventInfo.Usage
       }
     }
     if (!$timedOut) {
@@ -1021,12 +1167,33 @@ function Invoke-CodexAttempt {
     }
   }
 
+  $eventSummary = Get-CompletedEventSummary -Path $EventPath
+  if (![string]::IsNullOrWhiteSpace($eventSummary.ThreadId)) {
+    $sessionId = $eventSummary.ThreadId
+    $State.sessionId = $eventSummary.ThreadId
+  }
+  $usage = $eventSummary.Usage
+  if ($null -ne $eventSummary.LatestEventUtc) {
+    $latestEventUtc = $eventSummary.LatestEventUtc
+  }
+  $stderrBytes = if (Test-Path -LiteralPath $StderrPath -PathType Leaf) {
+    [int64](Get-Item -LiteralPath $StderrPath -Force).Length
+  } else {
+    [int64]0
+  }
   $completedUtc = [DateTime]::UtcNow
   $attemptRecord.exitCode = $exitCode
   $attemptRecord.completedUtc = $completedUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+  $attemptRecord.durationSeconds = [math]::Round(($completedUtc - $startedUtc).TotalSeconds, 3)
   $attemptRecord.sessionId = $sessionId
   $attemptRecord.status = if ($timedOut) { "timed-out" } elseif ($null -ne $attemptError) { "failed" } elseif ($resultValid) { "completed" } else { "invalid-result" }
   $attemptRecord.error = if ($timedOut) { "timeout" } elseif ($null -ne $attemptError) { "process-failure" } elseif (!$resultValid) { "invalid-result" } else { $null }
+  $attemptRecord.usage = $usage
+  $attemptRecord.commandCount = $eventSummary.CommandCount
+  $attemptRecord.failedCommandCount = $eventSummary.FailedCommandCount
+  $attemptRecord.eventBytes = $eventSummary.EventBytes
+  $attemptRecord.stderrBytes = $stderrBytes
+  $attemptRecord.lastEventUtc = if ($null -eq $eventSummary.LatestEventUtc) { $null } else { $eventSummary.LatestEventUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture) }
   if ($null -ne $State.sessionId -and [string]::IsNullOrWhiteSpace($attemptRecord.sessionId)) {
     $attemptRecord.sessionId = $State.sessionId
   }
@@ -1046,6 +1213,12 @@ function Invoke-CodexAttempt {
     AttemptError = $attemptError
     SessionId = $sessionId
     Usage = $usage
+    DurationSeconds = $attemptRecord.durationSeconds
+    CommandCount = $attemptRecord.commandCount
+    FailedCommandCount = $attemptRecord.failedCommandCount
+    EventBytes = $attemptRecord.eventBytes
+    StderrBytes = $attemptRecord.stderrBytes
+    LastEventUtc = $attemptRecord.lastEventUtc
   }
 }
 
@@ -1149,7 +1322,7 @@ try {
   $executionStartedUtc = [DateTime]::UtcNow
   $deadlineUtc = $executionStartedUtc.AddSeconds($TimeoutSeconds)
   $state = [ordered]@{
-    version = 1
+    version = 2
     status = "starting"
     taskType = $TaskType
     model = $model
@@ -1165,6 +1338,13 @@ try {
       stderr = $stderrLogFullPath
     }
     attempts = [Collections.ArrayList]::new()
+    usage = $null
+    durationSeconds = 0
+    commandCount = 0
+    failedCommandCount = 0
+    eventBytes = 0
+    stderrBytes = 0
+    lastEventUtc = $null
     lastError = $null
     updatedUtc = $null
   }
@@ -1184,9 +1364,11 @@ Read and follow the applicable repository instructions already provided by Codex
 
 You are already the Luna executor. Do not invoke the Sol-Luna wrapper, start another Codex agent, or delegate this packet again.
 
+Use exact target paths and focused ranges. Batch independent read-only commands when practical, limit individual tool output, and do not repeatedly read complete large files. Do not broadly scan dependency repositories. Run targeted validation before broader checks, and run a full build at most once at the end when the packet requires it.
+
 If required information is missing, instructions conflict, the worktree changes unexpectedly, or the task reaches a new product or architecture decision, stop and return status "blocked" with evidence. Never report success when a required validation failed or was not run.
 
-Do not emit progress or interim agent messages. Use tools as needed, then emit exactly one final JSON object that matches the provided output schema. Echo taskType and reasoningEffort exactly as supplied by the host.
+Do not emit progress or interim agent messages. Use tools as needed, then emit exactly one final JSON object that matches the provided output schema. In commands, retain changed-state, validation, and failure-relevant commands; omit routine successful exploration unless it supports a finding. Echo taskType and reasoningEffort exactly as supplied by the host.
 
 <task_packet>
 $taskContent
@@ -1298,11 +1480,19 @@ $taskContent
       -AttemptStderrPath $attemptStderrPath `
       -AttemptNumber $attemptNumber
 
+    $usage = Add-UsageRecords -Left $usage -Right $outcome.Usage
+    $state.usage = $usage
+    $state.commandCount = [int]$state.commandCount + [int]$outcome.CommandCount
+    $state.failedCommandCount = [int]$state.failedCommandCount + [int]$outcome.FailedCommandCount
+    $state.eventBytes = [int64]$state.eventBytes + [int64]$outcome.EventBytes
+    $state.stderrBytes = [int64]$state.stderrBytes + [int64]$outcome.StderrBytes
+    if (![string]::IsNullOrWhiteSpace($outcome.LastEventUtc)) {
+      $state.lastEventUtc = $outcome.LastEventUtc
+    }
+    Write-StateManifest -State $state -Path $stateFullPath
+
     if ($outcome.ResultValid) {
       $result = $outcome.Result
-      if ($null -ne $outcome.Usage) {
-        $usage = $outcome.Usage
-      }
       if ($outcome.ExitCode -ne 0) {
         $executionErrors.Add("Luna executor returned a valid result with exit code $($outcome.ExitCode).")
       }
@@ -1422,12 +1612,6 @@ $taskContent
     }
   }
 
-  $eventObservedLength = [int64]0
-  $eventSummary = Get-AttemptEventSummary -Path $eventLogFullPath -ObservedLength ([ref]$eventObservedLength)
-  if ($null -ne $eventSummary.Usage) {
-    $usage = $eventSummary.Usage
-  }
-
   if ($executionErrors.Count -eq 0 -and $attemptNumber -gt 1) {
     try {
       [IO.File]::Copy($attemptResultPath, $resultFullPath, $true)
@@ -1438,12 +1622,16 @@ $taskContent
 
   if ($executionErrors.Count -eq 0) {
     $state.status = "succeeded"
+    $state.lastError = $null
   } elseif ($state.status -notin @("timed-out", "blocked")) {
     $state.status = "failed"
     $state.lastError = $executionErrors[0]
   } elseif ([string]::IsNullOrWhiteSpace([string]$state.lastError)) {
     $state.lastError = $executionErrors[0]
   }
+  $state.durationSeconds = [math]::Round(([DateTime]::UtcNow - $executionStartedUtc).TotalSeconds, 3)
+  $state.eventBytes = if (Test-Path -LiteralPath $eventLogFullPath -PathType Leaf) { [int64](Get-Item -LiteralPath $eventLogFullPath -Force).Length } else { [int64]0 }
+  $state.stderrBytes = if (Test-Path -LiteralPath $stderrLogFullPath -PathType Leaf) { [int64](Get-Item -LiteralPath $stderrLogFullPath -Force).Length } else { [int64]0 }
   Write-StateManifest -State $state -Path $stateFullPath
 
   $actualSummary = if ($actualChangedPaths.Count -eq 0) { "<none>" } else { $actualChangedPaths -join ", " }
@@ -1452,18 +1640,29 @@ $taskContent
     throw "$details Final HEAD: $finalHead. Actual changed paths: $actualSummary. Event log: $eventLogFullPath. Stderr log: $stderrLogFullPath. State manifest: $stateFullPath."
   }
 
-  if (Test-Path -LiteralPath $eventLogFullPath -PathType Leaf) {
-    Get-Content -LiteralPath $eventLogFullPath -Encoding UTF8 | Write-Output
+  $compactSummary = [ordered]@{
+    status = $result.status
+    taskType = $TaskType
+    model = $model
+    effort = $ReasoningEffort
+    attemptCount = $state.attempts.Count
+    durationSeconds = $state.durationSeconds
+    usage = $state.usage
+    commandCount = $state.commandCount
+    failedCommandCount = $state.failedCommandCount
+    actualChangedPathCount = $actualChangedPaths.Count
+    paths = [ordered]@{
+      result = $resultFullPath
+      eventLog = $eventLogFullPath
+      stderrLog = $stderrLogFullPath
+      state = $stateFullPath
+    }
   }
-  Write-Host "Luna executor completed with status '$($result.status)'."
-  Write-Host "Result: $resultFullPath"
-  Write-Host "Event log: $eventLogFullPath"
-  Write-Host "Stderr log: $stderrLogFullPath"
-  Write-Host "State manifest: $stateFullPath"
-  Write-Host "Actual changed paths: $actualSummary"
-  if ($null -ne $usage) {
-    Write-Host "Usage: input=$($usage.input_tokens), cached-input=$($usage.cached_input_tokens), output=$($usage.output_tokens), reasoning-output=$($usage.reasoning_output_tokens)"
+  $compactJson = ConvertTo-Json -InputObject $compactSummary -Depth 5 -Compress
+  if ([Text.Encoding]::UTF8.GetByteCount($compactJson) -ge 4096) {
+    throw "Compact success summary exceeded 4096 bytes. Result: $resultFullPath. Event log: $eventLogFullPath. Stderr log: $stderrLogFullPath. State manifest: $stateFullPath."
   }
+  Write-Output $compactJson
 } finally {
   if ($ownsWriterMutex -and $null -ne $writerMutex) {
     try { $writerMutex.ReleaseMutex() } catch { }
