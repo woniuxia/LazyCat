@@ -14,6 +14,7 @@ const DOMAINS: &[&str] = &[
     "encode",
     "convert",
     "text",
+    "test_email_assistant",
     "time",
     "gen",
     "regex",

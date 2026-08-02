@@ -62,6 +62,9 @@ const toolRegistry: Record<string, Component> = {
   widget: defineAsyncComponent(() => import("./components/WidgetPanel.vue")),
   "release-package": defineAsyncComponent(() => import("./components/ReleasePackagePanel.vue")),
   "action-center": defineAsyncComponent(() => import("./components/ActionCenterPanel.vue")),
+  "test-email-assistant": defineAsyncComponent(
+    () => import("./components/TestEmailAssistantPanel.vue"),
+  ),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };
 

@@ -33,6 +33,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "widget", name: "桌面挂件", desc: "在桌面挂件中显示今日仪表盘" },
         { id: "release-package", name: "上线包打包", desc: "按项目构建前后端并归档上线产物" },
         { id: "action-center", name: "动作中心", desc: "组合并一键运行常用开发动作" },
+        {
+          id: "test-email-assistant",
+          name: "测试邮件助手",
+          desc: "从 Word 模板生成测试报告并整理邮件正文",
+        },
       ],
     },
   },

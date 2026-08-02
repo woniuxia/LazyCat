@@ -492,6 +492,14 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:reveal-in-folder": { domain: "system", action: "reveal_in_folder" },
   "tool:system:check-paths-exist": { domain: "system", action: "check_paths_exist" },
   "tool:system:local-ips": { domain: "system", action: "local_ips" },
+  "tool:test-email-assistant:inspect-template": {
+    domain: "test_email_assistant",
+    action: "inspect_template",
+  },
+  "tool:test-email-assistant:generate-document": {
+    domain: "test_email_assistant",
+    action: "generate_document",
+  },
   "tool:widget:dashboard-data": { domain: "widget", action: "dashboard_data" },
   "tool:widget:apply": { domain: "widget", action: "apply" },
   "tool:widget:pause": { domain: "widget", action: "pause" },

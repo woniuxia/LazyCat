@@ -214,3 +214,7 @@ export type {
   ReleasePackageLogEvent,
   ReleasePackageStatusEvent,
 } from "./release-package";
+export type {
+  TestEmailAssistantInspectResult,
+  TestEmailAssistantGenerateResult,
+} from "./test-email-assistant";

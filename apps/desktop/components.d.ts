@@ -179,6 +179,7 @@ declare module 'vue' {
     SqlEntityBaseClassDialog: typeof import('./src/components/SqlEntityBaseClassDialog.vue')['default']
     SqlEntityPanel: typeof import('./src/components/SqlEntityPanel.vue')['default']
     TabBar: typeof import('./src/components/TabBar.vue')['default']
+    TestEmailAssistantPanel: typeof import('./src/components/TestEmailAssistantPanel.vue')['default']
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
     TimestampPanel: typeof import('./src/components/TimestampPanel.vue')['default']
     TodoBasicsDialog: typeof import('./src/components/todo/TodoBasicsDialog.vue')['default']

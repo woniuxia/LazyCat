@@ -51,6 +51,7 @@ pub mod settings;
 pub mod snippets;
 pub mod sql_entity;
 pub mod system;
+pub mod test_email_assistant;
 pub mod text;
 pub mod time;
 pub mod todo;
@@ -78,6 +79,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "encode" => encode::execute(action, payload),
         "convert" => convert::execute(action, payload),
         "text" => text::execute(action, payload),
+        "test_email_assistant" => test_email_assistant::execute(action, payload),
         "time" => time::execute(action, payload),
         "gen" => gen::execute(action, payload),
         "regex" => regex::execute(action, payload),
@@ -129,6 +131,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "encode" => Some(encode::supported_actions()),
         "convert" => Some(convert::supported_actions()),
         "text" => Some(text::supported_actions()),
+        "test_email_assistant" => Some(test_email_assistant::supported_actions()),
         "time" => Some(time::supported_actions()),
         "gen" => Some(gen::supported_actions()),
         "regex" => Some(regex::supported_actions()),
