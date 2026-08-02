@@ -14,20 +14,19 @@
     },
     {
       "id": 2,
-      "prompt": "请盘点 apps/desktop/src 下所有 localStorage 使用点，按 key、读写位置、用途输出表格。范围和输出已经明确，只做只读分析。请决定执行模型和推理强度，生成完整任务包但不要真正执行。",
-      "expected_output": "委派 Luna high，因盘点范围较大且仍需归类用途，不使用 medium/low，并生成完整只读任务包。",
+      "prompt": "请盘点 apps/desktop/src 下所有 localStorage 使用点，按 key、读写位置、用途输出表格。范围和输出已经明确，只做只读分析。请决定执行者，生成完整任务包但不要真正执行。",
+      "expected_output": "委派默认的 Luna xhigh 子代理，并生成完整只读任务包。",
       "files": [],
       "expectations": [
-        "选择 gpt-5.6-luna",
+        "选择默认的 gpt-5.6-luna xhigh 子代理",
         "选择 read-only-analysis",
-        "选择 high 并写出局部明确但仍需少量归类判断的具体降级理由",
         "任务包包含所有必需章节，并以 JSON 数组声明 Allowed Changed Paths 为 []",
         "任务包包含由 Sol 完成并冻结的 Executable Design，明确证据源、检索/归类方法和完整性检查，不把方法选择交给 Luna"
       ]
     },
     {
       "id": 3,
-      "prompt": "方案已确认：只修改 apps/desktop/src/components/RequestForwardPanel.vue、apps/desktop/src/bridge/tauri.ts、apps/desktop/src-tauri/src/tools/request_forward/validation.rs、apps/desktop/src/components/RequestForwardPanel.test.ts、apps/desktop/src/components/RequestForwardPanel.behavior.test.ts。前端提交前去除目标地址首尾空格；Rust 拒绝空地址并返回原有 validation error 类型；不新增持久化、依赖或 UI。验收运行对应前端单测、cargo test request_forward 和 pnpm typecheck。dirty 文件冲突、错误类型需要改变或测试无法运行时停止。预计执行和测试较耗时。请决定执行模型和推理强度，生成完整任务包但不要修改文件。",
+      "prompt": "方案已确认：只修改 apps/desktop/src/components/RequestForwardPanel.vue、apps/desktop/src/bridge/tauri.ts、apps/desktop/src-tauri/src/tools/request_forward/validation.rs、apps/desktop/src/components/RequestForwardPanel.test.ts、apps/desktop/src/components/RequestForwardPanel.behavior.test.ts。前端提交前去除目标地址首尾空格；Rust 拒绝空地址并返回原有 validation error 类型；不新增持久化、依赖或 UI。验收运行对应前端单测、cargo test request_forward 和 pnpm typecheck。dirty 文件冲突、错误类型需要改变或测试无法运行时停止。预计执行和测试较耗时。请决定执行者，生成完整任务包但不要修改文件。",
       "expected_output": "由 Luna 默认 xhigh 执行，Sol 保留最终 diff 与验证审查责任。",
       "files": [],
       "expectations": [
@@ -40,7 +39,7 @@
     },
     {
       "id": 4,
-      "prompt": "实现一个兼容 Windows junction、符号链接和大小写差异的目录同步器，并处理并发写入时的一致性。验收标准尚未覆盖循环链接和中途失败恢复。请决定执行模型和推理强度；不要修改文件。",
+      "prompt": "实现一个兼容 Windows junction、符号链接和大小写差异的目录同步器，并处理并发写入时的一致性。验收标准尚未覆盖循环链接和中途失败恢复。请决定执行者；不要修改文件。",
       "expected_output": "保留给 Sol xhigh，因为涉及文件系统语义、并发、一致性和未冻结的恢复边界。",
       "files": [],
       "expectations": [
@@ -62,14 +61,13 @@
     },
     {
       "id": 6,
-      "prompt": "将已经给出的 40 个文件路径按扩展名统计数量并输出 CSV；不得读取文件内容，命令和输出格式均已指定。请决定执行模型和推理强度，生成任务包但不要执行。",
-      "expected_output": "可委派 Luna low，因为是无需判断的纯统计和指定格式输出。",
+      "prompt": "将已经给出的 40 个文件路径按扩展名统计数量并输出 CSV；不得读取文件内容，命令和输出格式均已指定。请决定执行者，生成任务包但不要执行。",
+      "expected_output": "由 Sol xhigh 直接完成，因为只有一两个命令，委派成本高于执行成本。",
       "files": [],
       "expectations": [
-        "选择 gpt-5.6-luna low",
-        "给出纯统计、无需读取内容且结果可机械核对的降级理由",
-        "选择 read-only-analysis 且 Allowed Changed Paths 为 []",
-        "任务包包含由 Sol 完成并冻结的 Executable Design，明确指定统计方法且不把方案选择交给 Luna"
+        "识别为一两个命令即可完成的小任务并选择 Sol xhigh",
+        "说明不委派是为了避免交接开销，而不是 Luna 能力不足",
+        "不生成不必要的 Luna 任务包"
       ]
     }
   ]

@@ -1,6 +1,6 @@
-# Executor Task Packet
+# Luna Task Packet
 
-Copy this template to a temporary file outside the repository and replace every instruction with concrete task information. Keep all section headings unchanged because the executor validates them.
+Fill every section with concrete task information, then send the complete packet directly as the `spawn_agent` message with `fork_turns = "none"`.
 
 ## Task Type
 
@@ -8,7 +8,7 @@ Copy this template to a temporary file outside the repository and replace every 
 
 ## Goal
 
-State one concrete result the executor must deliver.
+State one concrete result Luna must deliver.
 
 ## Context
 
@@ -16,7 +16,7 @@ Provide only the repository facts, file paths, current behavior, and constraints
 
 ## Confirmed Decisions
 
-List decisions already made by Sol or the user. The executor must not revisit them.
+List decisions already made by Sol or the user. Luna must not revisit them.
 
 ## Executable Design
 
@@ -28,7 +28,7 @@ List behavior and adjacent work that must remain unchanged. Write `None` only wh
 
 ## Allowed Scope
 
-List the files, directories, commands, and external actions the executor may use.
+List the files, directories, commands, and external actions Luna may use.
 
 ## Allowed Changed Paths
 
@@ -36,11 +36,11 @@ Provide a JSON array of exact repository-relative file paths. Use `[]` for read-
 
 ## Forbidden Scope
 
-List files, behaviors, destructive actions, services, commits, packaging, or other work the executor must not perform.
+List files, behaviors, destructive actions, services, commits, packaging, publishing, child-agent creation, or other work Luna must not perform.
 
 ## Steps
 
-Provide the execution order derived from the frozen `Executable Design`; it must not substitute for that design. Leave only explicitly named mechanical choices to Luna and state where it must stop. Prefer exact target reads and batch independent read-only commands. Do not repeatedly read complete large files or broadly scan dependency repositories. Limit individual command output. Run targeted validation first and any full build only once at the end.
+Provide the execution order derived from the frozen `Executable Design`; it must not substitute for that design. Leave only explicitly named mechanical choices to Luna and state where it must stop. Prefer exact target reads and batch independent read-only commands. Limit individual command output. Run targeted validation first and any full build only once at the end.
 
 ## Acceptance Criteria
 
@@ -56,4 +56,4 @@ Define ambiguity, conflicts, failures, scope changes, dirty-worktree changes, or
 
 ## Output Requirements
 
-List task-specific evidence that must appear in the structured result, such as file and line references, changed files, failed or validation-relevant commands, exit codes, or remaining gaps. Do not repeat routine successful exploration commands unless they are needed to support a finding.
+Require the Markdown response contract from `SKILL.md` plus task-specific evidence such as file and line references, changed files, validation-relevant commands, exit codes, or remaining gaps. Do not repeat routine successful exploration commands unless they support a finding.

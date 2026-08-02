@@ -1,4 +1,4 @@
-# Executor Task Packet
+# Luna Task Packet
 
 ## Task Type
 
@@ -54,4 +54,4 @@ Return blocked if Git metadata cannot be read or the repository root differs fro
 
 ## Output Requirements
 
-Include the count in summary and include both read-only commands in the structured result.
+Include the count in `Summary` and both read-only commands with exit codes in `Commands`.
