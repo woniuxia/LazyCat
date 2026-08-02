@@ -26,6 +26,10 @@ List behavior and adjacent work that must remain unchanged. Write `None` only wh
 
 List the files, directories, commands, and external actions the executor may use.
 
+## Allowed Changed Paths
+
+Provide a JSON array of exact repository-relative file paths. Use `[]` for read-only tasks. Wildcards, directories, absolute paths, and parent traversal are not allowed.
+
 ## Forbidden Scope
 
 List files, behaviors, destructive actions, services, commits, packaging, or other work the executor must not perform.

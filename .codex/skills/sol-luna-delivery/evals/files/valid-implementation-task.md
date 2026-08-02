@@ -24,6 +24,12 @@ Do not change product code, dependencies, behavior, or adjacent documentation.
 
 Modify only the single documentation file named by the real task packet and run read-only validation commands.
 
+## Allowed Changed Paths
+
+[
+  "docs/example.md"
+]
+
 ## Forbidden Scope
 
 Do not commit, reset, restore, package, publish, start services, or access the network.

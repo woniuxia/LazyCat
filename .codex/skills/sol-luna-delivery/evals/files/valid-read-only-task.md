@@ -24,6 +24,10 @@ Do not edit files, inspect generated output, or propose documentation changes.
 
 Read Git metadata and paths under docs. Run read-only Git and ripgrep commands.
 
+## Allowed Changed Paths
+
+[]
+
 ## Forbidden Scope
 
 Do not write files, start services, commit, package, publish, or access the network.

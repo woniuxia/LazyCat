@@ -54,6 +54,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 - `read-only-analysis` 或 `implementation`；
 - 目标、上下文和已确认决策；
 - 非目标、允许范围和禁止范围；
+- `Allowed Changed Paths` JSON 数组；实施任务逐项列出允许修改的仓库相对文件，只读任务固定为 `[]`；
 - 可直接执行的步骤及优先级；
 - 验收标准和需要实际运行的验证；
 - 遇到歧义、冲突、失败或范围变化时的停止条件；
@@ -63,7 +64,7 @@ compatibility: Requires Codex CLI with gpt-5.6-sol, gpt-5.6-luna, xhigh reasonin
 
 ## 执行 Luna
 
-将任务包放在仓库外的临时目录，并为结果和事件日志使用新的文件名。调用：
+将任务包放在仓库外的临时目录，并为结果、事件日志和 stderr 日志使用新的文件名。调用：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .codex\skills\sol-luna-delivery\scripts\invoke-luna-executor.ps1 -TaskPath <task.md> -TaskType implementation -ReasoningEffort xhigh -ResultPath <result.json>
@@ -81,9 +82,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .codex\skills\sol-luna-deliv
 - 把 reasoning effort 显式传给 Codex；
 - 分析任务使用 `read-only`，实施任务使用 `workspace-write`；
 - 通过 [references/executor-result.schema.json](references/executor-result.schema.json) 约束最终结果；
-- 保存 Codex JSONL 事件，供 token usage 可用时审计；
+- 默认 3600 秒超时并在超时后终止执行进程树；
+- 实时保存 Codex JSONL 事件并单独保存 stderr，供进度、失败和 token usage 审计；
+- 为同一仓库的实施任务持有非阻塞写入锁；
 - 校验 Luna 没有创建提交；
-- 校验只读任务没有改变工作区；
+- 对比执行前后的 Git 可见文件状态，校验只读任务没有改动，并校验实施任务的真实改动、路径白名单和 `changedFiles` 一致；
 - 对非零退出码、无效结果和角色不一致显式失败。
 
 ## 审查结果

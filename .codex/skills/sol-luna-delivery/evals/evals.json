@@ -21,7 +21,7 @@
         "选择 gpt-5.6-luna",
         "选择 read-only-analysis",
         "选择 low 或 medium 并写出具体降级理由",
-        "任务包包含所有必需章节"
+        "任务包包含所有必需章节，并以 JSON 数组声明 Allowed Changed Paths 为 []"
       ]
     },
     {
@@ -32,7 +32,7 @@
       "expectations": [
         "选择 gpt-5.6-luna xhigh",
         "选择 implementation",
-        "任务包完整且不让 Luna 重新设计",
+        "任务包完整且不让 Luna 重新设计，并精确声明 Allowed Changed Paths",
         "保留 Sol 最终审查和提交责任"
       ]
     }
