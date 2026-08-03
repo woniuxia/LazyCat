@@ -173,6 +173,9 @@ async function flushPanel(): Promise<void> {
 interface MountPanelOptions {
   restoredTemplate?: unknown;
   restoreError?: Error;
+  lastEmailTemplateId?: unknown;
+  settingsGetError?: Error;
+  settingsSetError?: Error;
 }
 
 async function mountPanel(templates: unknown[], options: MountPanelOptions = {}) {
@@ -180,6 +183,20 @@ async function mountPanel(templates: unknown[], options: MountPanelOptions = {})
     (channel: string, payload: Record<string, unknown>) => {
       if (channel === "tool:test-email-assistant:list-email-templates") {
         return Promise.resolve(templates);
+      }
+      if (channel === "tool:settings:get") {
+        return options.settingsGetError
+          ? Promise.reject(options.settingsGetError)
+          : Promise.resolve(
+              options.lastEmailTemplateId === undefined
+                ? null
+                : { value: options.lastEmailTemplateId },
+            );
+      }
+      if (channel === "tool:settings:set") {
+        return options.settingsSetError
+          ? Promise.reject(options.settingsSetError)
+          : Promise.resolve({ ok: true });
       }
       if (channel === "tool:test-email-assistant:restore-last-word-template") {
         return options.restoreError
@@ -385,6 +402,89 @@ describe("TestEmailAssistantPanel shared field placement", () => {
 });
 
 describe("TestEmailAssistantPanel template library behavior", () => {
+  it("restores the last existing custom email template", async () => {
+    const { app, root } = await mountPanel(storedTemplates, {
+      lastEmailTemplateId: "custom-two",
+    });
+
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith("tool:settings:get", {
+      key: "test-email-assistant:last-email-template-id",
+    });
+    expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe("custom-two");
+    expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe("自定义正文二");
+    app.unmount();
+  });
+
+  it("falls back to the built-in email template for a missing saved template", async () => {
+    const { app, root } = await mountPanel(storedTemplates, {
+      lastEmailTemplateId: "custom-missing",
+      restoredTemplate: {
+        templatePath: "C:\\reports\\last-template.docx",
+        placeholders: ["应用系统名称"],
+      },
+    });
+
+    expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe(
+      BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+    );
+    expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe(DEFAULT_TEST_EMAIL_TEMPLATE);
+    expect(modelValue(findNode(root, (node) => node.props.class === "template-path"))).toBe(
+      "C:\\reports\\last-template.docx",
+    );
+    expect(nodeText(root)).not.toContain("恢复上次邮件正文模板失败");
+    app.unmount();
+  });
+
+  it("keeps settings restore failures visible while restoring the Word template", async () => {
+    const { app, root } = await mountPanel([], {
+      settingsGetError: new Error("设置读取失败"),
+      restoredTemplate: {
+        templatePath: "C:\\reports\\last-template.docx",
+        placeholders: ["应用系统名称"],
+      },
+    });
+
+    expect(nodeText(root)).toContain("恢复上次邮件正文模板失败：设置读取失败");
+    expect(modelValue(findNode(root, (node) => node.props.class === "template-path"))).toBe(
+      "C:\\reports\\last-template.docx",
+    );
+    app.unmount();
+  });
+
+  it("persists a successfully selected custom email template", async () => {
+    const { app, root } = await mountPanel(storedTemplates);
+
+    await (
+      findNodeByAriaLabel(root, "选择邮件正文模板")?.props.onChange as (
+        value: string,
+      ) => Promise<void>
+    )("custom-one");
+    await flushPanel();
+
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith("tool:settings:set", {
+      key: "test-email-assistant:last-email-template-id",
+      value: "custom-one",
+    });
+    app.unmount();
+  });
+
+  it("keeps the selected template and exposes settings write failures", async () => {
+    const { app, root } = await mountPanel(storedTemplates, {
+      settingsSetError: new Error("设置写入失败"),
+    });
+
+    await (
+      findNodeByAriaLabel(root, "选择邮件正文模板")?.props.onChange as (
+        value: string,
+      ) => Promise<void>
+    )("custom-one");
+    await flushPanel();
+
+    expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe("custom-one");
+    expect(nodeText(root)).toContain("保存上次邮件正文模板失败：设置写入失败");
+    app.unmount();
+  });
+
   it("loads custom templates and protects a dirty draft before switching", async () => {
     const confirm = vi
       .spyOn(ElMessageBox, "confirm")
@@ -464,6 +564,10 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     expect(findButton(root, "保存修改")?.props.disabled).toBe(true);
     expect(nodeText(root)).toContain("无修改");
     expect(success).toHaveBeenCalledWith("邮件正文模板已保存");
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith("tool:settings:set", {
+      key: "test-email-assistant:last-email-template-id",
+      value: "custom-new",
+    });
     app.unmount();
   });
 
@@ -552,6 +656,10 @@ describe("TestEmailAssistantPanel template library behavior", () => {
       BUILTIN_TEST_EMAIL_TEMPLATE_ID,
     );
     expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe(DEFAULT_TEST_EMAIL_TEMPLATE);
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith("tool:settings:set", {
+      key: "test-email-assistant:last-email-template-id",
+      value: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+    });
     expect(success).toHaveBeenNthCalledWith(1, "邮件正文模板已重命名");
     expect(success).toHaveBeenNthCalledWith(2, "邮件正文模板已删除");
     app.unmount();

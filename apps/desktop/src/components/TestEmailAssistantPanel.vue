@@ -256,6 +256,8 @@ import {
   renderEmailTemplate,
 } from "../utils/testEmailAssistant";
 
+const LAST_EMAIL_TEMPLATE_ID_SETTING_KEY = "test-email-assistant:last-email-template-id";
+
 const templatePath = ref("");
 const wordPlaceholders = ref<string[]>([]);
 const emailTemplate = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
@@ -319,11 +321,19 @@ onMounted(() => {
 
 async function initializePanel() {
   await loadEmailTemplates();
+  await restoreLastEmailTemplate();
   await restoreLastWordTemplate();
 }
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parseLastEmailTemplateId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value !== "object") return null;
+  const storedValue = (value as { value?: unknown }).value;
+  return typeof storedValue === "string" ? storedValue : null;
 }
 
 function isMessageBoxCancellation(error: unknown): boolean {
@@ -356,11 +366,11 @@ function requireActiveCustomEmailTemplate(action: string): TestEmailBodyTemplate
   return template;
 }
 
-function applyEmailTemplate(template: TestEmailBodyTemplate) {
+function applyEmailTemplate(template: TestEmailBodyTemplate, clearError = true) {
   activeEmailTemplateId.value = template.id;
   loadedEmailTemplateContent.value = template.content;
   emailTemplate.value = template.content;
-  errorMessage.value = "";
+  if (clearError) errorMessage.value = "";
 }
 
 async function selectEmailTemplate(id: string) {
@@ -393,6 +403,7 @@ async function selectEmailTemplate(id: string) {
   }
 
   applyEmailTemplate(template);
+  await persistLastEmailTemplateSelection(template.id);
 }
 
 function validateEmailTemplateName(name: string, excludedId?: string): true | string {
@@ -416,6 +427,42 @@ async function loadEmailTemplates() {
     customEmailTemplates.value = normalizeTestEmailBodyTemplates(templates);
   } catch (error) {
     errorMessage.value = `加载邮件正文模板失败：${formatError(error)}`;
+  } finally {
+    templatePersistencePending.value = false;
+  }
+}
+
+async function restoreLastEmailTemplate() {
+  templatePersistencePending.value = true;
+  try {
+    const storedValue = await invokeToolByChannel("tool:settings:get", {
+      key: LAST_EMAIL_TEMPLATE_ID_SETTING_KEY,
+    });
+    const templateId = parseLastEmailTemplateId(storedValue);
+    if (!templateId?.trim() || templateId === BUILTIN_TEST_EMAIL_TEMPLATE_ID) return;
+
+    const template = customEmailTemplates.value.find((item) => item.id === templateId);
+    if (template) applyEmailTemplate(template, false);
+  } catch (error) {
+    const restoreError = `恢复上次邮件正文模板失败：${formatError(error)}`;
+    errorMessage.value = errorMessage.value
+      ? `${errorMessage.value}；${restoreError}`
+      : restoreError;
+  } finally {
+    templatePersistencePending.value = false;
+  }
+}
+
+async function persistLastEmailTemplateSelection(templateId: string) {
+  templatePersistencePending.value = true;
+  errorMessage.value = "";
+  try {
+    await invokeToolByChannel("tool:settings:set", {
+      key: LAST_EMAIL_TEMPLATE_ID_SETTING_KEY,
+      value: templateId,
+    });
+  } catch (error) {
+    errorMessage.value = `保存上次邮件正文模板失败：${formatError(error)}`;
   } finally {
     templatePersistencePending.value = false;
   }
@@ -477,6 +524,7 @@ async function saveEmailTemplateAs() {
 
   customEmailTemplates.value = [...customEmailTemplates.value, newTemplate];
   applyEmailTemplate(newTemplate);
+  await persistLastEmailTemplateSelection(newTemplate.id);
   ElMessage.success("邮件正文模板已保存");
 }
 
@@ -587,6 +635,7 @@ async function deleteEmailTemplate() {
     (template) => template.id !== currentTemplate.id,
   );
   applyEmailTemplate(findEmailTemplateById(BUILTIN_TEST_EMAIL_TEMPLATE_ID));
+  await persistLastEmailTemplateSelection(BUILTIN_TEST_EMAIL_TEMPLATE_ID);
   ElMessage.success("邮件正文模板已删除");
 }
 
