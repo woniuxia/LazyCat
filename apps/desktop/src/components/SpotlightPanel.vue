@@ -52,9 +52,7 @@
       <div v-else-if="results.length === 0" class="spotlight-empty" role="status">
         {{
           providerFailureMessage ||
-          (query.trim()
-            ? "没有匹配的结果"
-            : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目")
+          (query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目")
         }}
       </div>
       <div
@@ -168,6 +166,7 @@ import {
 } from "../spotlight/keyword-resolver";
 import type {
   KeywordCommandInvocation,
+  ProviderDescriptor,
   SpotlightAction,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
@@ -654,6 +653,17 @@ async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
   }
 }
 
+async function runProviderAction(
+  provider: ProviderDescriptor,
+  action: () => Promise<SpotlightExecuteResult>,
+): Promise<SpotlightExecuteResult> {
+  const result = await action();
+  if (!result.errorMessage && result.refreshProvider) {
+    await spotlightEngine.refreshProvider(provider, { refreshUsage: true });
+  }
+  return result;
+}
+
 async function commitDefault(item: SpotlightItem) {
   if (executing.value) return;
   if (isKeywordItem(item)) {
@@ -697,7 +707,9 @@ async function commitDefault(item: SpotlightItem) {
   }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider) return;
-  await runWithRunner(() => provider.defaultAction(item, buildContext()));
+  await runWithRunner(() =>
+    runProviderAction(provider, () => provider.defaultAction(item, buildContext())),
+  );
 }
 
 function openActionMenu(item: SpotlightItem) {
@@ -739,13 +751,15 @@ async function onActionSelect(action: SpotlightAction) {
   }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider) return;
-  await runWithRunner(async () => {
-    const ctx = buildContext();
-    if (provider.executeAction) {
-      return provider.executeAction(item, action.id, ctx);
-    }
-    return provider.defaultAction(item, ctx);
-  });
+  await runWithRunner(() =>
+    runProviderAction(provider, () => {
+      const ctx = buildContext();
+      if (provider.executeAction) {
+        return provider.executeAction(item, action.id, ctx);
+      }
+      return provider.defaultAction(item, ctx);
+    }),
+  );
 }
 
 async function retryLast() {

@@ -24,19 +24,22 @@ export class RecommendationRanker {
     limit: number,
   ): ScoredSpotlightItem[] {
     const candidates = [...itemsByProvider.entries()].flatMap(([providerId, items]) =>
-      items.map((item, index) => {
+      items.flatMap((item, index) => {
+        if (item.ranking?.recommendationEligible === false) return [];
         const usage = itemUsageSummary(item, this.summaries);
         const usageScore = normalizeUsageScore(usage);
         const contextual = item.ranking?.contextual === true;
-        return {
-          item,
-          score: Number(contextual) * 3 + businessScore(item) * 2 + usageScore,
-          contextual,
-          usageScore,
-          lastUsedAt: usage?.lastUsedAt ?? 0,
-          sourceOrder: item.ranking?.sourceOrder ?? index,
-          providerOrder: this.providerOrder.get(providerId) ?? Number.MAX_SAFE_INTEGER,
-        };
+        return [
+          {
+            item,
+            score: Number(contextual) * 3 + businessScore(item) * 2 + usageScore,
+            contextual,
+            usageScore,
+            lastUsedAt: usage?.lastUsedAt ?? 0,
+            sourceOrder: item.ranking?.sourceOrder ?? index,
+            providerOrder: this.providerOrder.get(providerId) ?? Number.MAX_SAFE_INTEGER,
+          },
+        ];
       }),
     );
 

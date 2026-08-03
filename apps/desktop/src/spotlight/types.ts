@@ -52,6 +52,7 @@ export interface SpotlightItem {
     favorite?: boolean;
     pinned?: boolean;
     contextual?: boolean;
+    recommendationEligible?: boolean;
     sourceOrder?: number;
   };
   payload?: Record<string, unknown>;
@@ -59,6 +60,7 @@ export interface SpotlightItem {
 
 export interface SpotlightExecuteResult {
   closeSpotlight?: boolean;
+  refreshProvider?: boolean;
   toast?: { message: string; type?: "success" | "error" | "warning" | "info" };
   errorMessage?: string;
 }

@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn spotlight_list_returns_lightweight_normalized_active_items() {
+    fn spotlight_list_returns_only_lightweight_open_items() {
         let conn = create_test_conn();
         conn.execute(
             "INSERT INTO todo_types(id, name, color) VALUES(5, '发布', '#fff')",
@@ -400,15 +400,18 @@ mod tests {
              ) VALUES
                  (1, '已逾期事项', 5, 'P0', 'pending', '2020-01-01T00:00:00Z', 1, 'one_off', NULL, '2020-01-01 00:00:00'),
                  (2, '停用周期已办', NULL, 'P2', 'completed', NULL, 0, 'recurring', 2, '2020-01-02 00:00:00'),
-                 (3, '停用周期待办', NULL, 'P1', 'in_progress', '2099-01-01T00:00:00Z', 0, 'recurring', 3, '2020-01-03 00:00:00');
-             INSERT INTO todo_series_rules(series_id, active) VALUES(2, 0), (3, 0);",
+                 (3, '停用周期待办', NULL, 'P1', 'in_progress', '2099-01-01T00:00:00Z', 0, 'recurring', 3, '2020-01-03 00:00:00'),
+                 (4, '一次性已办', NULL, 'P0', 'completed', NULL, 1, 'one_off', NULL, '2020-01-04 00:00:00'),
+                 (5, '活跃周期已办', NULL, 'P0', 'completed', NULL, 1, 'recurring', 5, '2020-01-05 00:00:00'),
+                 (6, '未来待办', NULL, 'P2', 'pending', '2099-01-02T00:00:00Z', 0, 'one_off', NULL, '2020-01-06 00:00:00');
+             INSERT INTO todo_series_rules(series_id, active) VALUES(2, 0), (3, 0), (5, 1);",
         )
         .unwrap();
 
         let result = spotlight_list_with_conn(&conn).unwrap();
         let items = result["items"].as_array().unwrap();
 
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
         assert_eq!(items[0]["id"], 1);
         assert_eq!(items[0]["typeName"], "发布");
         assert_eq!(items[0]["status"], "pending");
@@ -419,6 +422,11 @@ mod tests {
         assert_eq!(items[1]["id"], 3);
         assert_eq!(items[1]["status"], "pending");
         assert_eq!(items[1]["isOverdue"], false);
+        assert_eq!(items[2]["id"], 6);
+        assert_eq!(items[2]["status"], "pending");
+        assert!(items
+            .iter()
+            .all(|item| item["status"].as_str() == Some(STATUS_PENDING)));
     }
 
     #[test]

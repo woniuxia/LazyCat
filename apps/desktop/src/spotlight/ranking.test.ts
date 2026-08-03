@@ -85,6 +85,27 @@ describe("Spotlight unified ranking", () => {
     expect(businessScore(hosts)).toBe(0);
   });
 
+  it("applies recommendation eligibility only to empty-query ranking", () => {
+    const hiddenTodo = item("hidden-todo", "todo");
+    hiddenTodo.ranking!.recommendationEligible = false;
+    hiddenTodo.ranking!.pinned = true;
+    const visibleTodo = item("visible-todo", "todo");
+    const summaries = new Map([
+      [
+        usageRefKey(hiddenTodo.ranking!.usageRef!),
+        summary({ totalCount: 30, windowCount: 30, lastUsedAt: now }),
+      ],
+    ]);
+
+    const recommendations = new RecommendationRanker([provider("todo", 2)], summaries).rank(
+      new Map([["todo", [hiddenTodo, visibleTodo]]]),
+      2,
+    );
+
+    expect(recommendations.map((entry) => entry.item.itemId)).toEqual(["visible-todo"]);
+    expect(new SearchRanker(summaries).rank(hiddenTodo, 1000)?.item.itemId).toBe("hidden-todo");
+  });
+
   it("applies global usage order with per-provider diversity quotas", () => {
     const toolA = item("tool-a");
     const toolB = item("tool-b");

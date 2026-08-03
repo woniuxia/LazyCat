@@ -13,26 +13,33 @@ import type {
 interface TodoListItem {
   id: number;
   title: string;
-  status: string;
-  priority?: string;
-  displayAt?: string | null;
   eventAt?: string | null;
   isOverdue?: boolean;
   pinned?: boolean;
   typeName?: string | null;
 }
 
-function dueStatus(item: TodoListItem): { text: string; tone: StatusTone } | undefined {
+function isSameLocalDay(value: Date, reference: Date): boolean {
+  return (
+    value.getFullYear() === reference.getFullYear() &&
+    value.getMonth() === reference.getMonth() &&
+    value.getDate() === reference.getDate()
+  );
+}
+
+function isDueToday(item: TodoListItem, now: Date): boolean {
+  if (item.isOverdue || !item.eventAt) return false;
+  const due = new Date(item.eventAt);
+  return !Number.isNaN(due.getTime()) && isSameLocalDay(due, now);
+}
+
+function dueStatus(item: TodoListItem, now: Date): { text: string; tone: StatusTone } | undefined {
   if (item.isOverdue) return { text: "已逾期", tone: "danger" };
 
-  const at = item.eventAt ?? item.displayAt;
-  if (!at) return undefined;
-  const due = new Date(at);
+  if (!item.eventAt) return undefined;
+  const due = new Date(item.eventAt);
   if (Number.isNaN(due.getTime())) return undefined;
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-  if (due < startOfTomorrow) return { text: "今日", tone: "warn" };
+  if (isSameLocalDay(due, now)) return { text: "今日", tone: "warn" };
   return { text: due.toLocaleDateString(), tone: "info" };
 }
 
@@ -44,11 +51,11 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
   const list = Array.isArray(raw) ? raw : raw?.items;
   if (!Array.isArray(list)) throw new Error("任务列表返回格式无效");
 
+  const now = new Date();
   return list.map<SpotlightItem>((todo) => {
-    const status = dueStatus(todo);
-    const isOpen = todo.status !== "done" && todo.status !== "completed";
-    const contextual =
-      isOpen && (todo.pinned === true || todo.isOverdue === true || status?.text === "今日");
+    const dueToday = isDueToday(todo, now);
+    const status = dueStatus(todo, now);
+    const contextual = todo.pinned === true || todo.isOverdue === true || dueToday;
     return {
       providerId: "todo",
       itemId: String(todo.id),
@@ -63,6 +70,7 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
       ranking: {
         pinned: todo.pinned,
         contextual,
+        recommendationEligible: dueToday,
         usageRef: {
           resourceType: "todo-item",
           resourceId: String(todo.id),
@@ -71,7 +79,6 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
       },
       payload: {
         todoId: todo.id,
-        status: todo.status,
         title: todo.title,
       },
     };
@@ -94,21 +101,19 @@ async function defaultAction(item: SpotlightItem): Promise<SpotlightExecuteResul
   return jumpToTodo(todoId);
 }
 
-function buildActions(item: SpotlightItem) {
-  const isDone = item.payload?.status === "done" || item.payload?.status === "completed";
+function buildActions() {
   return [
     { id: "open_todo", label: "跳转到任务详情", icon: "external", shortcut: "Enter" },
-    isDone
-      ? { id: "reopen", label: "重新打开", icon: "rotate" }
-      : { id: "mark_done", label: "标记完成", icon: "check" },
+    { id: "mark_done", label: "标记完成", icon: "check" },
   ];
 }
 
-async function changeStatus(todoId: number, status: string): Promise<SpotlightExecuteResult> {
+async function markDone(todoId: number): Promise<SpotlightExecuteResult> {
   try {
-    await invokeToolByChannel("tool:todo:item-change-status", { id: todoId, status });
+    await invokeToolByChannel("tool:todo:item-change-status", { id: todoId, status: "done" });
     return {
-      toast: { message: status === "done" ? "已标记完成" : "已重新打开", type: "success" },
+      refreshProvider: true,
+      toast: { message: "已标记完成", type: "success" },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -123,8 +128,7 @@ async function executeAction(
   const todoId = item.payload?.todoId as number | undefined;
   if (!todoId) return { errorMessage: "无效 todo" };
   if (actionId === "open_todo") return jumpToTodo(todoId);
-  if (actionId === "mark_done") return changeStatus(todoId, "done");
-  if (actionId === "reopen") return changeStatus(todoId, "pending");
+  if (actionId === "mark_done") return markDone(todoId);
   return { errorMessage: `未知动作 ${actionId}` };
 }
 

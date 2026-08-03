@@ -140,15 +140,15 @@ pub(crate) fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, Strin
     let mut stmt = conn
         .prepare(
             "SELECT i.id, i.title, i.priority, i.status, i.event_at, i.pinned,
-                    i.kind, i.created_at, ty.name, sr.active
+                    i.created_at, ty.name
              FROM todo_items i
              LEFT JOIN todo_types ty ON ty.id = i.type_id
-             LEFT JOIN todo_series_rules sr ON sr.series_id = i.series_id
+             WHERE i.status IN (?1, ?2)
              ORDER BY i.id DESC",
         )
         .map_err(|error| format!("查询 Spotlight 事项失败: {error}"))?;
     let rows = stmt
-        .query_map([], |row| {
+        .query_map(params![STATUS_PENDING, STATUS_IN_PROGRESS], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -157,9 +157,7 @@ pub(crate) fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, Strin
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, i64>(5)? != 0,
                 row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .map_err(|error| format!("映射 Spotlight 事项失败: {error}"))?;
@@ -167,22 +165,8 @@ pub(crate) fn spotlight_list_with_conn(conn: &Connection) -> Result<Value, Strin
     let now = Utc::now();
     let mut items = Vec::new();
     for row in rows {
-        let (
-            id,
-            title,
-            priority,
-            status_raw,
-            event_at,
-            pinned,
-            kind,
-            created_at,
-            type_name,
-            rule_active,
-        ) = row.map_err(|error| format!("读取 Spotlight 事项失败: {error}"))?;
-        let rule_active = rule_active.map(|value| value == 1).unwrap_or(true);
-        if kind == SERIES_KIND_RECURRING && !rule_active && status_raw == STATUS_COMPLETED {
-            continue;
-        }
+        let (id, title, priority, status_raw, event_at, pinned, created_at, type_name) =
+            row.map_err(|error| format!("读取 Spotlight 事项失败: {error}"))?;
         let display_at = event_at
             .clone()
             .unwrap_or_else(|| format_db_datetime(&created_at));
