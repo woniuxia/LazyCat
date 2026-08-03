@@ -1,18 +1,5 @@
 <template>
-  <section class="test-email-assistant-panel" aria-labelledby="test-email-assistant-title">
-    <header class="assistant-header">
-      <div class="assistant-heading">
-        <span class="assistant-kicker">DOCX + EMAIL</span>
-        <h2 id="test-email-assistant-title">测试邮件助手</h2>
-        <p>填写一次测试信息，复制邮件正文并生成一份新的 Word 测试报告。</p>
-      </div>
-      <div class="assistant-actions">
-        <el-button :icon="FolderOpened" :loading="inspecting" @click="chooseTemplate">
-          {{ templatePath ? "重新选择模板" : "选择 Word 模板" }}
-        </el-button>
-      </div>
-    </header>
-
+  <section class="test-email-assistant-panel">
     <section class="assistant-section template-section" aria-labelledby="template-section-title">
       <div class="section-heading">
         <div>
@@ -663,7 +650,6 @@ async function revealOutput() {
   color: var(--lc-text);
 }
 
-.assistant-header,
 .section-heading,
 .generate-row,
 .output-result,
@@ -674,17 +660,6 @@ async function revealOutput() {
   min-width: 0;
 }
 
-.assistant-header {
-  justify-content: space-between;
-  gap: 20px;
-  padding: 4px 2px 18px;
-}
-
-.assistant-heading {
-  min-width: 0;
-}
-
-.assistant-kicker,
 .section-index {
   color: var(--el-color-primary);
   font-size: 11px;
@@ -692,13 +667,6 @@ async function revealOutput() {
   letter-spacing: 0.08em;
 }
 
-.assistant-heading h2 {
-  margin: 4px 0 6px;
-  font-size: 22px;
-  line-height: 1.25;
-}
-
-.assistant-heading p,
 .generate-hint p {
   margin: 0;
   color: var(--el-text-color-secondary);
@@ -706,7 +674,6 @@ async function revealOutput() {
   line-height: 1.6;
 }
 
-.assistant-actions,
 .section-heading > :last-child,
 .generate-row > .el-button,
 .output-result > .el-button {
@@ -967,19 +934,12 @@ async function revealOutput() {
 }
 
 @media (max-width: 760px) {
-  .assistant-header,
   .generate-row,
   .output-result {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .assistant-header {
-    gap: 12px;
-  }
-
-  .assistant-actions,
-  .assistant-actions .el-button,
   .generate-row > .el-button,
   .output-result > .el-button {
     width: 100%;

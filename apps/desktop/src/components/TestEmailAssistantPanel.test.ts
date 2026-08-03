@@ -194,6 +194,11 @@ const source = readFileSync(
 );
 
 describe("TestEmailAssistantPanel source structure", () => {
+  it("starts with the Word template section without a duplicate assistant header", () => {
+    expect(source).not.toContain('class="assistant-header"');
+    expect(source).not.toContain('aria-labelledby="test-email-assistant-title"');
+  });
+
   it("supports template inspection, dynamic fields, and the two output actions", () => {
     expect(source).toContain("tool:test-email-assistant:inspect-template");
     expect(source).toContain("tool:test-email-assistant:generate-document");
