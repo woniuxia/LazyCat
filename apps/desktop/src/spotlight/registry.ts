@@ -57,7 +57,7 @@ export function searchItems(
     const items = itemsByProvider.get(provider.id) ?? [];
     for (const item of items) {
       const relevance = matchPreparedQuery(queryIndex, item.searchFields);
-      const ranked = ranker.rank(item, relevance);
+      const ranked = ranker.rank(item, relevance, queryIndex.normalized);
       if (ranked) scored.push(ranked);
     }
   }

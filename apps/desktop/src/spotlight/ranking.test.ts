@@ -60,7 +60,7 @@ describe("Spotlight unified ranking", () => {
     expect(legacy).toBeGreaterThan(0);
   });
 
-  it("keeps search boosts below a clearly better relevance score", () => {
+  it("lets strong usage and business signals overtake a close relevance score", () => {
     const frequent = item("frequent");
     frequent.ranking!.favorite = true;
     const summaries = new Map([
@@ -71,11 +71,51 @@ describe("Spotlight unified ranking", () => {
     ]);
 
     const ranker = new SearchRanker(summaries);
-    const frequentRank = ranker.rank(frequent, 970)!;
-    const relevantRank = ranker.rank(item("relevant"), 1000)!;
+    const frequentRank = ranker.rank(frequent, 970, "search")!;
+    const relevantRank = ranker.rank(item("relevant"), 1000, "search")!;
 
-    expect(frequentRank.score).toBeLessThan(relevantRank.score);
-    expect(frequentRank.score - frequentRank.relevance).toBeLessThanOrEqual(20);
+    expect(frequentRank.score).toBeGreaterThan(relevantRank.score);
+    expect([relevantRank, frequentRank].sort(SearchRanker.compare)[0].item.itemId).toBe("frequent");
+  });
+
+  it("keeps a clearly better relevance score ahead despite ranking signals", () => {
+    const frequent = item("frequent");
+    frequent.ranking!.favorite = true;
+    const summaries = new Map([
+      [
+        usageRefKey(frequent.ranking!.usageRef!),
+        summary({ totalCount: 500, windowCount: 500, lastUsedAt: now }),
+      ],
+    ]);
+
+    const ranker = new SearchRanker(summaries);
+    const frequentRank = ranker.rank(frequent, 970, "search")!;
+    const relevantRank = ranker.rank(item("relevant"), 2000, "search")!;
+
+    expect(relevantRank.score).toBeGreaterThan(frequentRank.score);
+    expect([frequentRank, relevantRank].sort(SearchRanker.compare)[0].item.itemId).toBe("relevant");
+  });
+
+  it("protects a normalized exact title match from higher-scoring non-exact results", () => {
+    const exact = item("exact");
+    exact.title = "Open-API";
+    const nonExact = item("non-exact");
+    nonExact.title = "Open API docs";
+    nonExact.ranking!.favorite = true;
+    nonExact.ranking!.pinned = true;
+    const summaries = new Map([
+      [
+        usageRefKey(nonExact.ranking!.usageRef!),
+        summary({ totalCount: 500, windowCount: 500, lastUsedAt: now }),
+      ],
+    ]);
+
+    const ranker = new SearchRanker(summaries);
+    const exactRank = ranker.rank(exact, 700, "open api")!;
+    const nonExactRank = ranker.rank(nonExact, 2000, "open api")!;
+
+    expect(nonExactRank.score).toBeGreaterThan(exactRank.score);
+    expect([nonExactRank, exactRank].sort(SearchRanker.compare)[0].item.itemId).toBe("exact");
   });
 
   it("does not treat an already enabled Hosts profile as a positive recommendation signal", () => {
@@ -103,7 +143,9 @@ describe("Spotlight unified ranking", () => {
     );
 
     expect(recommendations.map((entry) => entry.item.itemId)).toEqual(["visible-todo"]);
-    expect(new SearchRanker(summaries).rank(hiddenTodo, 1000)?.item.itemId).toBe("hidden-todo");
+    expect(new SearchRanker(summaries).rank(hiddenTodo, 1000, "hidden todo")?.item.itemId).toBe(
+      "hidden-todo",
+    );
   });
 
   it("applies global usage order with per-provider diversity quotas", () => {
