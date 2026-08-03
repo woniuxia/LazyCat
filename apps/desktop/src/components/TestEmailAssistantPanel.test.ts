@@ -81,7 +81,12 @@ function registerElementStubs(
   const generic = defineComponent({
     inheritAttrs: false,
     setup(_props, { attrs, slots }) {
-      return () => h("div", attrs, slots.default?.());
+      return () =>
+        h(
+          "div",
+          attrs,
+          Object.values(slots).flatMap((slot) => slot?.() ?? []),
+        );
     },
   });
   for (const name of [
@@ -120,6 +125,25 @@ function findNode(root: HostNode, predicate: (node: HostNode) => boolean): HostN
   };
   visit(root);
   return result;
+}
+
+function findNodes(root: HostNode, predicate: (node: HostNode) => boolean): HostNode[] {
+  const results: HostNode[] = [];
+  const visit = (node: HostNode) => {
+    if (predicate(node)) results.push(node);
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return results;
+}
+
+function hasAncestor(node: HostNode | null, predicate: (ancestor: HostNode) => boolean): boolean {
+  let ancestor = node?.parent ?? null;
+  while (ancestor) {
+    if (predicate(ancestor)) return true;
+    ancestor = ancestor.parent;
+  }
+  return false;
 }
 
 function findButton(root: HostNode, text: string): HostNode | null {
@@ -202,7 +226,10 @@ describe("TestEmailAssistantPanel source structure", () => {
   it("supports template inspection, dynamic fields, and the two output actions", () => {
     expect(source).toContain("tool:test-email-assistant:inspect-template");
     expect(source).toContain("tool:test-email-assistant:generate-document");
-    expect(source).toContain('v-for="name in allPlaceholders"');
+    expect(source).toContain('v-for="name in wordPlaceholders"');
+    expect(source).toContain('v-for="name in emailOnlyPlaceholders"');
+    expect(source).toContain("!wordPlaceholders.value.includes(name)");
+    expect(source).not.toContain('class="assistant-section generate-section"');
     expect(source).toContain("isMultilineFieldName(name)");
     expect(source).toContain(':autosize="isMultilineFieldName(name)');
     expect(source).toContain("navigator.clipboard.writeText(emailPreview.value)");
@@ -271,6 +298,46 @@ describe("TestEmailAssistantPanel source structure", () => {
     expect(source).toContain(".template-library-actions");
     expect(source).toContain("flex-basis: 220px");
     expect(source).toContain("text-overflow: ellipsis");
+  });
+});
+
+describe("TestEmailAssistantPanel shared field placement", () => {
+  it("shows shared fields once in the Word section and reuses their values in email preview", async () => {
+    vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
+    dialogHarness.open.mockResolvedValue("C:\\reports\\template.docx");
+    const { app, root } = await mountPanel([]);
+    bridgeHarness.invokeToolByChannel.mockImplementation((channel: string) => {
+      if (channel === "tool:test-email-assistant:inspect-template") {
+        return Promise.resolve({
+          templatePath: "C:\\reports\\template.docx",
+          placeholders: ["称呼", "测试结论"],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    await (findButton(root, "选择")?.props.onClick as () => Promise<void>)();
+    await flushPanel();
+
+    const sharedInputs = findNodes(root, (node) => node.props["aria-label"] === "称呼");
+    expect(sharedInputs).toHaveLength(1);
+    expect(
+      hasAncestor(sharedInputs[0] ?? null, (node) =>
+        String(node.props.class ?? "").includes("template-section"),
+      ),
+    ).toBe(true);
+    expect(findNodeByAriaLabel(root, "功能需求内容")).not.toBeNull();
+    expect(
+      hasAncestor(findButton(root, "生成 Word 测试报告"), (node) =>
+        String(node.props.class ?? "").includes("template-section"),
+      ),
+    ).toBe(true);
+
+    (sharedInputs[0]?.props["onUpdate:modelValue"] as (value: string) => void)("测试同学");
+    await flushPanel();
+
+    expect(nodeText(findNodeByAriaLabel(root, "邮件正文预览") as HostNode)).toContain("测试同学：");
+    app.unmount();
   });
 });
 

@@ -28,6 +28,60 @@
         </el-tag>
       </div>
       <p v-else class="field-help">选择模板后会自动读取正文、页眉、页脚等 Word XML 中的字段。</p>
+
+      <template v-if="wordPlaceholders.length > 0">
+        <div class="fields-heading">
+          <span>Word 填写字段</span>
+          <span class="fields-count">{{ wordPlaceholders.length }} 项</span>
+        </div>
+        <div class="fields-list">
+          <el-form label-position="top" class="fields-form">
+            <el-form-item v-for="name in wordPlaceholders" :key="name" :label="name" required>
+              <el-input
+                v-model="values[name]"
+                :type="isMultilineFieldName(name) ? 'textarea' : 'text'"
+                :autosize="isMultilineFieldName(name) ? { minRows: 3, maxRows: 10 } : false"
+                resize="vertical"
+                :placeholder="`请输入${name}`"
+                :aria-label="name"
+                clearable
+              />
+            </el-form-item>
+          </el-form>
+        </div>
+      </template>
+
+      <div class="word-generation">
+        <div class="generate-row">
+          <div class="generate-hint">
+            <p>生成文件会放在 Word 模板所在目录，原模板不会被修改。</p>
+            <div v-if="missingWordPlaceholders.length > 0" class="validation-message" role="alert">
+              生成前请填写：{{ missingWordPlaceholders.join("、") }}
+            </div>
+          </div>
+          <el-button
+            type="primary"
+            :icon="DocumentAdd"
+            :loading="generating"
+            :disabled="
+              !templatePath || wordPlaceholders.length === 0 || missingWordPlaceholders.length > 0
+            "
+            @click="generateDocument"
+          >
+            生成 Word 测试报告
+          </el-button>
+        </div>
+        <div v-if="outputPath" class="output-result" role="status">
+          <div class="output-copy">
+            <el-icon><CircleCheck /></el-icon>
+            <div>
+              <strong>已生成测试报告</strong>
+              <span :title="outputPath">{{ outputPath }}</span>
+            </div>
+          </div>
+          <el-button :icon="FolderOpened" @click="revealOutput">打开所在位置</el-button>
+        </div>
+      </div>
     </section>
 
     <div class="assistant-workspace">
@@ -120,12 +174,12 @@
         </div>
 
         <div class="fields-heading">
-          <span>填写字段</span>
-          <span class="fields-count">{{ allPlaceholders.length }} 项</span>
+          <span>邮件专用字段</span>
+          <span class="fields-count">{{ emailOnlyPlaceholders.length }} 项</span>
         </div>
-        <div v-if="allPlaceholders.length > 0" class="fields-list">
+        <div v-if="emailOnlyPlaceholders.length > 0" class="fields-list">
           <el-form label-position="top" class="fields-form">
-            <el-form-item v-for="name in allPlaceholders" :key="name" :label="name" required>
+            <el-form-item v-for="name in emailOnlyPlaceholders" :key="name" :label="name" required>
               <el-input
                 v-model="values[name]"
                 :type="isMultilineFieldName(name) ? 'textarea' : 'text'"
@@ -138,6 +192,9 @@
             </el-form-item>
           </el-form>
         </div>
+        <p v-else-if="emailPlaceholders.length > 0" class="field-help">
+          邮件字段已在 Word 模板部分填写，输入值会自动同步到正文预览。
+        </p>
         <el-empty v-else :image-size="48" description="邮件模板中暂无有效占位符" />
       </section>
 
@@ -166,44 +223,6 @@
         </div>
       </section>
     </div>
-
-    <section class="assistant-section generate-section" aria-labelledby="generate-section-title">
-      <div class="section-heading">
-        <div>
-          <span class="section-index">04</span>
-          <h3 id="generate-section-title">生成测试报告</h3>
-        </div>
-      </div>
-      <div class="generate-row">
-        <div class="generate-hint">
-          <p>生成文件会放在 Word 模板所在目录，原模板不会被修改。</p>
-          <div v-if="missingWordPlaceholders.length > 0" class="validation-message" role="alert">
-            生成前请填写：{{ missingWordPlaceholders.join("、") }}
-          </div>
-        </div>
-        <el-button
-          type="primary"
-          :icon="DocumentAdd"
-          :loading="generating"
-          :disabled="
-            !templatePath || wordPlaceholders.length === 0 || missingWordPlaceholders.length > 0
-          "
-          @click="generateDocument"
-        >
-          生成 Word 测试报告
-        </el-button>
-      </div>
-      <div v-if="outputPath" class="output-result" role="status">
-        <div class="output-copy">
-          <el-icon><CircleCheck /></el-icon>
-          <div>
-            <strong>已生成测试报告</strong>
-            <span :title="outputPath">{{ outputPath }}</span>
-          </div>
-        </div>
-        <el-button :icon="FolderOpened" @click="revealOutput">打开所在位置</el-button>
-      </div>
-    </section>
 
     <p v-if="errorMessage" class="assistant-error" role="alert">{{ errorMessage }}</p>
   </section>
@@ -251,6 +270,9 @@ const outputPath = ref("");
 const errorMessage = ref("");
 
 const emailPlaceholders = computed(() => extractPlaceholders(emailTemplate.value));
+const emailOnlyPlaceholders = computed(() =>
+  emailPlaceholders.value.filter((name) => !wordPlaceholders.value.includes(name)),
+);
 const allPlaceholders = computed(() =>
   mergePlaceholders(
     wordPlaceholders.value.map((name) => `{{${name}}}`).join(" "),
@@ -879,8 +901,10 @@ async function revealOutput() {
   font-size: 12px;
 }
 
-.generate-section {
-  padding-bottom: 6px;
+.word-generation {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--lc-border);
 }
 
 .generate-row {
