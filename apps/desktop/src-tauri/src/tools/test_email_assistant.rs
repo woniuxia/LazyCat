@@ -7,7 +7,9 @@ use chrono::Local;
 use quick_xml::escape::unescape;
 use quick_xml::Reader;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json::{json, Map, Value};
+#[cfg(test)]
+use serde_json::Map;
+use serde_json::{json, Value};
 use tempfile::{Builder as TempFileBuilder, NamedTempFile};
 use uuid::Uuid;
 use zip::write::SimpleFileOptions;
@@ -17,6 +19,7 @@ use super::helpers::db_conn;
 
 const ACTIONS: &[&str] = &[
     "inspect_template",
+    "restore_last_word_template",
     "generate_document",
     "list_email_templates",
     "create_email_template",
@@ -92,7 +95,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
 
     match action {
-        "inspect_template" => inspect_template_payload(payload),
+        "inspect_template" => inspect_template_payload_with_conn(&db_conn()?, payload),
+        "restore_last_word_template" => restore_last_word_template_with_conn(&db_conn()?),
         "generate_document" => generate_document_payload(payload),
         "list_email_templates" => list_email_templates_with_conn(&db_conn()?),
         "create_email_template" => create_email_template_with_conn(&db_conn()?, payload),
@@ -118,7 +122,13 @@ pub(super) fn ensure_schema_and_migrate(conn: &Connection) -> Result<(), String>
         CREATE UNIQUE INDEX IF NOT EXISTS idx_test_email_body_templates_name
             ON test_email_body_templates(name COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS idx_test_email_body_templates_sort
-            ON test_email_body_templates(sort_order ASC, created_at ASC, id ASC);",
+            ON test_email_body_templates(sort_order ASC, created_at ASC, id ASC);
+        CREATE TABLE IF NOT EXISTS test_email_word_template_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            template_path TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK(length(trim(template_path)) > 0)
+        );",
     )
     .map_err(|error| format!("create test email template schema failed: {error}"))?;
 
@@ -404,13 +414,53 @@ fn ensure_email_template_name_available(
     Ok(())
 }
 
-fn inspect_template_payload(payload: &Value) -> Result<Value, String> {
+fn inspect_template_payload_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let path = required_template_path(payload)?;
     let placeholders = inspect_docx(&path)?;
-    Ok(json!({
+    conn.execute(
+        "INSERT INTO test_email_word_template_state (id, template_path)
+         VALUES (1, ?1)
+         ON CONFLICT(id) DO UPDATE SET
+            template_path = excluded.template_path,
+            updated_at = CURRENT_TIMESTAMP",
+        params![path.to_string_lossy()],
+    )
+    .map_err(|error| format!("保存上次 Word 模板失败：{error}"))?;
+    Ok(word_template_inspection_value(&path, placeholders))
+}
+
+fn restore_last_word_template_with_conn(conn: &Connection) -> Result<Value, String> {
+    let stored_path = conn
+        .query_row(
+            "SELECT template_path FROM test_email_word_template_state WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("读取上次 Word 模板失败：{error}"))?;
+    let Some(stored_path) = stored_path else {
+        return Ok(Value::Null);
+    };
+    let path = PathBuf::from(&stored_path);
+    if !path.is_absolute() {
+        return Err(format!(
+            "恢复上次 Word 模板失败：记录的路径不是绝对路径：{stored_path}"
+        ));
+    }
+    let placeholders = inspect_docx(&path).map_err(|error| {
+        format!(
+            "恢复上次 Word 模板失败（{}）：{error}",
+            path.to_string_lossy()
+        )
+    })?;
+    Ok(word_template_inspection_value(&path, placeholders))
+}
+
+fn word_template_inspection_value(path: &Path, placeholders: Vec<String>) -> Value {
+    json!({
         "templatePath": path.to_string_lossy(),
         "placeholders": placeholders,
-    }))
+    })
 }
 
 fn generate_document_payload(payload: &Value) -> Result<Value, String> {
@@ -1309,6 +1359,86 @@ mod tests {
             .unwrap();
         assert_eq!(legacy_count, 1);
         assert_eq!(template_count, 0);
+    }
+
+    #[test]
+    fn persists_only_the_last_successfully_inspected_word_template() {
+        let conn = template_connection();
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+        assert_eq!(
+            restore_last_word_template_with_conn(&conn).expect("restore empty state"),
+            Value::Null
+        );
+
+        let directory = tempdir().unwrap();
+        let first_path = directory.path().join("模板一.docx");
+        write_docx(
+            &first_path,
+            r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{{字段一}}</w:t></w:r></w:p></w:body></w:document>"#,
+            None,
+            None,
+        );
+        inspect_template_payload_with_conn(&conn, &json!({ "templatePath": first_path }))
+            .expect("inspect first template");
+
+        let second_path = directory.path().join("模板二.docx");
+        write_docx(
+            &second_path,
+            r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{{应用系统名称}}</w:t></w:r></w:p></w:body></w:document>"#,
+            None,
+            None,
+        );
+        inspect_template_payload_with_conn(&conn, &json!({ "templatePath": second_path }))
+            .expect("inspect second template");
+
+        let restored = restore_last_word_template_with_conn(&conn).expect("restore last template");
+        assert_eq!(
+            restored["templatePath"],
+            second_path.to_string_lossy().as_ref()
+        );
+        assert_eq!(restored["placeholders"], json!(["应用系统名称"]));
+        let state_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM test_email_word_template_state",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state_count, 1);
+    }
+
+    #[test]
+    fn failed_inspection_keeps_the_previous_word_template_and_restore_exposes_stale_paths() {
+        let conn = template_connection();
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+        let directory = tempdir().unwrap();
+        let valid_path = directory.path().join("有效模板.docx");
+        write_docx(
+            &valid_path,
+            r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{{字段}}</w:t></w:r></w:p></w:body></w:document>"#,
+            None,
+            None,
+        );
+        inspect_template_payload_with_conn(&conn, &json!({ "templatePath": valid_path }))
+            .expect("inspect valid template");
+
+        let missing_path = directory.path().join("不存在.docx");
+        let inspect_error =
+            inspect_template_payload_with_conn(&conn, &json!({ "templatePath": missing_path }))
+                .unwrap_err();
+        assert!(inspect_error.contains("无法读取文件元数据"));
+        assert!(inspect_error.contains(missing_path.to_string_lossy().as_ref()));
+        let restored =
+            restore_last_word_template_with_conn(&conn).expect("restore previous template");
+        assert_eq!(
+            restored["templatePath"],
+            valid_path.to_string_lossy().as_ref()
+        );
+
+        fs::remove_file(&valid_path).unwrap();
+        let restore_error = restore_last_word_template_with_conn(&conn).unwrap_err();
+        assert!(restore_error.contains("恢复上次 Word 模板失败"));
+        assert!(restore_error.contains(valid_path.to_string_lossy().as_ref()));
     }
 
     #[test]

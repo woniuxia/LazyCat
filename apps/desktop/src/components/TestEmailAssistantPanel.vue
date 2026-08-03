@@ -314,8 +314,13 @@ watch(
 );
 
 onMounted(() => {
-  void loadEmailTemplates();
+  void initializePanel();
 });
+
+async function initializePanel() {
+  await loadEmailTemplates();
+  await restoreLastWordTemplate();
+}
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -601,8 +606,7 @@ async function chooseTemplate() {
     const result = (await invokeToolByChannel("tool:test-email-assistant:inspect-template", {
       templatePath: path,
     })) as TestEmailAssistantInspectResult;
-    templatePath.value = result.templatePath || path;
-    wordPlaceholders.value = result.placeholders;
+    applyWordTemplateInspection(result, path);
     ElMessage.success(`已识别 ${result.placeholders.length} 个 Word 字段`);
   } catch (error) {
     templatePath.value = "";
@@ -611,6 +615,34 @@ async function chooseTemplate() {
   } finally {
     inspecting.value = false;
   }
+}
+
+async function restoreLastWordTemplate() {
+  inspecting.value = true;
+  try {
+    const result = (await invokeToolByChannel(
+      "tool:test-email-assistant:restore-last-word-template",
+      {},
+    )) as TestEmailAssistantInspectResult | null;
+    if (!result) return;
+    applyWordTemplateInspection(result);
+  } catch (error) {
+    const detail = formatError(error);
+    const restoreError = detail.startsWith("恢复上次 Word 模板失败")
+      ? detail
+      : `恢复上次 Word 模板失败：${detail}`;
+    errorMessage.value = errorMessage.value
+      ? `${errorMessage.value}；${restoreError}`
+      : restoreError;
+  } finally {
+    inspecting.value = false;
+  }
+}
+
+function applyWordTemplateInspection(result: TestEmailAssistantInspectResult, fallbackPath = "") {
+  templatePath.value = result.templatePath || fallbackPath;
+  wordPlaceholders.value = result.placeholders;
+  outputPath.value = "";
 }
 
 function clearValues() {

@@ -496,6 +496,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
     domain: "test_email_assistant",
     action: "inspect_template",
   },
+  "tool:test-email-assistant:restore-last-word-template": {
+    domain: "test_email_assistant",
+    action: "restore_last_word_template",
+  },
   "tool:test-email-assistant:generate-document": {
     domain: "test_email_assistant",
     action: "generate_document",

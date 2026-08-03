@@ -170,11 +170,21 @@ async function flushPanel(): Promise<void> {
   }
 }
 
-async function mountPanel(templates: unknown[]) {
+interface MountPanelOptions {
+  restoredTemplate?: unknown;
+  restoreError?: Error;
+}
+
+async function mountPanel(templates: unknown[], options: MountPanelOptions = {}) {
   bridgeHarness.invokeToolByChannel.mockImplementation(
     (channel: string, payload: Record<string, unknown>) => {
       if (channel === "tool:test-email-assistant:list-email-templates") {
         return Promise.resolve(templates);
+      }
+      if (channel === "tool:test-email-assistant:restore-last-word-template") {
+        return options.restoreError
+          ? Promise.reject(options.restoreError)
+          : Promise.resolve(options.restoredTemplate ?? null);
       }
       if (channel === "tool:test-email-assistant:create-email-template") {
         return Promise.resolve({ id: "custom-created", ...payload });
@@ -225,6 +235,7 @@ describe("TestEmailAssistantPanel source structure", () => {
 
   it("supports template inspection, dynamic fields, and the two output actions", () => {
     expect(source).toContain("tool:test-email-assistant:inspect-template");
+    expect(source).toContain("tool:test-email-assistant:restore-last-word-template");
     expect(source).toContain("tool:test-email-assistant:generate-document");
     expect(source).toContain('v-for="name in wordPlaceholders"');
     expect(source).toContain('v-for="name in emailOnlyPlaceholders"');
@@ -302,6 +313,38 @@ describe("TestEmailAssistantPanel source structure", () => {
 });
 
 describe("TestEmailAssistantPanel shared field placement", () => {
+  it("restores the last Word template and its fields when the panel opens", async () => {
+    const { app, root } = await mountPanel([], {
+      restoredTemplate: {
+        templatePath: "C:\\reports\\last-template.docx",
+        placeholders: ["应用系统名称", "功能需求内容"],
+      },
+    });
+
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith(
+      "tool:test-email-assistant:restore-last-word-template",
+      {},
+    );
+    expect(
+      modelValue(
+        findNode(root, (node) => String(node.props.class ?? "").includes("template-path")),
+      ),
+    ).toBe("C:\\reports\\last-template.docx");
+    expect(findNodeByAriaLabel(root, "应用系统名称")).not.toBeNull();
+    expect(findNodes(root, (node) => node.props["aria-label"] === "功能需求内容")).toHaveLength(1);
+    app.unmount();
+  });
+
+  it("exposes restore failures instead of silently falling back to an empty template", async () => {
+    const { app, root } = await mountPanel([], {
+      restoreError: new Error("模板文件不存在"),
+    });
+
+    expect(nodeText(root)).toContain("恢复上次 Word 模板失败：模板文件不存在");
+    expect(modelValue(findNode(root, (node) => node.props.class === "template-path"))).toBe("");
+    app.unmount();
+  });
+
   it("shows shared fields once in the Word section and reuses their values in email preview", async () => {
     vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
     dialogHarness.open.mockResolvedValue("C:\\reports\\template.docx");
