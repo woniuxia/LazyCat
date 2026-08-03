@@ -9,10 +9,6 @@ import {
   DEFAULT_TEST_EMAIL_TEMPLATE,
 } from "../utils/testEmailAssistant";
 
-const settingsHarness = vi.hoisted(() => ({
-  getSettingJson: vi.fn(),
-  setSettingAndWait: vi.fn(),
-}));
 const dialogHarness = vi.hoisted(() => ({
   open: vi.fn(),
 }));
@@ -20,7 +16,6 @@ const bridgeHarness = vi.hoisted(() => ({
   invokeToolByChannel: vi.fn(),
 }));
 
-vi.mock("../composables/useSettings", () => settingsHarness);
 vi.mock("@tauri-apps/plugin-dialog", () => dialogHarness);
 vi.mock("../bridge/tauri", () => bridgeHarness);
 
@@ -132,10 +127,7 @@ function findButton(root: HostNode, text: string): HostNode | null {
 }
 
 function findButtonByAriaLabel(root: HostNode, label: string): HostNode | null {
-  return findNode(
-    root,
-    (node) => node.type === "button" && node.props["aria-label"] === label,
-  );
+  return findNode(root, (node) => node.type === "button" && node.props["aria-label"] === label);
 }
 
 function findNodeByAriaLabel(root: HostNode, label: string): HostNode | null {
@@ -155,7 +147,23 @@ async function flushPanel(): Promise<void> {
 }
 
 async function mountPanel(templates: unknown[]) {
-  settingsHarness.getSettingJson.mockReturnValue(templates);
+  bridgeHarness.invokeToolByChannel.mockImplementation(
+    (channel: string, payload: Record<string, unknown>) => {
+      if (channel === "tool:test-email-assistant:list-email-templates") {
+        return Promise.resolve(templates);
+      }
+      if (channel === "tool:test-email-assistant:create-email-template") {
+        return Promise.resolve({ id: "custom-created", ...payload });
+      }
+      if (channel === "tool:test-email-assistant:update-email-template") {
+        return Promise.resolve(payload);
+      }
+      if (channel === "tool:test-email-assistant:delete-email-template") {
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.resolve({});
+    },
+  );
   const { default: TestEmailAssistantPanel } = await import("./TestEmailAssistantPanel.vue");
   const renderer = createPanelRenderer();
   const root = hostNode("root");
@@ -172,9 +180,6 @@ const storedTemplates = [
 ];
 
 beforeEach(() => {
-  settingsHarness.getSettingJson.mockReset();
-  settingsHarness.setSettingAndWait.mockReset();
-  settingsHarness.setSettingAndWait.mockResolvedValue(undefined);
   dialogHarness.open.mockReset();
   bridgeHarness.invokeToolByChannel.mockReset();
 });
@@ -192,28 +197,30 @@ describe("TestEmailAssistantPanel source structure", () => {
   it("supports template inspection, dynamic fields, and the two output actions", () => {
     expect(source).toContain("tool:test-email-assistant:inspect-template");
     expect(source).toContain("tool:test-email-assistant:generate-document");
-    expect(source).toContain("v-for=\"name in allPlaceholders\"");
+    expect(source).toContain('v-for="name in allPlaceholders"');
     expect(source).toContain("isMultilineFieldName(name)");
-    expect(source).toContain(":autosize=\"isMultilineFieldName(name)");
+    expect(source).toContain(':autosize="isMultilineFieldName(name)');
     expect(source).toContain("navigator.clipboard.writeText(emailPreview.value)");
     expect(source).toContain("tool:system:reveal-in-folder");
   });
 
   it("keeps cancellation quiet and exposes real failures", () => {
     expect(source).toContain("if (!selected) return");
-    expect(source).toContain("errorMessage.value = error instanceof Error ? error.message : String(error)");
+    expect(source).toContain(
+      "errorMessage.value = error instanceof Error ? error.message : String(error)",
+    );
     expect(source).toContain('error === "cancel" || error === "close"');
-    expect(source).toContain("role=\"alert\"");
+    expect(source).toContain('role="alert"');
   });
 
-  it("persists a normalized custom email template library through the dedicated setting", () => {
-    expect(source).toContain('"test-email-assistant:email-templates:v1"');
-    expect(source).toContain("getSettingJson<unknown>(EMAIL_BODY_TEMPLATES_SETTING_KEY, [])");
+  it("persists custom email templates through dedicated SQLite CRUD channels", () => {
+    expect(source).toContain("tool:test-email-assistant:list-email-templates");
+    expect(source).toContain("tool:test-email-assistant:create-email-template");
+    expect(source).toContain("tool:test-email-assistant:update-email-template");
+    expect(source).toContain("tool:test-email-assistant:delete-email-template");
     expect(source).toContain("normalizeTestEmailBodyTemplates");
-    expect(source).toContain(
-      "await setSettingAndWait(EMAIL_BODY_TEMPLATES_SETTING_KEY, JSON.stringify(nextTemplates))",
-    );
-    expect(source).not.toContain("setSettingJson(");
+    expect(source).not.toContain("test-email-assistant:email-templates:v1");
+    expect(source).not.toContain("useSettings");
   });
 
   it("uses a controlled selector and exposes explicit template commands", () => {
@@ -232,21 +239,23 @@ describe("TestEmailAssistantPanel source structure", () => {
     expect(source).toContain("emailTemplate.value !== loadedEmailTemplateContent.value");
     expect(source).toContain("当前邮件正文尚未保存，切换模板会丢失这些修改");
     expect(source).toContain("当前未保存的正文修改也会丢失");
-    expect(source).toContain("if (!(await persistEmailTemplates(nextTemplates");
-    expect(source).toContain("customEmailTemplates.value = nextTemplates");
-    expect(source).toContain("applyEmailTemplate(findEmailTemplateById(BUILTIN_TEST_EMAIL_TEMPLATE_ID))");
+    expect(source).toContain("persistEmailTemplateChange");
+    expect(source).toContain("customEmailTemplates.value = customEmailTemplates.value.map");
+    expect(source).toContain(
+      "applyEmailTemplate(findEmailTemplateById(BUILTIN_TEST_EMAIL_TEMPLATE_ID))",
+    );
     expect(source).toContain(':disabled="templatePersistencePending"');
   });
 
   it("only adds newly visible fields and keeps hidden values in the session", () => {
-    expect(source).toContain("if (!(name in values)) values[name] = \"\";");
+    expect(source).toContain('if (!(name in values)) values[name] = "";');
     expect(source).not.toContain("delete values");
   });
 
   it("leaves output naming to the backend and shows the generated path", () => {
     expect(source).not.toContain("建议文件名");
     expect(source).not.toContain("buildSuggestedDocumentFileName");
-    expect(source).toContain(":title=\"outputPath\"");
+    expect(source).toContain(':title="outputPath"');
   });
 
   it("uses compact responsive layout with long-content wrapping", () => {
@@ -269,9 +278,9 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
     const { app, root } = await mountPanel(storedTemplates);
 
-    expect(settingsHarness.getSettingJson).toHaveBeenCalledWith(
-      "test-email-assistant:email-templates:v1",
-      [],
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith(
+      "tool:test-email-assistant:list-email-templates",
+      {},
     );
     expect(findNode(root, (node) => node.props.value === "custom-one")?.props.label).toBe("模板一");
     expect(findNode(root, (node) => node.props.value === "custom-two")?.props.label).toBe("模板二");
@@ -301,13 +310,18 @@ describe("TestEmailAssistantPanel template library behavior", () => {
   it("commits a saved-as template only after persistence succeeds", async () => {
     vi.spyOn(ElMessageBox, "prompt").mockResolvedValue({ value: "新模板" } as never);
     const success = vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
-    let releasePersistence!: () => void;
-    settingsHarness.setSettingAndWait.mockReturnValueOnce(
-      new Promise<void>((resolve) => {
-        releasePersistence = resolve;
-      }),
-    );
     const { app, root } = await mountPanel([]);
+    let releasePersistence!: (template: unknown) => void;
+    bridgeHarness.invokeToolByChannel.mockImplementation(
+      (channel: string, payload: Record<string, unknown>) => {
+        if (channel !== "tool:test-email-assistant:create-email-template") {
+          return Promise.resolve(payload);
+        }
+        return new Promise<unknown>((resolve) => {
+          releasePersistence = resolve;
+        });
+      },
+    );
 
     const emailInput = findNodeByAriaLabel(root, "邮件正文模板");
     (emailInput?.props["onUpdate:modelValue"] as (value: string) => void)("另存正文");
@@ -316,29 +330,20 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     const savePromise = (findButton(root, "另存为")?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
-    expect(settingsHarness.setSettingAndWait).toHaveBeenCalledTimes(1);
-    const [settingKey, serialized] = settingsHarness.setSettingAndWait.mock.calls[0] as [
-      string,
-      string,
-    ];
-    const persisted = JSON.parse(serialized) as Array<{
-      id: string;
-      name: string;
-      content: string;
-    }>;
-    expect(settingKey).toBe("test-email-assistant:email-templates:v1");
-    expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toMatchObject({ name: "新模板", content: "另存正文" });
+    const createCall = bridgeHarness.invokeToolByChannel.mock.calls.find(
+      ([channel]) => channel === "tool:test-email-assistant:create-email-template",
+    );
+    expect(createCall?.[1]).toEqual({ name: "新模板", content: "另存正文" });
     expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe(
       BUILTIN_TEST_EMAIL_TEMPLATE_ID,
     );
     expect(nodeText(root)).toContain("自定义 0 个");
 
-    releasePersistence();
+    releasePersistence({ id: "custom-new", name: "新模板", content: "另存正文" });
     await savePromise;
     await flushPanel();
 
-    expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe(persisted[0]?.id);
+    expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe("custom-new");
     expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe("另存正文");
     expect(findNode(root, (node) => node.props.label === "新模板")).not.toBeNull();
     expect(findButton(root, "保存修改")?.props.disabled).toBe(true);
@@ -350,8 +355,13 @@ describe("TestEmailAssistantPanel template library behavior", () => {
   it("keeps the active dirty draft when saving changes fails", async () => {
     const confirm = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
     const success = vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
-    settingsHarness.setSettingAndWait.mockRejectedValueOnce(new Error("数据库不可写"));
     const { app, root } = await mountPanel(storedTemplates);
+    bridgeHarness.invokeToolByChannel.mockImplementation(
+      (channel: string, payload: Record<string, unknown>) =>
+        channel === "tool:test-email-assistant:update-email-template"
+          ? Promise.reject(new Error("数据库不可写"))
+          : Promise.resolve(payload),
+    );
 
     await (
       findNodeByAriaLabel(root, "选择邮件正文模板")?.props.onChange as (
@@ -367,12 +377,14 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     await (findButton(root, "保存修改")?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
-    const [, serialized] = settingsHarness.setSettingAndWait.mock.calls[0] as [string, string];
-    expect(
-      (JSON.parse(serialized) as Array<{ id: string; content: string }>).find(
-        (template) => template.id === "custom-one",
-      )?.content,
-    ).toBe("失败后的正文");
+    const updateCall = bridgeHarness.invokeToolByChannel.mock.calls.find(
+      ([channel]) => channel === "tool:test-email-assistant:update-email-template",
+    );
+    expect(updateCall?.[1]).toEqual({
+      id: "custom-one",
+      name: "模板一",
+      content: "失败后的正文",
+    });
     expect(confirm).not.toHaveBeenCalled();
     expect(success).not.toHaveBeenCalled();
     expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe("custom-one");
@@ -395,26 +407,27 @@ describe("TestEmailAssistantPanel template library behavior", () => {
       ) => Promise<void>
     )("custom-one");
     await flushPanel();
-    await (
-      findButtonByAriaLabel(root, "重命名当前模板")?.props.onClick as () => Promise<void>
-    )();
+    await (findButtonByAriaLabel(root, "重命名当前模板")?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
-    const [, renameSerialized] = settingsHarness.setSettingAndWait.mock.calls[0] as [string, string];
-    const renamed = JSON.parse(renameSerialized) as Array<{ id: string; name: string }>;
-    expect(renamed.find((template) => template.id === "custom-one")?.name).toBe("已重命名");
+    const renameCall = bridgeHarness.invokeToolByChannel.mock.calls.find(
+      ([channel]) => channel === "tool:test-email-assistant:update-email-template",
+    );
+    expect(renameCall?.[1]).toEqual({
+      id: "custom-one",
+      name: "已重命名",
+      content: "自定义正文一",
+    });
     expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe("custom-one");
     expect(findNode(root, (node) => node.props.label === "已重命名")).not.toBeNull();
 
-    await (
-      findButtonByAriaLabel(root, "删除当前模板")?.props.onClick as () => Promise<void>
-    )();
+    await (findButtonByAriaLabel(root, "删除当前模板")?.props.onClick as () => Promise<void>)();
     await flushPanel();
 
-    expect(settingsHarness.setSettingAndWait).toHaveBeenCalledTimes(2);
-    const [, deleteSerialized] = settingsHarness.setSettingAndWait.mock.calls[1] as [string, string];
-    const remaining = JSON.parse(deleteSerialized) as Array<{ id: string; name: string }>;
-    expect(remaining.map((template) => template.id)).toEqual(["custom-two"]);
+    const deleteCall = bridgeHarness.invokeToolByChannel.mock.calls.find(
+      ([channel]) => channel === "tool:test-email-assistant:delete-email-template",
+    );
+    expect(deleteCall?.[1]).toEqual({ id: "custom-one" });
     expect(confirm).toHaveBeenCalledWith(
       expect.stringContaining("已重命名"),
       "删除邮件正文模板",
@@ -423,9 +436,7 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe(
       BUILTIN_TEST_EMAIL_TEMPLATE_ID,
     );
-    expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe(
-      DEFAULT_TEST_EMAIL_TEMPLATE,
-    );
+    expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe(DEFAULT_TEST_EMAIL_TEMPLATE);
     expect(success).toHaveBeenNthCalledWith(1, "邮件正文模板已重命名");
     expect(success).toHaveBeenNthCalledWith(2, "邮件正文模板已删除");
     app.unmount();

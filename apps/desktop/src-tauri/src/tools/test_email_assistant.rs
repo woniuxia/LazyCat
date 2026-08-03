@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -6,15 +6,46 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use quick_xml::escape::unescape;
 use quick_xml::Reader;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use tempfile::{Builder as TempFileBuilder, NamedTempFile};
+use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
-const ACTIONS: &[&str] = &["inspect_template", "generate_document"];
+use super::helpers::db_conn;
+
+const ACTIONS: &[&str] = &[
+    "inspect_template",
+    "generate_document",
+    "list_email_templates",
+    "create_email_template",
+    "update_email_template",
+    "delete_email_template",
+];
+const LEGACY_EMAIL_TEMPLATES_SETTING_KEY: &str = "test-email-assistant:email-templates:v1";
+const BUILTIN_EMAIL_TEMPLATE_ID: &str = "builtin-default";
 const MAX_DOCX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_ENTRY_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_OUTPUT_NAME_CHARS: usize = 160;
+const MAX_EMAIL_TEMPLATE_NAME_CHARS: usize = 50;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmailBodyTemplate {
+    id: String,
+    name: String,
+    content: String,
+}
+
+impl EmailBodyTemplate {
+    fn to_value(&self) -> Value {
+        json!({
+            "id": self.id,
+            "name": self.name,
+            "content": self.content,
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 struct TextNode {
@@ -63,8 +94,314 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "inspect_template" => inspect_template_payload(payload),
         "generate_document" => generate_document_payload(payload),
+        "list_email_templates" => list_email_templates_with_conn(&db_conn()?),
+        "create_email_template" => create_email_template_with_conn(&db_conn()?, payload),
+        "update_email_template" => update_email_template_with_conn(&db_conn()?, payload),
+        "delete_email_template" => delete_email_template_with_conn(&db_conn()?, payload),
         _ => Err(format!("unsupported test email assistant action: {action}")),
     }
+}
+
+pub(super) fn ensure_schema_and_migrate(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS test_email_body_templates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK(length(trim(id)) > 0),
+            CHECK(length(trim(name)) > 0),
+            CHECK(length(trim(content)) > 0)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_test_email_body_templates_name
+            ON test_email_body_templates(name COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_test_email_body_templates_sort
+            ON test_email_body_templates(sort_order ASC, created_at ASC, id ASC);",
+    )
+    .map_err(|error| format!("create test email template schema failed: {error}"))?;
+
+    migrate_legacy_email_templates(conn)
+}
+
+pub(super) fn migrate_legacy_email_templates(conn: &Connection) -> Result<(), String> {
+    let legacy_json = conn
+        .query_row(
+            "SELECT value FROM user_settings WHERE key = ?1",
+            params![LEGACY_EMAIL_TEMPLATES_SETTING_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("load legacy test email templates failed: {error}"))?;
+    let Some(legacy_json) = legacy_json else {
+        return Ok(());
+    };
+
+    let templates = match parse_legacy_email_templates(&legacy_json) {
+        Ok(templates) => templates,
+        Err(error) => {
+            eprintln!("skip invalid legacy test email templates: {error}");
+            return Ok(());
+        }
+    };
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin test email template migration failed: {error}"))?;
+    let mut sort_order = tx
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM test_email_body_templates",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| format!("load test email template migration order failed: {error}"))?;
+
+    for template in templates {
+        tx.execute(
+            "INSERT OR IGNORE INTO test_email_body_templates
+                (id, name, content, sort_order)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![template.id, template.name, template.content, sort_order],
+        )
+        .map_err(|error| format!("migrate test email template failed: {error}"))?;
+        sort_order += 1;
+    }
+
+    tx.execute(
+        "DELETE FROM user_settings WHERE key = ?1",
+        params![LEGACY_EMAIL_TEMPLATES_SETTING_KEY],
+    )
+    .map_err(|error| format!("remove legacy test email template setting failed: {error}"))?;
+    tx.commit()
+        .map_err(|error| format!("commit test email template migration failed: {error}"))
+}
+
+fn parse_legacy_email_templates(raw: &str) -> Result<Vec<EmailBodyTemplate>, String> {
+    let value: Value = serde_json::from_str(raw)
+        .map_err(|error| format!("parse legacy template JSON failed: {error}"))?;
+    parse_email_templates_value(&value)
+}
+
+fn parse_email_templates_value(value: &Value) -> Result<Vec<EmailBodyTemplate>, String> {
+    let items = value
+        .as_array()
+        .ok_or("test email templates must be an array")?;
+    let mut templates = Vec::new();
+    let mut seen_ids = HashSet::new();
+    let mut seen_names = HashSet::new();
+
+    for item in items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(name) = item.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(content) = item.get("content").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = name.trim();
+        let normalized_name = name.to_lowercase();
+        if id.trim().is_empty()
+            || id == BUILTIN_EMAIL_TEMPLATE_ID
+            || name.is_empty()
+            || content.trim().is_empty()
+            || !seen_ids.insert(id.to_string())
+            || !seen_names.insert(normalized_name)
+        {
+            continue;
+        }
+        templates.push(EmailBodyTemplate {
+            id: id.to_string(),
+            name: name.to_string(),
+            content: content.to_string(),
+        });
+    }
+
+    Ok(templates)
+}
+
+pub(super) fn export_email_templates(conn: &Connection) -> Result<Value, String> {
+    list_email_templates_with_conn(conn)
+}
+
+pub(super) fn import_email_templates(
+    conn: &Connection,
+    value: &Value,
+    overwrite: bool,
+) -> Result<(), String> {
+    let templates = parse_email_templates_value(value)?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin test email template import failed: {error}"))?;
+    if overwrite {
+        tx.execute("DELETE FROM test_email_body_templates", [])
+            .map_err(|error| format!("clear test email templates failed: {error}"))?;
+    }
+    let mut sort_order = tx
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM test_email_body_templates",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| format!("load test email template import order failed: {error}"))?;
+    for template in templates {
+        tx.execute(
+            "INSERT INTO test_email_body_templates (id, name, content, sort_order)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                content = excluded.content,
+                updated_at = CURRENT_TIMESTAMP",
+            params![template.id, template.name, template.content, sort_order],
+        )
+        .map_err(|error| format!("import test email template failed: {error}"))?;
+        sort_order += 1;
+    }
+    tx.commit()
+        .map_err(|error| format!("commit test email template import failed: {error}"))
+}
+
+fn list_email_templates_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, name, content
+             FROM test_email_body_templates
+             ORDER BY sort_order ASC, created_at ASC, id ASC",
+        )
+        .map_err(|error| format!("prepare test email template list failed: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(EmailBodyTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                content: row.get(2)?,
+            })
+        })
+        .map_err(|error| format!("query test email templates failed: {error}"))?;
+    let mut templates = Vec::new();
+    for row in rows {
+        templates.push(
+            row.map_err(|error| format!("read test email template failed: {error}"))?
+                .to_value(),
+        );
+    }
+    Ok(Value::Array(templates))
+}
+
+fn create_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let name = required_email_template_name(payload)?;
+    let content = required_email_template_content(payload)?;
+    ensure_email_template_name_available(conn, &name, None)?;
+    let id = format!("custom-{}", Uuid::new_v4());
+    let sort_order = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM test_email_body_templates",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| format!("load next test email template order failed: {error}"))?;
+    conn.execute(
+        "INSERT INTO test_email_body_templates (id, name, content, sort_order)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![id, name, content, sort_order],
+    )
+    .map_err(|error| format!("create test email template failed: {error}"))?;
+    Ok(EmailBodyTemplate { id, name, content }.to_value())
+}
+
+fn update_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = required_email_template_id(payload)?;
+    let name = required_email_template_name(payload)?;
+    let content = required_email_template_content(payload)?;
+    ensure_email_template_name_available(conn, &name, Some(&id))?;
+    let changed = conn
+        .execute(
+            "UPDATE test_email_body_templates
+             SET name = ?1, content = ?2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?3",
+            params![name, content, id],
+        )
+        .map_err(|error| format!("update test email template failed: {error}"))?;
+    if changed == 0 {
+        return Err(format!("test email template not found: {id}"));
+    }
+    Ok(EmailBodyTemplate { id, name, content }.to_value())
+}
+
+fn delete_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = required_email_template_id(payload)?;
+    let changed = conn
+        .execute(
+            "DELETE FROM test_email_body_templates WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|error| format!("delete test email template failed: {error}"))?;
+    if changed == 0 {
+        return Err(format!("test email template not found: {id}"));
+    }
+    Ok(json!({ "ok": true }))
+}
+
+fn required_email_template_id(payload: &Value) -> Result<String, String> {
+    let id = payload["id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("test email template id is required")?;
+    if id == BUILTIN_EMAIL_TEMPLATE_ID {
+        return Err("built-in test email template cannot be changed".to_string());
+    }
+    Ok(id.to_string())
+}
+
+fn required_email_template_name(payload: &Value) -> Result<String, String> {
+    let name = payload["name"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("test email template name is required")?;
+    if name.chars().count() > MAX_EMAIL_TEMPLATE_NAME_CHARS {
+        return Err(format!(
+            "test email template name cannot exceed {MAX_EMAIL_TEMPLATE_NAME_CHARS} characters"
+        ));
+    }
+    Ok(name.to_string())
+}
+
+fn required_email_template_content(payload: &Value) -> Result<String, String> {
+    let content = payload["content"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("test email template content is required")?;
+    Ok(content.to_string())
+}
+
+fn ensure_email_template_name_available(
+    conn: &Connection,
+    name: &str,
+    excluded_id: Option<&str>,
+) -> Result<(), String> {
+    let mut statement = conn
+        .prepare("SELECT id, name FROM test_email_body_templates")
+        .map_err(|error| format!("prepare test email template name check failed: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| format!("query test email template names failed: {error}"))?;
+    let normalized_name = name.to_lowercase();
+    for row in rows {
+        let (id, existing_name) =
+            row.map_err(|error| format!("read test email template name failed: {error}"))?;
+        if Some(id.as_str()) != excluded_id
+            && existing_name.trim().to_lowercase() == normalized_name
+        {
+            return Err("test email template name already exists".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn inspect_template_payload(payload: &Value) -> Result<Value, String> {
@@ -884,6 +1221,202 @@ mod tests {
             .map(|(key, value)| ((*key).to_string(), Value::String((*value).to_string())))
             .collect();
         json!(object)
+    }
+
+    fn template_connection() -> Connection {
+        let conn = Connection::open_in_memory().expect("open template database");
+        conn.execute_batch(
+            "CREATE TABLE user_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .expect("create settings table");
+        conn
+    }
+
+    #[test]
+    fn migrates_legacy_email_templates_once_and_removes_the_setting() {
+        let conn = template_connection();
+        conn.execute(
+            "INSERT INTO user_settings (key, value) VALUES (?1, ?2)",
+            params![
+                LEGACY_EMAIL_TEMPLATES_SETTING_KEY,
+                json!([
+                    { "id": "custom-one", "name": " 模板一 ", "content": "正文一" },
+                    { "id": "custom-two", "name": "模板二", "content": "正文二" },
+                    { "id": "custom-three", "name": "模板一", "content": "重名正文" },
+                    { "id": BUILTIN_EMAIL_TEMPLATE_ID, "name": "内置", "content": "内置正文" },
+                    { "id": "custom-empty", "name": "空正文", "content": "  " }
+                ])
+                .to_string(),
+            ],
+        )
+        .expect("seed legacy templates");
+
+        ensure_schema_and_migrate(&conn).expect("migrate templates");
+        assert_eq!(
+            list_email_templates_with_conn(&conn).expect("list migrated templates"),
+            json!([
+                { "id": "custom-one", "name": "模板一", "content": "正文一" },
+                { "id": "custom-two", "name": "模板二", "content": "正文二" }
+            ])
+        );
+        let legacy_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_settings WHERE key = ?1",
+                params![LEGACY_EMAIL_TEMPLATES_SETTING_KEY],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_count, 0);
+
+        ensure_schema_and_migrate(&conn).expect("repeat migration");
+        let template_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM test_email_body_templates",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(template_count, 2);
+    }
+
+    #[test]
+    fn keeps_invalid_legacy_json_for_diagnosis_without_blocking_schema_creation() {
+        let conn = template_connection();
+        conn.execute(
+            "INSERT INTO user_settings (key, value) VALUES (?1, '{')",
+            params![LEGACY_EMAIL_TEMPLATES_SETTING_KEY],
+        )
+        .expect("seed invalid legacy templates");
+
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+        let legacy_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_settings WHERE key = ?1",
+                params![LEGACY_EMAIL_TEMPLATES_SETTING_KEY],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let template_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM test_email_body_templates",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_count, 1);
+        assert_eq!(template_count, 0);
+    }
+
+    #[test]
+    fn email_template_crud_validates_names_and_preserves_order() {
+        let conn = template_connection();
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+
+        let first = create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "模板一", "content": "正文一" }),
+        )
+        .expect("create first template");
+        let first_id = first["id"].as_str().unwrap().to_string();
+        let second = create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "模板二", "content": "正文二" }),
+        )
+        .expect("create second template");
+        assert!(create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "模版一", "content": "不同中文名称" })
+        )
+        .is_ok());
+        assert!(create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "TEMPLATE", "content": "英文正文" })
+        )
+        .is_ok());
+        assert!(create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "template", "content": "英文重名" })
+        )
+        .unwrap_err()
+        .contains("already exists"));
+
+        let updated = update_email_template_with_conn(
+            &conn,
+            &json!({ "id": first_id, "name": "已重命名", "content": "新正文" }),
+        )
+        .expect("update template");
+        assert_eq!(updated["name"], "已重命名");
+        assert_eq!(updated["content"], "新正文");
+
+        delete_email_template_with_conn(&conn, &json!({ "id": second["id"] }))
+            .expect("delete template");
+        let templates = list_email_templates_with_conn(&conn).expect("list templates");
+        assert_eq!(templates[0]["id"], first["id"]);
+        assert!(templates
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|template| template["id"] != second["id"]));
+        assert!(
+            delete_email_template_with_conn(&conn, &json!({ "id": second["id"] }))
+                .unwrap_err()
+                .contains("not found")
+        );
+    }
+
+    #[test]
+    fn email_template_export_import_supports_overwrite_merge_and_rollback() {
+        let conn = template_connection();
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+        let original = create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "原模板", "content": "原正文" }),
+        )
+        .expect("create original template");
+        assert_eq!(
+            export_email_templates(&conn).expect("export templates"),
+            json!([original])
+        );
+
+        import_email_templates(
+            &conn,
+            &json!([{ "id": "custom-imported", "name": "导入模板", "content": "导入正文" }]),
+            true,
+        )
+        .expect("overwrite templates");
+        import_email_templates(
+            &conn,
+            &json!([
+                { "id": "custom-imported", "name": "已更新", "content": "更新正文" },
+                { "id": "custom-added", "name": "追加模板", "content": "追加正文" }
+            ]),
+            false,
+        )
+        .expect("merge templates");
+        let merged = export_email_templates(&conn).expect("export merged templates");
+        assert_eq!(
+            merged,
+            json!([
+                { "id": "custom-imported", "name": "已更新", "content": "更新正文" },
+                { "id": "custom-added", "name": "追加模板", "content": "追加正文" }
+            ])
+        );
+
+        assert!(import_email_templates(
+            &conn,
+            &json!([{ "id": "custom-conflict", "name": "追加模板", "content": "冲突正文" }]),
+            false,
+        )
+        .unwrap_err()
+        .contains("import test email template failed"));
+        assert_eq!(
+            export_email_templates(&conn).expect("export templates after rollback"),
+            merged
+        );
     }
 
     #[test]

@@ -154,11 +154,14 @@ fn settings_export() -> Result<Value, String> {
         }
     }
 
+    let test_email_body_templates = super::test_email_assistant::export_email_templates(&conn)?;
+
     let export_data = json!({
-        "version": 2,
+        "version": 3,
         "exportedAt": chrono::Utc::now().to_rfc3339(),
         "settings": settings_map,
         "hosts_profiles": hosts,
+        "test_email_body_templates": test_email_body_templates,
     });
     Ok(export_data)
 }
@@ -215,6 +218,19 @@ fn settings_import(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("import hosts profile '{name}' failed: {e}"))?;
         }
     }
+
+    match data.get("test_email_body_templates") {
+        Some(templates) => super::test_email_assistant::import_email_templates(
+            &conn,
+            templates,
+            mode == "overwrite",
+        )?,
+        None if mode == "overwrite" => {
+            super::test_email_assistant::import_email_templates(&conn, &json!([]), true)?;
+        }
+        None => {}
+    }
+    super::test_email_assistant::migrate_legacy_email_templates(&conn)?;
 
     Ok(json!({ "ok": true }))
 }

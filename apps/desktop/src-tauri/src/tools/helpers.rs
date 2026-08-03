@@ -625,6 +625,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("initialize schema failed: {e}"))?;
 
+    super::test_email_assistant::ensure_schema_and_migrate(conn)?;
+
     super::data_dictionary::ensure_search_index_schema(conn)?;
 
     let _ = conn.execute_batch(

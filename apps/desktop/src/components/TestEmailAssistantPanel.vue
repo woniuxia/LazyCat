@@ -63,10 +63,7 @@
               aria-label="选择邮件正文模板"
               @change="selectEmailTemplate"
             >
-              <el-option
-                :value="BUILTIN_TEST_EMAIL_TEMPLATE_ID"
-                label="默认模板（内置）"
-              />
+              <el-option :value="BUILTIN_TEST_EMAIL_TEMPLATE_ID" label="默认模板（内置）" />
               <el-option
                 v-for="template in customEmailTemplates"
                 :key="template.id"
@@ -131,7 +128,9 @@
           class="email-template-input"
           aria-label="邮件正文模板"
         />
-        <div class="template-note">使用 &#123;&#123;占位符&#125;&#125; 语法，字段会随模板内容自动更新。</div>
+        <div class="template-note">
+          使用 &#123;&#123;占位符&#125;&#125; 语法，字段会随模板内容自动更新。
+        </div>
 
         <div class="fields-heading">
           <span>填写字段</span>
@@ -224,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   CircleCheck,
@@ -237,11 +236,7 @@ import {
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import { getSettingJson, setSettingAndWait } from "../composables/useSettings";
-import type {
-  TestEmailAssistantGenerateResult,
-  TestEmailAssistantInspectResult,
-} from "../types";
+import type { TestEmailAssistantGenerateResult, TestEmailAssistantInspectResult } from "../types";
 import {
   BUILTIN_TEST_EMAIL_TEMPLATE_ID,
   DEFAULT_TEST_EMAIL_TEMPLATE,
@@ -255,17 +250,13 @@ import {
   renderEmailTemplate,
 } from "../utils/testEmailAssistant";
 
-const EMAIL_BODY_TEMPLATES_SETTING_KEY = "test-email-assistant:email-templates:v1";
-
 const templatePath = ref("");
 const wordPlaceholders = ref<string[]>([]);
 const emailTemplate = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
-const customEmailTemplates = ref<TestEmailBodyTemplate[]>(
-  normalizeTestEmailBodyTemplates(getSettingJson<unknown>(EMAIL_BODY_TEMPLATES_SETTING_KEY, [])),
-);
+const customEmailTemplates = ref<TestEmailBodyTemplate[]>([]);
 const activeEmailTemplateId = ref(BUILTIN_TEST_EMAIL_TEMPLATE_ID);
 const loadedEmailTemplateContent = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
-const templatePersistencePending = ref(false);
+const templatePersistencePending = ref(true);
 const values = reactive<Record<string, string>>({});
 const inspecting = ref(false);
 const generating = ref(false);
@@ -303,8 +294,6 @@ const canSaveEmailTemplateChanges = computed(
     !!emailTemplate.value.trim(),
 );
 
-let emailTemplateIdSequence = 0;
-
 watch(
   allPlaceholders,
   (names) => {
@@ -314,6 +303,10 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  void loadEmailTemplates();
+});
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -398,31 +391,33 @@ function validateEmailTemplateName(name: string, excludedId?: string): true | st
   return true;
 }
 
-function createUniqueEmailTemplateId(): string {
-  let id: string;
-  do {
-    emailTemplateIdSequence += 1;
-    const suffix =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${emailTemplateIdSequence}-${Math.random().toString(36).slice(2, 10)}`;
-    id = `custom-${suffix}`;
-  } while (customEmailTemplates.value.some((template) => template.id === id));
-  return id;
-}
-
-async function persistEmailTemplates(
-  nextTemplates: TestEmailBodyTemplate[],
-  failureContext: string,
-): Promise<boolean> {
+async function loadEmailTemplates() {
   templatePersistencePending.value = true;
   errorMessage.value = "";
   try {
-    await setSettingAndWait(EMAIL_BODY_TEMPLATES_SETTING_KEY, JSON.stringify(nextTemplates));
-    return true;
+    const templates = await invokeToolByChannel(
+      "tool:test-email-assistant:list-email-templates",
+      {},
+    );
+    customEmailTemplates.value = normalizeTestEmailBodyTemplates(templates);
+  } catch (error) {
+    errorMessage.value = `加载邮件正文模板失败：${formatError(error)}`;
+  } finally {
+    templatePersistencePending.value = false;
+  }
+}
+
+async function persistEmailTemplateChange<T>(
+  operation: () => Promise<T>,
+  failureContext: string,
+): Promise<T | null> {
+  templatePersistencePending.value = true;
+  errorMessage.value = "";
+  try {
+    return await operation();
   } catch (error) {
     errorMessage.value = `${failureContext}：${formatError(error)}`;
-    return false;
+    return null;
   } finally {
     templatePersistencePending.value = false;
   }
@@ -456,15 +451,17 @@ async function saveEmailTemplateAs() {
     return;
   }
 
-  const newTemplate: TestEmailBodyTemplate = {
-    id: createUniqueEmailTemplateId(),
-    name,
-    content: emailTemplate.value,
-  };
-  const nextTemplates = [...customEmailTemplates.value, newTemplate];
-  if (!(await persistEmailTemplates(nextTemplates, "另存邮件正文模板失败"))) return;
+  const newTemplate = await persistEmailTemplateChange(
+    async () =>
+      (await invokeToolByChannel("tool:test-email-assistant:create-email-template", {
+        name,
+        content: emailTemplate.value,
+      })) as TestEmailBodyTemplate,
+    "另存邮件正文模板失败",
+  );
+  if (!newTemplate) return;
 
-  customEmailTemplates.value = nextTemplates;
+  customEmailTemplates.value = [...customEmailTemplates.value, newTemplate];
   applyEmailTemplate(newTemplate);
   ElMessage.success("邮件正文模板已保存");
 }
@@ -479,13 +476,21 @@ async function saveEmailTemplateChanges() {
   }
   if (!isEmailTemplateDirty.value) return;
 
-  const nextTemplates = customEmailTemplates.value.map((template) =>
-    template.id === currentTemplate.id ? { ...template, content: emailTemplate.value } : template,
+  const savedTemplate = await persistEmailTemplateChange(
+    async () =>
+      (await invokeToolByChannel("tool:test-email-assistant:update-email-template", {
+        id: currentTemplate.id,
+        name: currentTemplate.name,
+        content: emailTemplate.value,
+      })) as TestEmailBodyTemplate,
+    "保存邮件正文模板失败",
   );
-  if (!(await persistEmailTemplates(nextTemplates, "保存邮件正文模板失败"))) return;
+  if (!savedTemplate) return;
 
-  customEmailTemplates.value = nextTemplates;
-  loadedEmailTemplateContent.value = emailTemplate.value;
+  customEmailTemplates.value = customEmailTemplates.value.map((template) =>
+    template.id === currentTemplate.id ? savedTemplate : template,
+  );
+  loadedEmailTemplateContent.value = savedTemplate.content;
   errorMessage.value = "";
   ElMessage.success("邮件正文模板修改已保存");
 }
@@ -517,12 +522,20 @@ async function renameEmailTemplate() {
   }
   if (name === currentTemplate.name) return;
 
-  const nextTemplates = customEmailTemplates.value.map((template) =>
-    template.id === currentTemplate.id ? { ...template, name } : template,
+  const savedTemplate = await persistEmailTemplateChange(
+    async () =>
+      (await invokeToolByChannel("tool:test-email-assistant:update-email-template", {
+        id: currentTemplate.id,
+        name,
+        content: currentTemplate.content,
+      })) as TestEmailBodyTemplate,
+    "重命名邮件正文模板失败",
   );
-  if (!(await persistEmailTemplates(nextTemplates, "重命名邮件正文模板失败"))) return;
+  if (!savedTemplate) return;
 
-  customEmailTemplates.value = nextTemplates;
+  customEmailTemplates.value = customEmailTemplates.value.map((template) =>
+    template.id === currentTemplate.id ? savedTemplate : template,
+  );
   errorMessage.value = "";
   ElMessage.success("邮件正文模板已重命名");
 }
@@ -547,12 +560,18 @@ async function deleteEmailTemplate() {
     return;
   }
 
-  const nextTemplates = customEmailTemplates.value.filter(
+  const deleted = await persistEmailTemplateChange(
+    async () =>
+      (await invokeToolByChannel("tool:test-email-assistant:delete-email-template", {
+        id: currentTemplate.id,
+      })) as { ok: boolean },
+    "删除邮件正文模板失败",
+  );
+  if (!deleted) return;
+
+  customEmailTemplates.value = customEmailTemplates.value.filter(
     (template) => template.id !== currentTemplate.id,
   );
-  if (!(await persistEmailTemplates(nextTemplates, "删除邮件正文模板失败"))) return;
-
-  customEmailTemplates.value = nextTemplates;
   applyEmailTemplate(findEmailTemplateById(BUILTIN_TEST_EMAIL_TEMPLATE_ID));
   ElMessage.success("邮件正文模板已删除");
 }
@@ -1001,6 +1020,5 @@ async function revealOutput() {
   .preview-section {
     padding-left: 2px;
   }
-
 }
 </style>

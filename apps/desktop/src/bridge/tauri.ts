@@ -500,6 +500,22 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
     domain: "test_email_assistant",
     action: "generate_document",
   },
+  "tool:test-email-assistant:list-email-templates": {
+    domain: "test_email_assistant",
+    action: "list_email_templates",
+  },
+  "tool:test-email-assistant:create-email-template": {
+    domain: "test_email_assistant",
+    action: "create_email_template",
+  },
+  "tool:test-email-assistant:update-email-template": {
+    domain: "test_email_assistant",
+    action: "update_email_template",
+  },
+  "tool:test-email-assistant:delete-email-template": {
+    domain: "test_email_assistant",
+    action: "delete_email_template",
+  },
   "tool:widget:dashboard-data": { domain: "widget", action: "dashboard_data" },
   "tool:widget:apply": { domain: "widget", action: "apply" },
   "tool:widget:pause": { domain: "widget", action: "pause" },
