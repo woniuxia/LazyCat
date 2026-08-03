@@ -54,10 +54,79 @@
             清空填写
           </el-button>
         </div>
+        <div class="email-template-toolbar" aria-label="邮件正文模板管理">
+          <div class="template-library-controls">
+            <el-select
+              :model-value="activeEmailTemplateId"
+              class="email-template-select"
+              :disabled="templatePersistencePending"
+              aria-label="选择邮件正文模板"
+              @change="selectEmailTemplate"
+            >
+              <el-option
+                :value="BUILTIN_TEST_EMAIL_TEMPLATE_ID"
+                label="默认模板（内置）"
+              />
+              <el-option
+                v-for="template in customEmailTemplates"
+                :key="template.id"
+                :value="template.id"
+                :label="template.name"
+                :title="template.name"
+              />
+            </el-select>
+            <div class="template-library-status" aria-live="polite">
+              <span>自定义 {{ customEmailTemplates.length }} 个</span>
+              <el-tag
+                size="small"
+                effect="plain"
+                :type="isEmailTemplateDirty ? 'warning' : 'info'"
+                class="template-dirty-status"
+              >
+                {{ isEmailTemplateDirty ? "未保存" : "无修改" }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="template-library-actions">
+            <el-button
+              class="template-primary-action"
+              :disabled="templatePersistencePending || !emailTemplate.trim()"
+              @click="saveEmailTemplateAs"
+            >
+              另存为
+            </el-button>
+            <el-button
+              class="template-primary-action"
+              :disabled="!canSaveEmailTemplateChanges"
+              @click="saveEmailTemplateChanges"
+            >
+              保存修改
+            </el-button>
+            <el-tooltip content="重命名当前模板" placement="top">
+              <el-button
+                :icon="EditPen"
+                circle
+                aria-label="重命名当前模板"
+                :disabled="templatePersistencePending || !activeCustomEmailTemplate"
+                @click="renameEmailTemplate"
+              />
+            </el-tooltip>
+            <el-tooltip content="删除当前模板" placement="top">
+              <el-button
+                :icon="Delete"
+                circle
+                aria-label="删除当前模板"
+                :disabled="templatePersistencePending || !activeCustomEmailTemplate"
+                @click="deleteEmailTemplate"
+              />
+            </el-tooltip>
+          </div>
+        </div>
         <el-input
           v-model="emailTemplate"
           type="textarea"
           :rows="8"
+          :disabled="templatePersistencePending"
           resize="vertical"
           class="email-template-input"
           aria-label="邮件正文模板"
@@ -162,27 +231,41 @@ import {
   CopyDocument,
   Delete,
   DocumentAdd,
+  EditPen,
   FolderOpened,
   Refresh,
 } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { getSettingJson, setSettingAndWait } from "../composables/useSettings";
 import type {
   TestEmailAssistantGenerateResult,
   TestEmailAssistantInspectResult,
 } from "../types";
 import {
+  BUILTIN_TEST_EMAIL_TEMPLATE_ID,
   DEFAULT_TEST_EMAIL_TEMPLATE,
+  type TestEmailBodyTemplate,
   getMissingPlaceholders,
+  hasTestEmailTemplateNameConflict,
   isMultilineFieldName,
   mergePlaceholders,
   extractPlaceholders,
+  normalizeTestEmailBodyTemplates,
   renderEmailTemplate,
 } from "../utils/testEmailAssistant";
+
+const EMAIL_BODY_TEMPLATES_SETTING_KEY = "test-email-assistant:email-templates:v1";
 
 const templatePath = ref("");
 const wordPlaceholders = ref<string[]>([]);
 const emailTemplate = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
+const customEmailTemplates = ref<TestEmailBodyTemplate[]>(
+  normalizeTestEmailBodyTemplates(getSettingJson<unknown>(EMAIL_BODY_TEMPLATES_SETTING_KEY, [])),
+);
+const activeEmailTemplateId = ref(BUILTIN_TEST_EMAIL_TEMPLATE_ID);
+const loadedEmailTemplateContent = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
+const templatePersistencePending = ref(false);
 const values = reactive<Record<string, string>>({});
 const inspecting = ref(false);
 const generating = ref(false);
@@ -204,6 +287,23 @@ const missingWordPlaceholders = computed(() =>
 );
 const emailPreview = computed(() => renderEmailTemplate(emailTemplate.value, values));
 const hasValues = computed(() => Object.values(values).some((value) => value.length > 0));
+const isEmailTemplateDirty = computed(
+  () => emailTemplate.value !== loadedEmailTemplateContent.value,
+);
+const activeCustomEmailTemplate = computed(
+  () =>
+    customEmailTemplates.value.find((template) => template.id === activeEmailTemplateId.value) ??
+    null,
+);
+const canSaveEmailTemplateChanges = computed(
+  () =>
+    !templatePersistencePending.value &&
+    !!activeCustomEmailTemplate.value &&
+    isEmailTemplateDirty.value &&
+    !!emailTemplate.value.trim(),
+);
+
+let emailTemplateIdSequence = 0;
 
 watch(
   allPlaceholders,
@@ -214,6 +314,248 @@ watch(
   },
   { immediate: true },
 );
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isMessageBoxCancellation(error: unknown): boolean {
+  return error === "cancel" || error === "close";
+}
+
+function findEmailTemplateById(id: string): TestEmailBodyTemplate {
+  if (id === BUILTIN_TEST_EMAIL_TEMPLATE_ID) {
+    return {
+      id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+      name: "默认模板",
+      content: DEFAULT_TEST_EMAIL_TEMPLATE,
+    };
+  }
+  const template = customEmailTemplates.value.find((item) => item.id === id);
+  if (!template) throw new Error(`找不到邮件正文模板：${id}`);
+  return template;
+}
+
+function requireActiveCustomEmailTemplate(action: string): TestEmailBodyTemplate | null {
+  if (activeEmailTemplateId.value === BUILTIN_TEST_EMAIL_TEMPLATE_ID) {
+    errorMessage.value = `${action}失败：内置默认模板不支持此操作`;
+    return null;
+  }
+  const template = activeCustomEmailTemplate.value;
+  if (!template) {
+    errorMessage.value = `${action}失败：找不到当前自定义模板`;
+    return null;
+  }
+  return template;
+}
+
+function applyEmailTemplate(template: TestEmailBodyTemplate) {
+  activeEmailTemplateId.value = template.id;
+  loadedEmailTemplateContent.value = template.content;
+  emailTemplate.value = template.content;
+  errorMessage.value = "";
+}
+
+async function selectEmailTemplate(id: string) {
+  if (templatePersistencePending.value || id === activeEmailTemplateId.value) return;
+
+  let template: TestEmailBodyTemplate;
+  try {
+    template = findEmailTemplateById(id);
+  } catch (error) {
+    errorMessage.value = `切换邮件正文模板失败：${formatError(error)}`;
+    return;
+  }
+
+  if (isEmailTemplateDirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        "当前邮件正文尚未保存，切换模板会丢失这些修改。",
+        "切换邮件正文模板",
+        {
+          type: "warning",
+          confirmButtonText: "放弃修改并切换",
+          cancelButtonText: "继续编辑",
+        },
+      );
+    } catch (error) {
+      if (isMessageBoxCancellation(error)) return;
+      errorMessage.value = `切换邮件正文模板失败：${formatError(error)}`;
+      return;
+    }
+  }
+
+  applyEmailTemplate(template);
+}
+
+function validateEmailTemplateName(name: string, excludedId?: string): true | string {
+  const trimmedName = name.trim();
+  if (!trimmedName) return "请输入模板名称";
+  if (Array.from(trimmedName).length > 50) return "模板名称不能超过 50 个字符";
+  if (hasTestEmailTemplateNameConflict(customEmailTemplates.value, trimmedName, excludedId)) {
+    return "模板名称已存在";
+  }
+  return true;
+}
+
+function createUniqueEmailTemplateId(): string {
+  let id: string;
+  do {
+    emailTemplateIdSequence += 1;
+    const suffix =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${emailTemplateIdSequence}-${Math.random().toString(36).slice(2, 10)}`;
+    id = `custom-${suffix}`;
+  } while (customEmailTemplates.value.some((template) => template.id === id));
+  return id;
+}
+
+async function persistEmailTemplates(
+  nextTemplates: TestEmailBodyTemplate[],
+  failureContext: string,
+): Promise<boolean> {
+  templatePersistencePending.value = true;
+  errorMessage.value = "";
+  try {
+    await setSettingAndWait(EMAIL_BODY_TEMPLATES_SETTING_KEY, JSON.stringify(nextTemplates));
+    return true;
+  } catch (error) {
+    errorMessage.value = `${failureContext}：${formatError(error)}`;
+    return false;
+  } finally {
+    templatePersistencePending.value = false;
+  }
+}
+
+async function saveEmailTemplateAs() {
+  if (templatePersistencePending.value) return;
+  if (!emailTemplate.value.trim()) {
+    errorMessage.value = "另存邮件正文模板失败：正文不能为空";
+    return;
+  }
+
+  let name: string;
+  try {
+    const result = await ElMessageBox.prompt("输入新模板名称", "另存邮件正文模板", {
+      confirmButtonText: "保存",
+      cancelButtonText: "取消",
+      inputPlaceholder: "模板名称",
+      inputValidator: (value) => validateEmailTemplateName(value),
+    });
+    name = result.value.trim();
+  } catch (error) {
+    if (isMessageBoxCancellation(error)) return;
+    errorMessage.value = `另存邮件正文模板失败：${formatError(error)}`;
+    return;
+  }
+
+  const validationResult = validateEmailTemplateName(name);
+  if (validationResult !== true) {
+    errorMessage.value = `另存邮件正文模板失败：${validationResult}`;
+    return;
+  }
+
+  const newTemplate: TestEmailBodyTemplate = {
+    id: createUniqueEmailTemplateId(),
+    name,
+    content: emailTemplate.value,
+  };
+  const nextTemplates = [...customEmailTemplates.value, newTemplate];
+  if (!(await persistEmailTemplates(nextTemplates, "另存邮件正文模板失败"))) return;
+
+  customEmailTemplates.value = nextTemplates;
+  applyEmailTemplate(newTemplate);
+  ElMessage.success("邮件正文模板已保存");
+}
+
+async function saveEmailTemplateChanges() {
+  if (templatePersistencePending.value) return;
+  const currentTemplate = requireActiveCustomEmailTemplate("保存邮件正文模板");
+  if (!currentTemplate) return;
+  if (!emailTemplate.value.trim()) {
+    errorMessage.value = "保存邮件正文模板失败：正文不能为空";
+    return;
+  }
+  if (!isEmailTemplateDirty.value) return;
+
+  const nextTemplates = customEmailTemplates.value.map((template) =>
+    template.id === currentTemplate.id ? { ...template, content: emailTemplate.value } : template,
+  );
+  if (!(await persistEmailTemplates(nextTemplates, "保存邮件正文模板失败"))) return;
+
+  customEmailTemplates.value = nextTemplates;
+  loadedEmailTemplateContent.value = emailTemplate.value;
+  errorMessage.value = "";
+  ElMessage.success("邮件正文模板修改已保存");
+}
+
+async function renameEmailTemplate() {
+  if (templatePersistencePending.value) return;
+  const currentTemplate = requireActiveCustomEmailTemplate("重命名邮件正文模板");
+  if (!currentTemplate) return;
+
+  let name: string;
+  try {
+    const result = await ElMessageBox.prompt("输入新的模板名称", "重命名邮件正文模板", {
+      inputValue: currentTemplate.name,
+      confirmButtonText: "保存",
+      cancelButtonText: "取消",
+      inputValidator: (value) => validateEmailTemplateName(value, currentTemplate.id),
+    });
+    name = result.value.trim();
+  } catch (error) {
+    if (isMessageBoxCancellation(error)) return;
+    errorMessage.value = `重命名邮件正文模板失败：${formatError(error)}`;
+    return;
+  }
+
+  const validationResult = validateEmailTemplateName(name, currentTemplate.id);
+  if (validationResult !== true) {
+    errorMessage.value = `重命名邮件正文模板失败：${validationResult}`;
+    return;
+  }
+  if (name === currentTemplate.name) return;
+
+  const nextTemplates = customEmailTemplates.value.map((template) =>
+    template.id === currentTemplate.id ? { ...template, name } : template,
+  );
+  if (!(await persistEmailTemplates(nextTemplates, "重命名邮件正文模板失败"))) return;
+
+  customEmailTemplates.value = nextTemplates;
+  errorMessage.value = "";
+  ElMessage.success("邮件正文模板已重命名");
+}
+
+async function deleteEmailTemplate() {
+  if (templatePersistencePending.value) return;
+  const currentTemplate = requireActiveCustomEmailTemplate("删除邮件正文模板");
+  if (!currentTemplate) return;
+
+  const message = isEmailTemplateDirty.value
+    ? `确定删除“${currentTemplate.name}”吗？当前未保存的正文修改也会丢失。`
+    : `确定删除“${currentTemplate.name}”吗？删除后无法恢复。`;
+  try {
+    await ElMessageBox.confirm(message, "删除邮件正文模板", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch (error) {
+    if (isMessageBoxCancellation(error)) return;
+    errorMessage.value = `删除邮件正文模板失败：${formatError(error)}`;
+    return;
+  }
+
+  const nextTemplates = customEmailTemplates.value.filter(
+    (template) => template.id !== currentTemplate.id,
+  );
+  if (!(await persistEmailTemplates(nextTemplates, "删除邮件正文模板失败"))) return;
+
+  customEmailTemplates.value = nextTemplates;
+  applyEmailTemplate(findEmailTemplateById(BUILTIN_TEST_EMAIL_TEMPLATE_ID));
+  ElMessage.success("邮件正文模板已删除");
+}
 
 async function chooseTemplate() {
   try {
@@ -412,6 +754,67 @@ async function revealOutput() {
   line-height: 1.5;
 }
 
+.email-template-toolbar,
+.template-library-controls,
+.template-library-actions,
+.template-library-status {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.email-template-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.template-library-controls {
+  flex: 1 1 250px;
+  gap: 9px;
+}
+
+.email-template-select {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.email-template-select :deep(.el-select__wrapper),
+.email-template-select :deep(.el-select__selection),
+.email-template-select :deep(.el-select__selected-item) {
+  min-width: 0;
+}
+
+.email-template-select :deep(.el-select__selected-item) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-library-status {
+  flex: 0 0 auto;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.template-dirty-status {
+  box-sizing: border-box;
+  width: 58px;
+  justify-content: center;
+}
+
+.template-library-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.template-library-actions > .el-button + .el-button {
+  margin-left: 0;
+}
+
 .assistant-workspace {
   display: grid;
   grid-template-columns: minmax(260px, 0.92fr) minmax(0, 1.08fr);
@@ -561,6 +964,29 @@ async function revealOutput() {
   .generate-row > .el-button,
   .output-result > .el-button {
     width: 100%;
+  }
+
+  .email-template-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .template-library-controls {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .email-template-select {
+    flex-basis: 220px;
+  }
+
+  .template-library-actions {
+    width: 100%;
+  }
+
+  .template-primary-action {
+    flex: 1 1 120px;
   }
 
   .assistant-workspace {

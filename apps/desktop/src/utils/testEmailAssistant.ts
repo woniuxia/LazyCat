@@ -1,9 +1,68 @@
 export const DEFAULT_TEST_EMAIL_TEMPLATE =
   "{{称呼}}：\n\n{{功能需求内容}}测试开发已完成，请进行测试。\n测试步骤：\n{{测试步骤}}";
 
+export const BUILTIN_TEST_EMAIL_TEMPLATE_ID = "builtin-default";
+
+export interface TestEmailBodyTemplate {
+  id: string;
+  name: string;
+  content: string;
+}
+
 const PLACEHOLDER_OPEN = "{{";
 const PLACEHOLDER_CLOSE = "}}";
 const MULTILINE_FIELD_KEYWORDS = ["内容", "步骤", "说明", "描述", "备注"] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function normalizeTestEmailBodyTemplates(value: unknown): TestEmailBodyTemplate[] {
+  if (!Array.isArray(value)) return [];
+
+  const templates: TestEmailBodyTemplate[] = [];
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const { id, name, content } = item;
+    if (typeof id !== "string" || typeof name !== "string" || typeof content !== "string") {
+      continue;
+    }
+
+    const trimmedName = name.trim();
+    const normalizedName = trimmedName.toLowerCase();
+    if (
+      !id.trim() ||
+      id === BUILTIN_TEST_EMAIL_TEMPLATE_ID ||
+      !trimmedName ||
+      !content.trim()
+    ) {
+      continue;
+    }
+    if (seenIds.has(id) || seenNames.has(normalizedName)) continue;
+
+    seenIds.add(id);
+    seenNames.add(normalizedName);
+    templates.push({ id, name: trimmedName, content });
+  }
+
+  return templates;
+}
+
+export function hasTestEmailTemplateNameConflict(
+  templates: readonly TestEmailBodyTemplate[],
+  name: string,
+  excludedId?: string,
+): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  return templates.some(
+    (template) => template.id !== excludedId && template.name.trim().toLowerCase() === normalizedName,
+  );
+}
 
 export function normalizePlaceholderName(rawName: string): string {
   return rawName.trim();
