@@ -125,6 +125,10 @@
           <div class="vault-nav-spacer" />
 
           <div class="vault-nav-actions">
+            <button class="vault-nav-btn" @click="securitySettingsDialog?.show()">
+              <el-icon><Setting /></el-icon>
+              <span>安全设置</span>
+            </button>
             <button class="vault-nav-btn" @click="showChangePassword = true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -426,6 +430,8 @@
       @saved="onEntrySaved"
     />
 
+    <VaultSecuritySettingsDialog ref="securitySettingsDialog" />
+
     <el-dialog
       v-model="showChangePassword"
       title="修改主密码"
@@ -510,6 +516,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue";
 import { ElMessageBox, ElMessage } from "element-plus";
+import { Setting } from "@element-plus/icons-vue";
 import { listen } from "@tauri-apps/api/event";
 import { invokeToolByChannel, suppressClipboardCapture } from "../bridge/tauri";
 import {
@@ -521,6 +528,7 @@ import { getVaultLockSettings, subscribeVaultLockSettings } from "../composables
 import { toVaultLockRuntimePolicy } from "../utils/vaultLock";
 import VaultLockScreen from "./VaultLockScreen.vue";
 import VaultEntryDialog from "./VaultEntryDialog.vue";
+import VaultSecuritySettingsDialog from "./VaultSecuritySettingsDialog.vue";
 
 interface VaultListEntry {
   id: number;
@@ -585,6 +593,7 @@ const listLoading = ref(false);
 const entriesLoaded = ref(false);
 const initialLoadError = ref("");
 const entryDialog = ref<InstanceType<typeof VaultEntryDialog> | null>(null);
+const securitySettingsDialog = ref<InstanceType<typeof VaultSecuritySettingsDialog> | null>(null);
 const inputMaskVersion = ref(0);
 
 const ENV_LIST = [
@@ -1873,6 +1882,11 @@ onBeforeUnmount(() => {
 }
 
 .vault-nav-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.vault-nav-btn .el-icon {
   width: 14px;
   height: 14px;
 }

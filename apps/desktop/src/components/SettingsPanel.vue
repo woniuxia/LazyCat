@@ -164,90 +164,6 @@
         </div>
       </section>
 
-      <!-- 加密与安全 -->
-      <section class="settings-section">
-        <div class="section-header">
-          <div class="section-icon">🔐</div>
-          <div class="section-title">
-            <h3>加密与安全</h3>
-            <p>配置密码管理的自动锁定策略</p>
-          </div>
-        </div>
-        <div class="section-content">
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="label-text">敏感信息隐藏</span>
-              <span class="label-desc">窗口失焦时仍会立即恢复密码掩码</span>
-            </div>
-            <div class="setting-control vault-lock-rule-control">
-              <el-select
-                v-model="vaultLockSettings.sensitiveHideMinutes"
-                class="vault-lock-minutes-select"
-                @change="saveVaultLockSetting('sensitiveHideMinutes')"
-              >
-                <el-option
-                  v-for="minutes in VAULT_SENSITIVE_HIDE_MINUTES"
-                  :key="minutes"
-                  :label="`${minutes} 分钟`"
-                  :value="minutes"
-                />
-              </el-select>
-            </div>
-          </div>
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="label-text">Vault 无活动自动锁定</span>
-              <span class="label-desc">没有操作密码库达到时长后清除解锁会话</span>
-            </div>
-            <div class="setting-control vault-lock-rule-control">
-              <el-switch
-                v-model="vaultLockSettings.activityLockEnabled"
-                @change="saveVaultLockSetting('activityLockEnabled')"
-              />
-              <el-select
-                v-model="vaultLockSettings.activityLockMinutes"
-                class="vault-lock-minutes-select"
-                :disabled="!vaultLockSettings.activityLockEnabled"
-                @change="saveVaultLockSetting('activityLockMinutes')"
-              >
-                <el-option
-                  v-for="minutes in VAULT_HARD_LOCK_MINUTES"
-                  :key="minutes"
-                  :label="`${minutes} 分钟`"
-                  :value="minutes"
-                />
-              </el-select>
-            </div>
-          </div>
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="label-text">电脑无操作自动锁定</span>
-              <span class="label-desc">整台电脑没有键盘或鼠标输入达到时长后锁定</span>
-            </div>
-            <div class="setting-control vault-lock-rule-control">
-              <el-switch
-                v-model="vaultLockSettings.systemIdleLockEnabled"
-                @change="saveVaultLockSetting('systemIdleLockEnabled')"
-              />
-              <el-select
-                v-model="vaultLockSettings.systemIdleLockMinutes"
-                class="vault-lock-minutes-select"
-                :disabled="!vaultLockSettings.systemIdleLockEnabled"
-                @change="saveVaultLockSetting('systemIdleLockMinutes')"
-              >
-                <el-option
-                  v-for="minutes in VAULT_HARD_LOCK_MINUTES"
-                  :key="minutes"
-                  :label="`${minutes} 分钟`"
-                  :value="minutes"
-                />
-              </el-select>
-            </div>
-          </div>
-          <span class="setting-inline-hint vault-lock-summary">{{ vaultLockSummary }}</span>
-        </div>
-      </section>
-
       <!-- Spotlight -->
       <section class="settings-section">
         <div class="section-header">
@@ -460,7 +376,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
@@ -470,19 +386,7 @@ import {
   unregisterNamedHotkey,
   invokeToolByChannel,
 } from "../bridge/tauri";
-import {
-  getSetting,
-  getVaultLockSettings,
-  setSetting,
-  setVaultLockSettingAndWait,
-  useAutostartSettings,
-} from "../composables/useSettings";
-import {
-  summarizeVaultHardLockRules,
-  VAULT_HARD_LOCK_MINUTES,
-  VAULT_SENSITIVE_HIDE_MINUTES,
-  type VaultLockSettings,
-} from "../utils/vaultLock";
+import { getSetting, setSetting, useAutostartSettings } from "../composables/useSettings";
 import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
@@ -537,10 +441,7 @@ const inboxCaptureWhenHidden = ref(true);
 const inboxHistoryRetentionDays = ref(14);
 const inboxPaused = ref(false);
 const inboxPausedUntil = ref("");
-const vaultLockSettings = reactive(getVaultLockSettings());
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
-
-const vaultLockSummary = computed(() => summarizeVaultHardLockRules(vaultLockSettings));
 
 const inboxPausedLabel = computed(() => {
   if (!inboxPaused.value || !inboxPausedUntil.value) return "";
@@ -848,23 +749,6 @@ async function handleResumeInboxCapture() {
     ElMessage.error(`设置失败：${(error as Error).message}`);
   }
 }
-
-async function saveVaultLockSetting<K extends keyof VaultLockSettings>(name: K) {
-  try {
-    await setVaultLockSettingAndWait(name, vaultLockSettings[name]);
-    Object.assign(vaultLockSettings, getVaultLockSettings());
-    ElMessage.success("密码库锁定设置已更新");
-  } catch (error) {
-    Object.assign(vaultLockSettings, getVaultLockSettings());
-    ElMessage.error(`设置失败：${(error as Error).message}`);
-    return;
-  }
-  try {
-    await invokeToolByChannel("tool:vault:status", {});
-  } catch {
-    // 设置已保存，Vault 面板仍会通过订阅和状态轮询同步。
-  }
-}
 </script>
 
 <style scoped>
@@ -981,26 +865,6 @@ async function saveVaultLockSetting<K extends keyof VaultLockSettings>(name: K) 
   min-width: 0;
   flex-direction: column;
   align-items: stretch;
-}
-
-.vault-lock-rule-control {
-  min-width: 190px;
-  justify-content: flex-end;
-}
-
-.vault-lock-minutes-select {
-  width: 120px;
-}
-
-.vault-lock-summary {
-  display: block;
-  text-align: right;
-}
-
-.setting-inline-hint {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
 }
 
 .setting-actions {

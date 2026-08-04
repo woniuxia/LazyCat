@@ -196,6 +196,7 @@ declare module 'vue' {
     VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
     VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
     VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
+    VaultSecuritySettingsDialog: typeof import('./src/components/VaultSecuritySettingsDialog.vue')['default']
     WeeklyWorkPanel: typeof import('./src/components/WeeklyWorkPanel.vue')['default']
     WidgetCanvas: typeof import('./src/components/WidgetCanvas.vue')['default']
     WidgetExtensionSlot: typeof import('./src/components/WidgetExtensionSlot.vue')['default']
