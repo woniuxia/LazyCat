@@ -25,7 +25,7 @@
 | Windows、portable、NSIS、WebView2、Release                                | [windows-build-and-release.md](docs/experience/windows-build-and-release.md) |
 | Vault、Inbox、剪贴板采集                                                  | [vault-and-inbox.md](docs/experience/vault-and-inbox.md)                     |
 | 离线手册、资源、本地预览、壁纸                                            | [manuals-and-resources.md](docs/experience/manuals-and-resources.md)         |
-| Agent 文档、只读边界、计划、续作、交接、主动提交、验证、dirty worktree    | [agent-workflow.md](docs/experience/agent-workflow.md)                       |
+| Agent 技能、只读边界、计划、续作、交接、主动提交、验证、dirty worktree    | [engineering-workflow.md](docs/agents/engineering-workflow.md)              |
 | JSON 树、Base64、片段、番茄钟、SQL 生成                                   | [other-tools.md](docs/experience/other-tools.md)                             |
 
 完整迁移对账见 [docs/experience/README.md](docs/experience/README.md)。

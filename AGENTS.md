@@ -12,6 +12,10 @@ Issues and specs are tracked as local Markdown files under `.scratch/`. See `doc
 
 This is a single-context repo with `CONTEXT.md` at the root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
 
+### Engineering workflow
+
+Project-specific routing for specs, tickets, diagnosis, implementation, and review lives in `docs/agents/engineering-workflow.md`.
+
 ## 1. 核心规则
 
 ### 权限与方案
@@ -89,7 +93,7 @@ This is a single-context repo with `CONTEXT.md` at the root and ADRs under `docs
 | Windows 构建与发布                                     | [windows-build-and-release.md](docs/experience/windows-build-and-release.md) |
 | Vault、Inbox                                           | [vault-and-inbox.md](docs/experience/vault-and-inbox.md)                     |
 | 离线手册、资源、本地预览                               | [manuals-and-resources.md](docs/experience/manuals-and-resources.md)         |
-| Agent 协作、只读边界、续作、交接、主动提交、规范、验证 | [agent-workflow.md](docs/experience/agent-workflow.md)                       |
+| Agent 协作、只读边界、续作、交接、主动提交、规范、验证 | [engineering-workflow.md](docs/agents/engineering-workflow.md)              |
 | JSON 树、Base64、片段、番茄钟等                        | [other-tools.md](docs/experience/other-tools.md)                             |
 
 完整索引和经验维护规则见 [process.md](process.md)。

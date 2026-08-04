@@ -5,9 +5,9 @@
 ## 使用方式
 
 1. 先从根目录 `AGENTS.md` 判断任务类型；Claude Code 通过 `CLAUDE.md` 自动导入同一份规则。
-2. 通过 `process.md` 或下表进入领域文件。
+2. 规格、工单、诊断、实施和评审先读取 [Engineering skills 工作流](../agents/engineering-workflow.md)，领域实现再通过 `process.md` 或下表进入对应经验文件。
 3. 使用 `rg -n "关键词" docs/experience` 定位具体规则。
-4. 新经验直接写入对应领域文件，不再把正文追加到 `process.md`。
+4. 新领域经验直接写入对应领域文件，不再把正文追加到 `process.md`；技能路由和协作流程更新到 `docs/agents/engineering-workflow.md`。
 
 ## 领域索引
 
@@ -25,7 +25,7 @@
 | Windows 构建与发布                                   | [windows-build-and-release.md](./windows-build-and-release.md) |
 | Vault 与 Inbox                                       | [vault-and-inbox.md](./vault-and-inbox.md)                     |
 | 手册与资源                                           | [manuals-and-resources.md](./manuals-and-resources.md)         |
-| Agent 协作、只读边界、续作、交接与主动提交           | [agent-workflow.md](./agent-workflow.md)                       |
+| Agent 技能、只读边界、续作、交接与主动提交           | [engineering-workflow.md](../agents/engineering-workflow.md)   |
 | 其他工具                                             | [other-tools.md](./other-tools.md)                             |
 
 ## 迁移审计
@@ -96,7 +96,7 @@
 | 056 | 2026-04-08 | PM 侧栏排序口径与项目计数口径必须拆开建模                                                     | merged  | [`pm.md`](./pm.md#不同统计口径独立建模)                                                     | 并入当前有效主题；关键边界仍有效                      |
 | 057 | 2026-04-08 | 本周工作面板改为按 PM 计划时间命中本周统计                                                    | merged  | [`pm.md`](./pm.md#不同统计口径独立建模)                                                     | 并入当前有效结论；旧行为不再作为建议                  |
 | 058 | 2026-04-08 | Base64 面板自动识别前端收口为纯函数校验 + 手动选择持久化                                      | merged  | [`other-tools.md`](./other-tools.md#base64-自动识别与手动偏好分离)                          | 并入当前有效主题；关键边界仍有效                      |
-| 059 | 2026-04-07 | 代理规范文档按检索场景重构并补 Agent 防错闸门                                                 | merged  | [`agent-workflow.md`](./agent-workflow.md#根规范是执行入口不是知识仓库)                     | 并入当前有效结论；旧行为不再作为建议                  |
+| 059 | 2026-04-07 | 代理规范文档按检索场景重构并补 Agent 防错闸门                                                 | merged  | [`engineering-workflow.md`](../agents/engineering-workflow.md#根规范是执行入口不是知识仓库) | 并入当前有效结论；旧行为不再作为建议                  |
 | 060 | 2026-04-06 | Windows 正式发版前先处理版本号与已存在 tag 冲突                                               | merged  | [`windows-build-and-release.md`](./windows-build-and-release.md#正式发版前置条件)           | 并入当前有效结论；旧行为不再作为建议                  |
 | 061 | 2026-04-06 | 项目管理甘特图周末日期坐标增加红色圆底                                                        | removed | —                                                                                           | 一次性视觉装饰，当前通用重绘边界已纳入 PM 经验        |
 | 062 | 2026-04-06 | 项目管理甘特图首次进入定位改为项目层无动画接管                                                | merged  | [`pm.md`](./pm.md#甘特图-dom-与状态同步)                                                    | 并入当前有效结论；旧行为不再作为建议                  |
