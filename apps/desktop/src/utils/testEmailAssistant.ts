@@ -1,7 +1,8 @@
 export const DEFAULT_TEST_EMAIL_TEMPLATE =
-  "{{称呼}}：\n\n{{功能需求内容}}测试开发已完成，请进行测试。\n测试步骤：\n{{测试步骤}}";
+  "{{称呼}}：\n\n{{功能需求内容}}已完成开发与自测，现提请测试。\n\n测试步骤：\n{{测试步骤}}\n\n请协助验证，如有问题请及时反馈，谢谢。";
 
 export const BUILTIN_TEST_EMAIL_TEMPLATE_ID = "builtin-default";
+export const BUILTIN_TEST_EMAIL_TEMPLATE_NAME = "默认模板";
 
 export interface TestEmailBodyTemplate {
   id: string;
@@ -33,20 +34,16 @@ export function normalizeTestEmailBodyTemplates(value: unknown): TestEmailBodyTe
       continue;
     }
 
-    const trimmedName = name.trim();
+    const isBuiltin = id === BUILTIN_TEST_EMAIL_TEMPLATE_ID;
+    const trimmedName = isBuiltin ? BUILTIN_TEST_EMAIL_TEMPLATE_NAME : name.trim();
     const normalizedName = trimmedName.toLowerCase();
-    if (
-      !id.trim() ||
-      id === BUILTIN_TEST_EMAIL_TEMPLATE_ID ||
-      !trimmedName ||
-      !content.trim()
-    ) {
+    if (!id.trim() || !trimmedName || !content.trim()) {
       continue;
     }
-    if (seenIds.has(id) || seenNames.has(normalizedName)) continue;
+    if (seenIds.has(id) || (!isBuiltin && seenNames.has(normalizedName))) continue;
 
     seenIds.add(id);
-    seenNames.add(normalizedName);
+    if (!isBuiltin) seenNames.add(normalizedName);
     templates.push({ id, name: trimmedName, content });
   }
 
@@ -60,7 +57,8 @@ export function hasTestEmailTemplateNameConflict(
 ): boolean {
   const normalizedName = name.trim().toLowerCase();
   return templates.some(
-    (template) => template.id !== excludedId && template.name.trim().toLowerCase() === normalizedName,
+    (template) =>
+      template.id !== excludedId && template.name.trim().toLowerCase() === normalizedName,
   );
 }
 
@@ -142,9 +140,10 @@ export function renderEmailTemplate(
     const name = normalizePlaceholderName(rawName);
     const isRecognized =
       !rawName.includes("{") && !rawName.includes("}") && !/[\r\n]/u.test(rawName) && !!name;
-    rendered += isRecognized && Object.prototype.hasOwnProperty.call(values, name)
-      ? (values[name] ?? "")
-      : template.slice(openIndex, closeIndex + PLACEHOLDER_CLOSE.length);
+    rendered +=
+      isRecognized && Object.prototype.hasOwnProperty.call(values, name)
+        ? (values[name] ?? "")
+        : template.slice(openIndex, closeIndex + PLACEHOLDER_CLOSE.length);
     cursor = closeIndex + PLACEHOLDER_CLOSE.length;
   }
 

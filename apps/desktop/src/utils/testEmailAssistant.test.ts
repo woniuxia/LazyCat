@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+  BUILTIN_TEST_EMAIL_TEMPLATE_NAME,
   extractPlaceholders,
   getMissingPlaceholders,
   hasTestEmailTemplateNameConflict,
@@ -23,10 +24,17 @@ describe("test email assistant body template utilities", () => {
         { id: "", name: "模板", content: "正文" },
         { id: "id-1", name: " ", content: "正文" },
         { id: "id-2", name: "模板", content: " \n " },
-        { id: BUILTIN_TEST_EMAIL_TEMPLATE_ID, name: "伪默认模板", content: "正文" },
+        { id: BUILTIN_TEST_EMAIL_TEMPLATE_ID, name: "伪默认模板", content: "默认正文" },
         { id: "id-3", name: "有效模板", content: "正文" },
       ]),
-    ).toEqual([{ id: "id-3", name: "有效模板", content: "正文" }]);
+    ).toEqual([
+      {
+        id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+        name: BUILTIN_TEST_EMAIL_TEMPLATE_NAME,
+        content: "默认正文",
+      },
+      { id: "id-3", name: "有效模板", content: "正文" },
+    ]);
   });
 
   it("trims names while preserving content exactly", () => {
@@ -81,9 +89,9 @@ describe("test email assistant placeholder utilities", () => {
   });
 
   it("reports only blank required values", () => {
-    expect(getMissingPlaceholders(["称呼", "内容", "步骤"], { 称呼: "张三", 内容: " ", 步骤: "完成" })).toEqual([
-      "内容",
-    ]);
+    expect(
+      getMissingPlaceholders(["称呼", "内容", "步骤"], { 称呼: "张三", 内容: " ", 步骤: "完成" }),
+    ).toEqual(["内容"]);
   });
 
   it("recognizes semantic fields that need multiline input", () => {

@@ -27,7 +27,10 @@ const ACTIONS: &[&str] = &[
     "delete_email_template",
 ];
 const LEGACY_EMAIL_TEMPLATES_SETTING_KEY: &str = "test-email-assistant:email-templates:v1";
+const BUILTIN_EMAIL_TEMPLATE_CONTENT_SETTING_KEY: &str =
+    "test-email-assistant:builtin-email-template-content";
 const BUILTIN_EMAIL_TEMPLATE_ID: &str = "builtin-default";
+const BUILTIN_EMAIL_TEMPLATE_NAME: &str = "默认模板";
 const MAX_DOCX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_ENTRY_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_OUTPUT_NAME_CHARS: usize = 160;
@@ -233,7 +236,13 @@ fn parse_email_templates_value(value: &Value) -> Result<Vec<EmailBodyTemplate>, 
 }
 
 pub(super) fn export_email_templates(conn: &Connection) -> Result<Value, String> {
-    list_email_templates_with_conn(conn)
+    let templates = list_custom_email_templates_with_conn(conn)?;
+    Ok(Value::Array(
+        templates
+            .into_iter()
+            .map(|template| template.to_value())
+            .collect(),
+    ))
 }
 
 pub(super) fn import_email_templates(
@@ -274,6 +283,46 @@ pub(super) fn import_email_templates(
 }
 
 fn list_email_templates_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut templates = Vec::new();
+    if let Some(template) = load_saved_builtin_email_template(conn)? {
+        templates.push(template);
+    }
+    templates.extend(list_custom_email_templates_with_conn(conn)?);
+    Ok(Value::Array(
+        templates
+            .into_iter()
+            .map(|template| template.to_value())
+            .collect(),
+    ))
+}
+
+fn load_saved_builtin_email_template(
+    conn: &Connection,
+) -> Result<Option<EmailBodyTemplate>, String> {
+    let content = conn
+        .query_row(
+            "SELECT value FROM user_settings WHERE key = ?1",
+            params![BUILTIN_EMAIL_TEMPLATE_CONTENT_SETTING_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("load built-in test email template failed: {error}"))?;
+    let Some(content) = content else {
+        return Ok(None);
+    };
+    if content.trim().is_empty() {
+        return Err("stored built-in test email template content is empty".to_string());
+    }
+    Ok(Some(EmailBodyTemplate {
+        id: BUILTIN_EMAIL_TEMPLATE_ID.to_string(),
+        name: BUILTIN_EMAIL_TEMPLATE_NAME.to_string(),
+        content,
+    }))
+}
+
+fn list_custom_email_templates_with_conn(
+    conn: &Connection,
+) -> Result<Vec<EmailBodyTemplate>, String> {
     let mut statement = conn
         .prepare(
             "SELECT id, name, content
@@ -292,12 +341,9 @@ fn list_email_templates_with_conn(conn: &Connection) -> Result<Value, String> {
         .map_err(|error| format!("query test email templates failed: {error}"))?;
     let mut templates = Vec::new();
     for row in rows {
-        templates.push(
-            row.map_err(|error| format!("read test email template failed: {error}"))?
-                .to_value(),
-        );
+        templates.push(row.map_err(|error| format!("read test email template failed: {error}"))?);
     }
-    Ok(Value::Array(templates))
+    Ok(templates)
 }
 
 fn create_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
@@ -323,8 +369,26 @@ fn create_email_template_with_conn(conn: &Connection, payload: &Value) -> Result
 
 fn update_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = required_email_template_id(payload)?;
-    let name = required_email_template_name(payload)?;
     let content = required_email_template_content(payload)?;
+    if id == BUILTIN_EMAIL_TEMPLATE_ID {
+        conn.execute(
+            "INSERT INTO user_settings(key, value, updated_at)
+             VALUES(?1, ?2, CURRENT_TIMESTAMP)
+             ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP",
+            params![BUILTIN_EMAIL_TEMPLATE_CONTENT_SETTING_KEY, content],
+        )
+        .map_err(|error| format!("update built-in test email template failed: {error}"))?;
+        return Ok(EmailBodyTemplate {
+            id,
+            name: BUILTIN_EMAIL_TEMPLATE_NAME.to_string(),
+            content,
+        }
+        .to_value());
+    }
+
+    let name = required_email_template_name(payload)?;
     ensure_email_template_name_available(conn, &name, Some(&id))?;
     let changed = conn
         .execute(
@@ -341,7 +405,7 @@ fn update_email_template_with_conn(conn: &Connection, payload: &Value) -> Result
 }
 
 fn delete_email_template_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let id = required_email_template_id(payload)?;
+    let id = required_deletable_email_template_id(payload)?;
     let changed = conn
         .execute(
             "DELETE FROM test_email_body_templates WHERE id = ?1",
@@ -360,10 +424,15 @@ fn required_email_template_id(payload: &Value) -> Result<String, String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or("test email template id is required")?;
-    if id == BUILTIN_EMAIL_TEMPLATE_ID {
-        return Err("built-in test email template cannot be changed".to_string());
-    }
     Ok(id.to_string())
+}
+
+fn required_deletable_email_template_id(payload: &Value) -> Result<String, String> {
+    let id = required_email_template_id(payload)?;
+    if id == BUILTIN_EMAIL_TEMPLATE_ID {
+        return Err("built-in test email template cannot be deleted".to_string());
+    }
+    Ok(id)
 }
 
 fn required_email_template_name(payload: &Value) -> Result<String, String> {
@@ -1496,6 +1565,56 @@ mod tests {
                 .unwrap_err()
                 .contains("not found")
         );
+    }
+
+    #[test]
+    fn built_in_email_template_can_be_saved_but_not_deleted() {
+        let conn = template_connection();
+        ensure_schema_and_migrate(&conn).expect("initialize schema");
+        let custom = create_email_template_with_conn(
+            &conn,
+            &json!({ "name": "默认模板", "content": "同名自定义正文" }),
+        )
+        .expect("create same-name custom template");
+
+        let saved = update_email_template_with_conn(
+            &conn,
+            &json!({
+                "id": BUILTIN_EMAIL_TEMPLATE_ID,
+                "name": "客户端名称不应覆盖默认名称",
+                "content": "保存后的默认正文"
+            }),
+        )
+        .expect("save built-in template");
+        assert_eq!(
+            saved,
+            json!({
+                "id": BUILTIN_EMAIL_TEMPLATE_ID,
+                "name": BUILTIN_EMAIL_TEMPLATE_NAME,
+                "content": "保存后的默认正文"
+            })
+        );
+        assert_eq!(
+            list_email_templates_with_conn(&conn).expect("list templates"),
+            json!([
+                {
+                    "id": BUILTIN_EMAIL_TEMPLATE_ID,
+                    "name": BUILTIN_EMAIL_TEMPLATE_NAME,
+                    "content": "保存后的默认正文"
+                },
+                custom
+            ])
+        );
+        assert_eq!(
+            export_email_templates(&conn).expect("export custom templates"),
+            json!([custom])
+        );
+        assert!(delete_email_template_with_conn(
+            &conn,
+            &json!({ "id": BUILTIN_EMAIL_TEMPLATE_ID })
+        )
+        .unwrap_err()
+        .contains("cannot be deleted"));
     }
 
     #[test]

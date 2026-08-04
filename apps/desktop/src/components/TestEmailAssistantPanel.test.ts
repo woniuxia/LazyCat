@@ -287,7 +287,7 @@ describe("TestEmailAssistantPanel source structure", () => {
     expect(source).toContain(':model-value="activeEmailTemplateId"');
     expect(source).toContain('@change="selectEmailTemplate"');
     expect(source).not.toContain('v-model="activeEmailTemplateId"');
-    expect(source).toContain("默认模板（内置）");
+    expect(source).toContain(':label="builtinEmailTemplate.name"');
     expect(source).toContain('v-for="template in customEmailTemplates"');
     expect(source).toContain("另存为");
     expect(source).toContain("保存修改");
@@ -435,6 +435,43 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     app.unmount();
   });
 
+  it("loads and saves customized default email template content", async () => {
+    const success = vi.spyOn(ElMessage, "success").mockReturnValue(undefined as never);
+    const { app, root } = await mountPanel([
+      {
+        id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+        name: "默认模板",
+        content: "已保存的默认正文 {{称呼}}",
+      },
+      ...storedTemplates,
+    ]);
+
+    expect(modelValue(findNodeByAriaLabel(root, "邮件正文模板"))).toBe("已保存的默认正文 {{称呼}}");
+
+    const emailInput = findNodeByAriaLabel(root, "邮件正文模板");
+    (emailInput?.props["onUpdate:modelValue"] as (value: string) => void)(
+      "更新后的默认正文 {{称呼}}",
+    );
+    await flushPanel();
+
+    expect(findButton(root, "保存修改")?.props.disabled).toBe(false);
+    await (findButton(root, "保存修改")?.props.onClick as () => Promise<void>)();
+    await flushPanel();
+
+    expect(bridgeHarness.invokeToolByChannel).toHaveBeenCalledWith(
+      "tool:test-email-assistant:update-email-template",
+      {
+        id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+        name: "默认模板",
+        content: "更新后的默认正文 {{称呼}}",
+      },
+    );
+    expect(findButton(root, "保存修改")?.props.disabled).toBe(true);
+    expect(nodeText(root)).toContain("无修改");
+    expect(success).toHaveBeenCalledWith("邮件正文模板修改已保存");
+    app.unmount();
+  });
+
   it("keeps settings restore failures visible while restoring the Word template", async () => {
     const { app, root } = await mountPanel([], {
       settingsGetError: new Error("设置读取失败"),
@@ -552,7 +589,7 @@ describe("TestEmailAssistantPanel template library behavior", () => {
     expect(modelValue(findNodeByAriaLabel(root, "选择邮件正文模板"))).toBe(
       BUILTIN_TEST_EMAIL_TEMPLATE_ID,
     );
-    expect(nodeText(root)).toContain("自定义 0 个");
+    expect(nodeText(root)).toContain("0 个字段");
 
     releasePersistence({ id: "custom-new", name: "新模板", content: "另存正文" });
     await savePromise;

@@ -104,7 +104,10 @@
               aria-label="选择邮件正文模板"
               @change="selectEmailTemplate"
             >
-              <el-option :value="BUILTIN_TEST_EMAIL_TEMPLATE_ID" label="默认模板（内置）" />
+              <el-option
+                :value="BUILTIN_TEST_EMAIL_TEMPLATE_ID"
+                :label="builtinEmailTemplate.name"
+              />
               <el-option
                 v-for="template in customEmailTemplates"
                 :key="template.id"
@@ -114,7 +117,7 @@
               />
             </el-select>
             <div class="template-library-status" aria-live="polite">
-              <span>自定义 {{ customEmailTemplates.length }} 个</span>
+              <span>{{ emailPlaceholders.length }} 个字段</span>
               <el-tag
                 size="small"
                 effect="plain"
@@ -128,17 +131,20 @@
           <div class="template-library-actions">
             <el-button
               class="template-primary-action"
-              :disabled="templatePersistencePending || !emailTemplate.trim()"
-              @click="saveEmailTemplateAs"
-            >
-              另存为
-            </el-button>
-            <el-button
-              class="template-primary-action"
+              type="primary"
+              :icon="Check"
               :disabled="!canSaveEmailTemplateChanges"
               @click="saveEmailTemplateChanges"
             >
               保存修改
+            </el-button>
+            <el-button
+              class="template-primary-action"
+              :icon="Plus"
+              :disabled="templatePersistencePending || !emailTemplate.trim()"
+              @click="saveEmailTemplateAs"
+            >
+              另存为
             </el-button>
             <el-tooltip content="重命名当前模板" placement="top">
               <el-button
@@ -232,12 +238,14 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
+  Check,
   CircleCheck,
   CopyDocument,
   Delete,
   DocumentAdd,
   EditPen,
   FolderOpened,
+  Plus,
   Refresh,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -245,6 +253,7 @@ import { invokeToolByChannel } from "../bridge/tauri";
 import type { TestEmailAssistantGenerateResult, TestEmailAssistantInspectResult } from "../types";
 import {
   BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+  BUILTIN_TEST_EMAIL_TEMPLATE_NAME,
   DEFAULT_TEST_EMAIL_TEMPLATE,
   type TestEmailBodyTemplate,
   getMissingPlaceholders,
@@ -261,6 +270,11 @@ const LAST_EMAIL_TEMPLATE_ID_SETTING_KEY = "test-email-assistant:last-email-temp
 const templatePath = ref("");
 const wordPlaceholders = ref<string[]>([]);
 const emailTemplate = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
+const builtinEmailTemplate = ref<TestEmailBodyTemplate>({
+  id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+  name: BUILTIN_TEST_EMAIL_TEMPLATE_NAME,
+  content: DEFAULT_TEST_EMAIL_TEMPLATE,
+});
 const customEmailTemplates = ref<TestEmailBodyTemplate[]>([]);
 const activeEmailTemplateId = ref(BUILTIN_TEST_EMAIL_TEMPLATE_ID);
 const loadedEmailTemplateContent = ref(DEFAULT_TEST_EMAIL_TEMPLATE);
@@ -297,10 +311,16 @@ const activeCustomEmailTemplate = computed(
     customEmailTemplates.value.find((template) => template.id === activeEmailTemplateId.value) ??
     null,
 );
+const activeEmailTemplate = computed(() => {
+  if (activeEmailTemplateId.value === BUILTIN_TEST_EMAIL_TEMPLATE_ID) {
+    return builtinEmailTemplate.value;
+  }
+  return activeCustomEmailTemplate.value;
+});
 const canSaveEmailTemplateChanges = computed(
   () =>
     !templatePersistencePending.value &&
-    !!activeCustomEmailTemplate.value &&
+    !!activeEmailTemplate.value &&
     isEmailTemplateDirty.value &&
     !!emailTemplate.value.trim(),
 );
@@ -342,14 +362,19 @@ function isMessageBoxCancellation(error: unknown): boolean {
 
 function findEmailTemplateById(id: string): TestEmailBodyTemplate {
   if (id === BUILTIN_TEST_EMAIL_TEMPLATE_ID) {
-    return {
-      id: BUILTIN_TEST_EMAIL_TEMPLATE_ID,
-      name: "默认模板",
-      content: DEFAULT_TEST_EMAIL_TEMPLATE,
-    };
+    return builtinEmailTemplate.value;
   }
   const template = customEmailTemplates.value.find((item) => item.id === id);
   if (!template) throw new Error(`找不到邮件正文模板：${id}`);
+  return template;
+}
+
+function requireActiveEmailTemplate(action: string): TestEmailBodyTemplate | null {
+  const template = activeEmailTemplate.value;
+  if (!template) {
+    errorMessage.value = `${action}失败：找不到当前模板`;
+    return null;
+  }
   return template;
 }
 
@@ -424,7 +449,15 @@ async function loadEmailTemplates() {
       "tool:test-email-assistant:list-email-templates",
       {},
     );
-    customEmailTemplates.value = normalizeTestEmailBodyTemplates(templates);
+    const normalizedTemplates = normalizeTestEmailBodyTemplates(templates);
+    const savedBuiltinTemplate = normalizedTemplates.find(
+      (template) => template.id === BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+    );
+    if (savedBuiltinTemplate) builtinEmailTemplate.value = savedBuiltinTemplate;
+    customEmailTemplates.value = normalizedTemplates.filter(
+      (template) => template.id !== BUILTIN_TEST_EMAIL_TEMPLATE_ID,
+    );
+    applyEmailTemplate(builtinEmailTemplate.value, false);
   } catch (error) {
     errorMessage.value = `加载邮件正文模板失败：${formatError(error)}`;
   } finally {
@@ -530,7 +563,7 @@ async function saveEmailTemplateAs() {
 
 async function saveEmailTemplateChanges() {
   if (templatePersistencePending.value) return;
-  const currentTemplate = requireActiveCustomEmailTemplate("保存邮件正文模板");
+  const currentTemplate = requireActiveEmailTemplate("保存邮件正文模板");
   if (!currentTemplate) return;
   if (!emailTemplate.value.trim()) {
     errorMessage.value = "保存邮件正文模板失败：正文不能为空";
@@ -549,9 +582,13 @@ async function saveEmailTemplateChanges() {
   );
   if (!savedTemplate) return;
 
-  customEmailTemplates.value = customEmailTemplates.value.map((template) =>
-    template.id === currentTemplate.id ? savedTemplate : template,
-  );
+  if (savedTemplate.id === BUILTIN_TEST_EMAIL_TEMPLATE_ID) {
+    builtinEmailTemplate.value = savedTemplate;
+  } else {
+    customEmailTemplates.value = customEmailTemplates.value.map((template) =>
+      template.id === currentTemplate.id ? savedTemplate : template,
+    );
+  }
   loadedEmailTemplateContent.value = savedTemplate.content;
   errorMessage.value = "";
   ElMessage.success("邮件正文模板修改已保存");
