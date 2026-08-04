@@ -2,6 +2,16 @@
 
 本文件是 LazyCat 的高频执行入口。用户明确指令优先；领域实现与排障细节查 [process.md](process.md) 和 [docs/experience/](docs/experience/README.md)。
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked as local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This is a single-context repo with `CONTEXT.md` at the root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
 ## 1. 核心规则
 
 ### 权限与方案
