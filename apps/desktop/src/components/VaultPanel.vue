@@ -122,8 +122,6 @@
             <div v-else class="vault-nav-placeholder">暂无标签</div>
           </div>
 
-          <div class="vault-nav-spacer" />
-
           <div class="vault-nav-actions">
             <button class="vault-nav-btn" @click="securitySettingsDialog?.show()">
               <el-icon><Setting /></el-icon>
@@ -1658,10 +1656,11 @@ onBeforeUnmount(() => {
 .vault-nav {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 16px 10px;
   border-right: 1px solid var(--lc-border);
   background: var(--lc-surface-0);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .vault-nav-header {
@@ -1688,7 +1687,9 @@ onBeforeUnmount(() => {
 }
 
 .vault-nav-section--tags {
-  min-height: 132px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .vault-nav-section-title {
@@ -1850,13 +1851,10 @@ onBeforeUnmount(() => {
   }
 }
 
-.vault-nav-spacer {
-  flex: 1;
-}
-
 .vault-nav-actions {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 4px;
   padding-top: 12px;
   border-top: 1px solid var(--lc-border-subtle);
