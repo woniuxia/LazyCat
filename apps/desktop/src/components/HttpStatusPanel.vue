@@ -2,204 +2,252 @@
   <div class="http-status-panel">
     <el-input
       v-model="searchQuery"
-      placeholder="输入状态码或描述搜索"
+      placeholder="输入状态码、名称或排查关键词搜索"
       clearable
       prefix-icon="Search"
-      style="max-width: 400px; margin-bottom: 4px"
+      aria-label="搜索 HTTP 状态码"
+      style="max-width: 420px; margin-bottom: 4px"
     />
 
-    <div v-if="searchQuery && flatResults.length === 0" class="empty-hint">未找到匹配的状态码</div>
+    <div v-if="isSearching" class="loading-hint">正在搜索...</div>
 
-    <template v-if="searchQuery">
-      <el-table :data="flatResults" stripe size="small" :show-header="true" style="width: 100%">
-        <el-table-column label="状态码" width="80" align="center">
-          <template #default="{ row }">
-            <span class="code-cell" :class="codeClass(row.code)">{{ row.code }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="名称" width="220" />
-        <el-table-column prop="desc" label="说明" width="120" />
-        <el-table-column prop="usage" label="用途" min-width="180" />
-        <el-table-column label="常见原因" min-width="260">
-          <template #default="{ row }">
-            <div v-if="row.causes" class="causes-cell">
-              <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{
-                c
-              }}</span>
-            </div>
-            <span v-else class="no-cause">-</span>
-          </template>
-        </el-table-column>
-      </el-table>
+    <div v-if="loadError && !searchQuery.trim()" class="error-hint" role="alert">
+      状态码列表加载失败：{{ loadError }}
+    </div>
+
+    <div v-if="searchError && searchQuery.trim()" class="error-hint" role="alert">
+      状态码搜索失败：{{ searchError }}
+    </div>
+
+    <div v-if="classificationHint" class="classification-hint" role="status">
+      <strong>{{ classificationHint.code }} {{ classificationHint.category }}</strong>
+      <span>{{ classificationHint.message }}</span>
+    </div>
+
+    <div
+      v-if="
+        searchQuery.trim() &&
+        !isSearching &&
+        !searchError &&
+        flatResults.length === 0 &&
+        !classificationHint
+      "
+      class="empty-hint"
+    >
+      未找到匹配的状态码
+    </div>
+
+    <template v-if="searchQuery.trim()">
+      <HttpStatusTable
+        v-if="flatResults.length"
+        :data="flatResults"
+        :expanded-codes="expandedCodes"
+        :show-header="true"
+        @expand-change="handleExpandChange"
+      />
     </template>
 
     <template v-else>
+      <div v-if="isLoading" class="loading-hint">正在加载状态码...</div>
       <div v-for="group in groups" :key="group.category" class="group-section">
         <div class="group-header" :class="'header-' + group.category">
           {{ group.category }} {{ group.name }}
         </div>
-        <el-table
+        <HttpStatusTable
           :data="group.codes"
-          stripe
-          size="small"
+          :expanded-codes="expandedCodes"
           :show-header="group === groups[0]"
-          style="width: 100%"
-        >
-          <el-table-column label="状态码" width="80" align="center">
-            <template #default="{ row }">
-              <span class="code-cell" :class="codeClass(row.code)">{{ row.code }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="name" label="名称" width="220" />
-          <el-table-column prop="desc" label="说明" width="120" />
-          <el-table-column prop="usage" label="用途" min-width="180" />
-          <el-table-column label="常见原因" min-width="260">
-            <template #default="{ row }">
-              <div v-if="row.causes" class="causes-cell">
-                <span v-for="(c, i) in row.causes.split('; ')" :key="i" class="cause-tag">{{
-                  c
-                }}</span>
-              </div>
-              <span v-else class="no-cause">-</span>
-            </template>
-          </el-table-column>
-        </el-table>
+          @expand-change="handleExpandChange"
+        />
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import HttpStatusTable from "./HttpStatusTable.vue";
 import { invokeToolByChannel } from "../bridge/tauri";
-
-interface StatusCode {
-  code: number;
-  name: string;
-  desc: string;
-  usage: string;
-  causes: string;
-}
-interface StatusGroup {
-  category: string;
-  name: string;
-  codes: StatusCode[];
-}
+import type {
+  HttpStatusClassificationHint,
+  HttpStatusCode,
+  HttpStatusGroup,
+  HttpStatusListResponse,
+  HttpStatusLookupResponse,
+} from "../types/httpStatus";
 
 const searchQuery = ref("");
-const groups = ref<StatusGroup[]>([]);
-const flatResults = ref<StatusCode[]>([]);
+const groups = ref<HttpStatusGroup[]>([]);
+const flatResults = ref<HttpStatusCode[]>([]);
+const classificationHint = ref<HttpStatusClassificationHint | null>(null);
+const expandedCodes = ref<number[]>([]);
+const isLoading = ref(false);
+const isSearching = ref(false);
+const loadError = ref("");
+const searchError = ref("");
 
-function codeClass(code: number) {
-  const prefix = Math.floor(code / 100);
-  return `code-${prefix}xx`;
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-async function loadAll() {
+function pruneExpandedCodes(): void {
+  const availableCodes = new Set(
+    groups.value.flatMap((group) => group.codes.map((item) => item.code)),
+  );
+  expandedCodes.value = expandedCodes.value.filter((code) => availableCodes.has(code));
+}
+
+async function loadAll(): Promise<void> {
+  isLoading.value = true;
+  loadError.value = "";
   try {
-    const data = (await invokeToolByChannel("tool:network:http-status-list", {})) as {
-      groups: StatusGroup[];
-    };
+    const data = (await invokeToolByChannel(
+      "tool:network:http-status-list",
+      {},
+    )) as HttpStatusListResponse;
     groups.value = data.groups;
+    pruneExpandedCodes();
   } catch (error) {
-    ElMessage.error((error as Error).message);
+    loadError.value = getErrorMessage(error);
+    ElMessage.error(getErrorMessage(error));
+  } finally {
+    isLoading.value = false;
   }
 }
 
-async function search(query: string) {
-  if (!query.trim()) {
+async function search(query: string, requestId: number): Promise<void> {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) {
     flatResults.value = [];
+    classificationHint.value = null;
+    searchError.value = "";
+    isSearching.value = false;
     return;
   }
+
   try {
     const data = (await invokeToolByChannel("tool:network:http-status-lookup", {
-      query,
-    })) as { results: StatusCode[] };
+      query: normalizedQuery,
+    })) as HttpStatusLookupResponse;
+    if (requestId !== searchRequestId || normalizedQuery !== searchQuery.value.trim()) return;
     flatResults.value = data.results;
+    classificationHint.value = data.classificationHint;
   } catch (error) {
-    ElMessage.error((error as Error).message);
+    if (requestId !== searchRequestId) return;
+    flatResults.value = [];
+    classificationHint.value = null;
+    searchError.value = getErrorMessage(error);
+    ElMessage.error(getErrorMessage(error));
+  } finally {
+    if (requestId === searchRequestId) isSearching.value = false;
   }
+}
+
+function handleExpandChange(row: HttpStatusCode, expandedRows: HttpStatusCode[]): void {
+  const isExpanded = expandedRows.some((item) => item.code === row.code);
+  if (isExpanded) {
+    if (!expandedCodes.value.includes(row.code)) {
+      expandedCodes.value = [...expandedCodes.value, row.code];
+    }
+    return;
+  }
+  expandedCodes.value = expandedCodes.value.filter((code) => code !== row.code);
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
-watch(searchQuery, (val) => {
+let searchRequestId = 0;
+watch(searchQuery, (value) => {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => search(val), 300);
+  searchRequestId += 1;
+  flatResults.value = [];
+  classificationHint.value = null;
+  searchError.value = "";
+  if (!value.trim()) {
+    isSearching.value = false;
+    return;
+  }
+  isSearching.value = true;
+  const requestId = searchRequestId;
+  timer = setTimeout(() => void search(value, requestId), 300);
 });
 
-onMounted(() => loadAll());
+onMounted(() => void loadAll());
+
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer);
+  searchRequestId += 1;
+});
 </script>
 
 <style scoped>
 .http-status-panel {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 8px;
 }
+
 .group-section {
+  min-width: 0;
   margin-bottom: 4px;
 }
+
 .group-header {
+  padding: 6px 4px 4px;
   font-size: 13px;
   font-weight: 600;
-  padding: 6px 4px 4px;
 }
+
 .header-1xx {
   color: #909399;
 }
+
 .header-2xx {
   color: #67c23a;
 }
+
 .header-3xx {
   color: #e6a23c;
 }
-.header-4xx {
-  color: #f56c6c;
-}
+
+.header-4xx,
 .header-5xx {
   color: #f56c6c;
 }
-.code-cell {
-  font-weight: 700;
-  font-family: monospace;
-  font-size: 13px;
-}
-.code-1xx {
-  color: #909399;
-}
-.code-2xx {
-  color: #67c23a;
-}
-.code-3xx {
-  color: #e6a23c;
-}
-.code-4xx {
-  color: #f56c6c;
-}
-.code-5xx {
-  color: #f56c6c;
-}
-.causes-cell {
+
+.classification-hint {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
-  gap: 4px;
-}
-.cause-tag {
-  display: inline-block;
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--el-fill-color);
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 9px 12px;
+  border: 1px solid var(--el-color-warning-light-5);
+  border-radius: 4px;
+  background: var(--el-color-warning-light-9);
   color: var(--el-text-color-regular);
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
 }
-.no-cause {
-  color: var(--el-text-color-placeholder);
+
+.classification-hint strong {
+  color: var(--el-color-warning-dark-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
-.empty-hint {
+
+.loading-hint,
+.empty-hint,
+.error-hint {
+  padding: 20px;
   color: var(--el-text-color-secondary);
   text-align: center;
-  padding: 24px;
+}
+
+.error-hint {
+  border: 1px solid var(--el-color-danger-light-5);
+  border-radius: 4px;
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
 }
 </style>
