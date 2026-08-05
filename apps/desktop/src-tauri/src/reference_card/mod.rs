@@ -637,6 +637,8 @@ mod tests {
     };
 
     const MAIN_SOURCE: &str = include_str!("../main.rs");
+    const SHORTCUTS_SOURCE: &str = include_str!("../shortcuts.rs");
+    const WINDOW_MANAGER_SOURCE: &str = include_str!("../window_manager.rs");
     const CAPABILITY_SOURCE: &str = include_str!("../../capabilities/default.json");
 
     #[test]
@@ -750,18 +752,18 @@ mod tests {
 
     #[test]
     fn named_shortcuts_route_reference_card_to_clipboard_entry() {
-        assert!(MAIN_SOURCE.contains("name_owned == \"reference-card\""));
-        assert!(MAIN_SOURCE.contains("reference_card::show_from_clipboard(app_handle);"));
+        assert!(SHORTCUTS_SOURCE.contains("name_owned == \"reference-card\""));
+        assert!(SHORTCUTS_SOURCE.contains("reference_card::show_from_clipboard(app_handle);"));
     }
 
     #[test]
     fn non_main_window_close_and_destroy_clean_reference_card_state() {
-        assert!(MAIN_SOURCE.contains(
-            "reference_card::on_window_closed(window.label());\n                        tools::access_path_diagnostics::runtime::on_window_closed(window.label());"
+        assert!(WINDOW_MANAGER_SOURCE.contains("if window.label() != MAIN_WINDOW_LABEL"));
+        assert!(WINDOW_MANAGER_SOURCE.contains("reference_card::on_window_closed(window.label());"));
+        assert!(WINDOW_MANAGER_SOURCE.contains(
+            "tools::access_path_diagnostics::runtime::on_window_closed(window.label());"
         ));
-        assert!(MAIN_SOURCE.contains(
-            "WindowEvent::Destroyed => {\n                    reference_card::on_window_closed(window.label());"
-        ));
+        assert!(WINDOW_MANAGER_SOURCE.contains("WindowEvent::Destroyed => {"));
     }
 
     #[test]
