@@ -7,13 +7,18 @@
           <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
         </div>
         <div class="filter-meta">
-          <span v-if="selectedPath" class="status-hint">
-            数组路径：<code>{{ selectedPath }}</code>
+          <span v-if="parseError" class="parse-error" role="alert" :title="parseError">
+            {{ parseError }}
           </span>
-          <span v-if="target" class="status-hint">{{ target.length }} 条记录</span>
-          <span v-if="target" class="status-hint">
-            已选 {{ selectedProperties.length }} / {{ propertyCandidates.length }} 个字段
-          </span>
+          <template v-else>
+            <span v-if="selectedPath" class="status-hint">
+              数组路径：<code>{{ selectedPath }}</code>
+            </span>
+            <span v-if="target" class="status-hint">{{ target.length }} 条记录</span>
+            <span v-if="target" class="status-hint">
+              已选 {{ selectedProperties.length }} / {{ propertyCandidates.length }} 个字段
+            </span>
+          </template>
         </div>
       </div>
       <div class="filter-actions">
@@ -25,16 +30,6 @@
         >
       </div>
     </div>
-
-    <el-alert
-      v-if="parseError"
-      class="parse-alert"
-      type="error"
-      :title="parseError"
-      :closable="false"
-      show-icon
-      role="alert"
-    />
 
     <div class="filter-editors">
       <section class="editor-column" aria-labelledby="array-filter-input-title">
@@ -408,6 +403,7 @@ onBeforeUnmount(() => {
 
 .filter-meta {
   flex-wrap: wrap;
+  min-height: 18px;
   row-gap: 4px;
 }
 
@@ -465,8 +461,15 @@ onBeforeUnmount(() => {
   font-family: var(--lc-font-mono, "Cascadia Code", "JetBrains Mono", monospace);
 }
 
-.parse-alert {
-  flex-shrink: 0;
+.parse-error {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-color-danger-dark-2);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter-editors {

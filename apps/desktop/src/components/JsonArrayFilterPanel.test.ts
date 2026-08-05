@@ -75,13 +75,6 @@ const CheckboxStub = defineComponent({
   },
 });
 
-const AlertStub = defineComponent({
-  props: { title: { type: String, default: "" } },
-  setup(props) {
-    return () => h("div", { role: "alert" }, props.title);
-  },
-});
-
 const EmptyStub = defineComponent({
   props: { description: { type: String, default: "" } },
   setup(props) {
@@ -99,7 +92,6 @@ function mountPanel(): HTMLElement {
   app.component("ElInput", InputStub);
   app.component("ElButton", ButtonStub);
   app.component("ElCheckbox", CheckboxStub);
-  app.component("ElAlert", AlertStub);
   app.component("ElEmpty", EmptyStub);
   app.mount(root);
   mountedApps.push({ app, root });
@@ -167,15 +159,19 @@ describe("JsonArrayFilterPanel", () => {
   it("clears stale results while editing and shows a visible parse error", async () => {
     const root = mountPanel();
     await parseInput(root, '[{"id":1}]');
+    const meta = root.querySelector(".filter-meta");
 
     await setInput(root, "{invalid");
     expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toBe("");
     expect(root.textContent).not.toContain("$\n");
+    expect(root.querySelector(".filter-meta")).toBe(meta);
+    expect(root.querySelector(".parse-alert")).toBeNull();
 
     await vi.advanceTimersByTimeAsync(300);
     await settle();
 
     expect(root.querySelector('[role="alert"]')?.textContent).toContain("JSON 解析失败");
+    expect(root.querySelector(".parse-error")?.getAttribute("title")).toContain("JSON 解析失败");
     expect(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).toHaveLength(0);
   });
 
