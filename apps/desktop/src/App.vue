@@ -58,11 +58,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, provide } from "vue";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Close, Plus } from "@element-plus/icons-vue";
-import type { ActionDispatchRequest, SidebarItem } from "./types";
+import type { SidebarItem } from "./types";
 import { APP_EVENTS } from "./bridge/events";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
@@ -84,16 +84,23 @@ import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
-import { useActionDispatchIntent } from "./composables/useActionDispatchIntent";
-import { useActionCenterNavigation } from "./composables/useActionCenterNavigation";
+import {
+  startNavigationHandoffListeners,
+  stopNavigationHandoffListeners,
+  useNavigationHandoff,
+} from "./composables/useNavigationHandoff";
 import { buildClipboardPathSuggestion, detectClipboardPath } from "./utils/clipboard-detect";
-import { shouldHideNamedHotkeyWindow, type HotkeyNavigatePayload } from "./utils/hotkeyNavigate";
+import { shouldHideNamedHotkeyWindow } from "./utils/hotkeyNavigate";
+import type { HotkeyNavigationIntent } from "./utils/navigation-handoff";
 
-const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
-const { setPendingIntent } = useActionDispatchIntent();
-const actionCenterNavigation = useActionCenterNavigation();
+const { ensureClipboardListener, disposeClipboardListener, showSuggestion, setPendingToolInput } =
+  useClipboardSuggestion();
+const navigationHandoff = useNavigationHandoff();
+const { pendingTodoCreate } = navigationHandoff;
 const isTauriEnv = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const appWindow = isTauriEnv ? getCurrentWindow() : null;
+let mainWindowToggleUnlisten: UnlistenFn | null = null;
+let hostsAppliedUnlisten: UnlistenFn | null = null;
 
 const sidebarItems: SidebarItem[] = getSidebarItems();
 const allTools = getAllTools();
@@ -110,7 +117,6 @@ const todoHotkeyInput = ref("");
 const quickCaptureHotkeyInput = ref("");
 const referenceCardHotkeyInput = ref("");
 const spotlightHotkeyInput = ref("");
-const pendingTodoCreate = ref(false);
 provide("pendingTodoCreate", pendingTodoCreate);
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 const topBarRef = ref<InstanceType<typeof TopBar> | null>(null);
@@ -295,6 +301,46 @@ async function tryOpenClipboardPathFromToggle(): Promise<boolean> {
   }
 }
 
+async function handleHotkeyNavigate(intent: HotkeyNavigationIntent): Promise<void> {
+  const { payload } = intent;
+  if (
+    shouldHideNamedHotkeyWindow(payload, {
+      activeTool: activeTool.value,
+    })
+  ) {
+    try {
+      await appWindow?.hide();
+      return;
+    } catch {
+      /* ignore in non-Tauri env */
+    }
+  }
+
+  if (intent.pendingInput) setPendingToolInput(intent.pendingInput);
+
+  if (intent.focus?.kind === "action-center") {
+    if (intent.focus.target.kind === "run") {
+      navigationHandoff.requestRun(intent.focus.target.runId);
+    } else {
+      navigationHandoff.requestCombination(intent.focus.target.combinationId);
+    }
+  } else if (intent.focus?.kind === "pm") {
+    const { usePmNavigation } = await import("./composables/usePmNavigation");
+    const { hasView } = await import("./composables/pmViewRegistry");
+    const viewId = intent.focus.view && hasView(intent.focus.view) ? intent.focus.view : undefined;
+    usePmNavigation().requestFocus(intent.focus.itemId, intent.focus.projectId, viewId);
+  } else if (intent.focus?.kind === "todo") {
+    const { useTodoNavigation } = await import("./composables/useTodoNavigation");
+    useTodoNavigation().requestFocus(intent.focus.itemId);
+  } else if (intent.focus?.kind === "data-dictionary") {
+    const { useDataDictionaryNavigation } =
+      await import("./composables/useDataDictionaryNavigation");
+    useDataDictionaryNavigation().requestFocus(intent.focus.itemId);
+  }
+
+  onSelect(intent.targetToolId);
+}
+
 async function ensureInboxCaptureConsent() {
   if (getSetting("inbox_capture_consent_ack") === "true") return;
   try {
@@ -407,7 +453,7 @@ onMounted(async () => {
     }
   }
   try {
-    await listen(APP_EVENTS.MAIN_WINDOW_TOGGLE, async () => {
+    mainWindowToggleUnlisten = await listen(APP_EVENTS.MAIN_WINDOW_TOGGLE, async () => {
       await tryOpenClipboardPathFromToggle();
       if (getSetting("focus_search_on_show") === "true") {
         focusSearch();
@@ -416,94 +462,27 @@ onMounted(async () => {
   } catch {
     /* ignore in non-Tauri env */
   }
-  try {
-    await listen<ActionDispatchRequest>(
-      APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST,
-      ({ payload }) => {
-        if (!payload.dispatchId || !isRealToolId(payload.targetToolId)) {
-          ElMessage.error("动作请求的目标工具无效");
-          return;
-        }
-        setPendingIntent(payload);
-        onSelect(payload.targetToolId);
-      },
-    );
-  } catch {
-    /* ignore in non-Tauri env */
-  }
-  try {
-    await listen<{ kind: string; toolId?: string }>(APP_EVENTS.WIDGET_NAVIGATE, (event) => {
-      const { kind, toolId } = event.payload;
-      if (kind === "open-tool" && toolId) {
-        onSelect(toolId);
-      } else if (kind === "open-todo-create") {
-        pendingTodoCreate.value = true;
+  await startNavigationHandoffListeners({
+    isRealToolId,
+    onActionCenterDispatch: (request) => {
+      navigationHandoff.setPendingIntent(request);
+      onSelect(request.targetToolId);
+    },
+    onInvalidActionCenterDispatch: () => {
+      ElMessage.error("动作请求的目标工具无效");
+    },
+    onWidgetNavigate: (intent) => {
+      if (intent.kind === "open-tool") {
+        onSelect(intent.toolId);
+      } else {
+        navigationHandoff.requestTodoCreate();
         onSelect("todo");
       }
-    });
-  } catch {
-    /* ignore in non-Tauri env */
-  }
+    },
+    onHotkeyNavigate: handleHotkeyNavigate,
+  });
   try {
-    await listen<HotkeyNavigatePayload>(APP_EVENTS.HOTKEY_NAVIGATE, async (event) => {
-      const { target, text, source, itemId, projectId, view } = event.payload;
-      if (
-        shouldHideNamedHotkeyWindow(event.payload, {
-          activeTool: activeTool.value,
-        })
-      ) {
-        try {
-          await appWindow?.hide();
-          return;
-        } catch {
-          /* ignore in non-Tauri env */
-        }
-      }
-      if (itemId) {
-        if (target === "action-center") {
-          if (view === "run") {
-            actionCenterNavigation.requestRun(itemId);
-          } else {
-            const combinationId = Number(itemId);
-            if (Number.isSafeInteger(combinationId) && combinationId > 0) {
-              actionCenterNavigation.requestCombination(combinationId);
-            }
-          }
-        }
-        const parsedItem = Number(itemId);
-        if (Number.isFinite(parsedItem)) {
-          if (target === "pm") {
-            const { usePmNavigation } = await import("./composables/usePmNavigation");
-            const { hasView } = await import("./composables/pmViewRegistry");
-            const parsedProject = projectId ? Number(projectId) : null;
-            const projectIdValue =
-              parsedProject != null && Number.isFinite(parsedProject) ? parsedProject : null;
-            const viewId = view && hasView(view) ? view : undefined;
-            usePmNavigation().requestFocus(parsedItem, projectIdValue, viewId);
-          } else if (target === "todo") {
-            const { useTodoNavigation } = await import("./composables/useTodoNavigation");
-            useTodoNavigation().requestFocus(parsedItem);
-          } else if (target === "data-dictionary") {
-            const { useDataDictionaryNavigation } =
-              await import("./composables/useDataDictionaryNavigation");
-            useDataDictionaryNavigation().requestFocus(parsedItem);
-          }
-        }
-      }
-      onSelect(target);
-      if (text && source) {
-        setPendingToolInput({
-          toolId: target,
-          text,
-          source: source === "clipboard-suggestion" ? "clipboard-suggestion" : "inbox",
-        });
-      }
-    });
-  } catch {
-    /* ignore in non-Tauri env */
-  }
-  try {
-    await listen<{ name: string }>(APP_EVENTS.HOSTS_APPLIED, (event) => {
+    hostsAppliedUnlisten = await listen<{ name: string }>(APP_EVENTS.HOSTS_APPLIED, (event) => {
       const name = event.payload?.name ?? "";
       ElMessage.success(
         name
@@ -520,5 +499,12 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
+  mainWindowToggleUnlisten?.();
+  mainWindowToggleUnlisten = null;
+  hostsAppliedUnlisten?.();
+  hostsAppliedUnlisten = null;
+  stopNavigationHandoffListeners();
+  disposeClipboardListener();
+  navigationHandoff.reset();
 });
 </script>

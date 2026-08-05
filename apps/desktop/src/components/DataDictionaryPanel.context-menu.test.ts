@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./DataDictionaryPanel.vue", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../App.vue", import.meta.url), "utf8");
+const handoffSource = readFileSync(
+  new URL("../utils/navigation-handoff.ts", import.meta.url),
+  "utf8",
+);
 
 describe("DataDictionaryPanel dictionary context menu", () => {
   it("uses a pinned all option in the dictionary list for global search", () => {
@@ -280,9 +284,9 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   });
 
   it("routes hotkey navigation to data dictionary focus requests", () => {
-    expect(appSource).toContain('target === "data-dictionary"');
+    expect(handoffSource).toContain('payload.target === "data-dictionary"');
     expect(appSource).toContain("useDataDictionaryNavigation");
-    expect(appSource).toContain("requestFocus(parsedItem)");
+    expect(appSource).toContain("requestFocus(intent.focus.itemId)");
   });
 
   it("renders related record titles as one title without an extra source subtitle", () => {

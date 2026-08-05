@@ -29,6 +29,10 @@ const source = readFileSync(
   "utf8",
 );
 const appSource = readFileSync(resolve(process.cwd(), "src/App.vue"), "utf8");
+const handoffSource = readFileSync(
+  resolve(process.cwd(), "src/composables/useNavigationHandoff.ts"),
+  "utf8",
+);
 interface HostNode {
   type: string;
   text: string;
@@ -877,17 +881,21 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("routes action dispatch intents before selecting the target tool", () => {
-    const listenerStart = appSource.indexOf("APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST");
-    const listenerEnd = appSource.indexOf("\n  } catch", listenerStart);
-    const listenerSource = appSource.slice(listenerStart, listenerEnd);
+    const listenerStart = handoffSource.indexOf("APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST");
+    const listenerEnd = handoffSource.indexOf("\n    ),", listenerStart);
+    const listenerSource = handoffSource.slice(listenerStart, listenerEnd);
+    const dispatchStart = appSource.indexOf("onActionCenterDispatch:");
+    const dispatchEnd = appSource.indexOf("onInvalidActionCenterDispatch:", dispatchStart);
+    const dispatchSource = appSource.slice(dispatchStart, dispatchEnd);
 
     expect(listenerStart).toBeGreaterThan(-1);
-    expect(listenerSource).toContain("setPendingIntent(payload)");
-    expect(listenerSource).toContain("onSelect(payload.targetToolId)");
-    expect(listenerSource.indexOf("setPendingIntent(payload)")).toBeLessThan(
-      listenerSource.indexOf("onSelect(payload.targetToolId)"),
+    expect(listenerSource).toContain("normalizeActionDispatchRequest(payload");
+    expect(dispatchSource).toContain("navigationHandoff.setPendingIntent(request)");
+    expect(dispatchSource).toContain("onSelect(request.targetToolId)");
+    expect(dispatchSource.indexOf("navigationHandoff.setPendingIntent(request)")).toBeLessThan(
+      dispatchSource.indexOf("onSelect(request.targetToolId)"),
     );
-    expect(listenerSource).not.toContain("setPendingToolInput");
+    expect(dispatchSource).not.toContain("setPendingToolInput");
   });
 
   it("consumes release-package intents without overwriting a dirty or running editor", () => {

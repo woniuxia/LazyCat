@@ -1,41 +1,33 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ref, watch, onMounted } from "vue";
 import { APP_EVENTS } from "../bridge/events";
+import type {
+  PendingToolInput,
+  TodoPendingDraft,
+  VaultPendingDraft,
+} from "../types/navigation-handoff";
 import type { ClipboardDetectResult } from "../utils/clipboard-detect";
 import { detectClipboardContent } from "../utils/clipboard-detect";
+import { useNavigationHandoff } from "./useNavigationHandoff";
 import { getSetting } from "./useSettings";
 
-export interface TodoPendingDraft {
-  title?: string;
-  description?: string;
-}
-
-export interface VaultPendingDraft {
-  category?: "app" | "server" | "database";
-  title?: string;
-  environment?: string;
-  fields?: Record<string, unknown>;
-  tags?: string[];
-}
-
-export interface PendingToolInput {
-  toolId: string;
-  text: string;
-  source?: "clipboard-suggestion" | "inbox";
-  label?: string;
-  todoDraft?: TodoPendingDraft;
-  vaultDraft?: VaultPendingDraft;
-  meta?: Record<string, unknown>;
-}
+export type {
+  PendingToolInput,
+  TodoPendingDraft,
+  VaultPendingDraft,
+} from "../types/navigation-handoff";
 
 // 模块级单例状态
 const suggestion = ref<ClipboardDetectResult | null>(null);
 const visible = ref(false);
 const lastClipboardText = ref("");
-const pendingInput = ref<PendingToolInput | null>(null);
 let clipboardListenerPromise: Promise<UnlistenFn | null> | null = null;
+let clipboardUnlisten: UnlistenFn | null = null;
+let clipboardListenerGeneration = 0;
 
 export function useClipboardSuggestion() {
+  const handoff = useNavigationHandoff();
+
   function showSuggestion(next: ClipboardDetectResult, rawText?: string): void {
     suggestion.value = next;
     visible.value = true;
@@ -64,8 +56,11 @@ export function useClipboardSuggestion() {
   }
 
   async function ensureClipboardListener(): Promise<void> {
+    if (clipboardUnlisten) return;
+
+    const generation = clipboardListenerGeneration;
     if (!clipboardListenerPromise) {
-      clipboardListenerPromise = (async () => {
+      const registration = (async () => {
         try {
           return await listen(APP_EVENTS.CLIPBOARD_CHANGED, async () => {
             if (getSetting("clipboard_detection") === "false") return;
@@ -75,12 +70,32 @@ export function useClipboardSuggestion() {
           return null;
         }
       })();
+      clipboardListenerPromise = registration;
     }
-    await clipboardListenerPromise;
+
+    const registration = clipboardListenerPromise;
+    if (!registration) return;
+    const unlisten = await registration;
+    if (generation !== clipboardListenerGeneration) {
+      unlisten?.();
+      return;
+    }
+    if (clipboardListenerPromise === registration) {
+      clipboardUnlisten = unlisten;
+      clipboardListenerPromise = null;
+    }
+  }
+
+  function disposeClipboardListener(): void {
+    clipboardListenerGeneration += 1;
+    const unlisten = clipboardUnlisten;
+    clipboardUnlisten = null;
+    clipboardListenerPromise = null;
+    unlisten?.();
   }
 
   function setPendingToolInput(input: PendingToolInput): void {
-    pendingInput.value = input;
+    handoff.setPendingToolInput(input);
     visible.value = false;
     suggestion.value = null;
   }
@@ -106,12 +121,7 @@ export function useClipboardSuggestion() {
   }
 
   function consumePendingToolInput(toolId: string): PendingToolInput | null {
-    if (pendingInput.value && pendingInput.value.toolId === toolId) {
-      const input = pendingInput.value;
-      pendingInput.value = null;
-      return input;
-    }
-    return null;
+    return handoff.consumePendingToolInput(toolId);
   }
 
   /**
@@ -135,7 +145,7 @@ export function useClipboardSuggestion() {
       if (pending) void apply(pending);
     });
 
-    watch(pendingInput, (val) => {
+    watch(handoff.pendingToolInput, (val) => {
       if (val && val.toolId === resolveId()) {
         const input = consumePendingToolInput(resolveId());
         if (input) void apply(input);
@@ -154,9 +164,10 @@ export function useClipboardSuggestion() {
   return {
     suggestion,
     visible,
-    pendingInput,
+    pendingInput: handoff.pendingToolInput,
     detectClipboard,
     ensureClipboardListener,
+    disposeClipboardListener,
     showSuggestion,
     applyAction,
     setPendingToolInput,

@@ -1,19 +1,17 @@
-import { onMounted, ref, watch } from "vue";
+import { onMounted, watch } from "vue";
 
 import type { ActionDispatchRequest } from "../types";
-
-const pendingIntent = ref<ActionDispatchRequest | null>(null);
+import { useNavigationHandoff } from "./useNavigationHandoff";
 
 export function useActionDispatchIntent() {
+  const handoff = useNavigationHandoff();
+
   function setPendingIntent(intent: ActionDispatchRequest) {
-    pendingIntent.value = intent;
+    handoff.setPendingIntent(intent);
   }
 
   function consumePendingIntent(toolId: string) {
-    if (pendingIntent.value?.targetToolId !== toolId) return null;
-    const current = pendingIntent.value;
-    pendingIntent.value = null;
-    return current;
+    return handoff.consumePendingIntent(toolId);
   }
 
   function watchPendingIntent(
@@ -25,7 +23,7 @@ export function useActionDispatchIntent() {
       if (current) void apply(current);
     });
 
-    watch(pendingIntent, (value) => {
+    watch(handoff.pendingIntent, (value) => {
       if (value?.targetToolId !== toolId) return;
       const current = consumePendingIntent(toolId);
       if (current) void apply(current);
@@ -33,7 +31,7 @@ export function useActionDispatchIntent() {
   }
 
   return {
-    pendingIntent,
+    pendingIntent: handoff.pendingIntent,
     setPendingIntent,
     consumePendingIntent,
     watchPendingIntent,

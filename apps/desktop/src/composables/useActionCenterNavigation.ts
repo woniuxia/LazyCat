@@ -1,26 +1,27 @@
-import { ref } from "vue";
+import { useNavigationHandoff } from "./useNavigationHandoff";
 
-export type ActionCenterNavigationTarget =
-  | { kind: "combination"; combinationId: number }
-  | { kind: "run"; runId: string };
-
-const pendingTarget = ref<ActionCenterNavigationTarget | null>(null);
+import type { ActionCenterNavigationTarget } from "../types/navigation-handoff";
+export type { ActionCenterNavigationTarget } from "../types/navigation-handoff";
 
 export function useActionCenterNavigation() {
+  const handoff = useNavigationHandoff();
+
   function requestCombination(combinationId: number): void {
-    if (!Number.isSafeInteger(combinationId) || combinationId <= 0) return;
-    pendingTarget.value = { kind: "combination", combinationId };
+    handoff.requestCombination(combinationId);
   }
 
   function requestRun(runId: string): void {
-    const normalized = runId.trim();
-    if (!normalized) return;
-    pendingTarget.value = { kind: "run", runId: normalized };
+    handoff.requestRun(runId);
   }
 
   function consume(target: ActionCenterNavigationTarget): void {
-    if (pendingTarget.value === target) pendingTarget.value = null;
+    handoff.consumeActionCenterTarget(target);
   }
 
-  return { pendingTarget, requestCombination, requestRun, consume };
+  return {
+    pendingTarget: handoff.pendingActionCenterTarget,
+    requestCombination,
+    requestRun,
+    consume,
+  };
 }
