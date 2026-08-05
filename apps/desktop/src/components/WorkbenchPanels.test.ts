@@ -15,8 +15,10 @@ describe("conversion workbench panels", () => {
   it("groups the existing panels under the requested tabs", () => {
     expect(jsonSource).toContain('label="处理与转换" name="process"');
     expect(jsonSource).toContain('label="JSON Schema" name="schema"');
+    expect(jsonSource).toContain('label="数组过滤" name="array-filter"');
     expect(jsonSource).toContain("<JsonProcessPanel");
     expect(jsonSource).toContain("<JsonSchemaPanel");
+    expect(jsonSource).toContain("<JsonArrayFilterPanel");
 
     expect(dataSource).toContain('label="CSV → JSON" name="csv"');
     expect(dataSource).toContain('label="JavaBean / JSON / JS" name="java-bean"');

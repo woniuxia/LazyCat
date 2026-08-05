@@ -36,6 +36,16 @@ vi.mock("./JsonSchemaPanel.vue", async () => {
   };
 });
 
+vi.mock("./JsonArrayFilterPanel.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return {
+    default: defineComponent({
+      name: "JsonArrayFilterPanel",
+      setup: () => () => h("div"),
+    }),
+  };
+});
+
 const mountedApps: App[] = [];
 
 function mountWorkbench(): App {

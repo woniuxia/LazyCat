@@ -7,6 +7,9 @@
       <el-tab-pane label="JSON Schema" name="schema" lazy>
         <JsonSchemaPanel />
       </el-tab-pane>
+      <el-tab-pane label="数组过滤" name="array-filter" lazy>
+        <JsonArrayFilterPanel />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -14,6 +17,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
+import JsonArrayFilterPanel from "./JsonArrayFilterPanel.vue";
 import JsonProcessPanel from "./JsonProcessPanel.vue";
 import JsonSchemaPanel from "./JsonSchemaPanel.vue";
 import { workbenchTabState, type JsonWorkbenchTab } from "./workbenchTabState";

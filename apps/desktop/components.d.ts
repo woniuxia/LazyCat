@@ -102,6 +102,7 @@ declare module 'vue' {
     InlinePmSelector: typeof import('./src/components/InlinePmSelector.vue')['default']
     InlineTodoList: typeof import('./src/components/InlineTodoList.vue')['default']
     JavaBeanJsPanel: typeof import('./src/components/JavaBeanJsPanel.vue')['default']
+    JsonArrayFilterPanel: typeof import('./src/components/JsonArrayFilterPanel.vue')['default']
     JsonProcessPanel: typeof import('./src/components/JsonProcessPanel.vue')['default']
     JsonSchemaPanel: typeof import('./src/components/JsonSchemaPanel.vue')['default']
     JsonTreeNode: typeof import('./src/components/common/JsonTreeNode.vue')['default']
