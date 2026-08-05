@@ -159,7 +159,7 @@ describe("JsonArrayFilterPanel", () => {
     await settle();
 
     expect(root.textContent).toContain("$.records");
-    expect(root.textContent).toContain("已选 2 / 2 个属性");
+    expect(root.textContent).toContain("已选 2 / 2 个字段");
     expect(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).toHaveLength(2);
     expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toContain('"id": 1');
   });
@@ -193,7 +193,56 @@ describe("JsonArrayFilterPanel", () => {
     expect(output).toContain('"name": "Ada"');
     expect(output).toContain('"nested": {');
     expect(JSON.parse(output)).toEqual([{ name: "Ada", nested: { ok: true } }, {}]);
-    expect(root.textContent).toContain("已选 2 / 3 个属性");
+    expect(root.textContent).toContain("已选 2 / 3 个字段");
+  });
+
+  it("supports clearing and restoring all output fields", async () => {
+    const root = mountPanel();
+    await parseInput(root, '[{"id":1,"name":"Ada","active":true}]');
+
+    root.querySelector<HTMLButtonElement>('[data-action="clear-properties"]')?.click();
+    await settle();
+    expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toBe("[\n  {}\n]");
+    expect(root.textContent).toContain("已选 0 / 3 个字段");
+
+    root.querySelector<HTMLButtonElement>('[data-action="toggle-all-properties"]')?.click();
+    await settle();
+    expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toContain('"id": 1');
+    expect(root.textContent).toContain("已选 3 / 3 个字段");
+  });
+
+  it("filters long property lists without changing the selection set", async () => {
+    const root = mountPanel();
+    await parseInput(
+      root,
+      '[{"id":1,"name":"Ada","email":"a@example.com","active":true,"createdAt":"today","role":"admin"}]',
+    );
+
+    const search = root.querySelector<HTMLTextAreaElement>('textarea[placeholder="搜索字段名"]');
+    expect(search).toBeTruthy();
+    search!.value = "email";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+
+    expect(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).toHaveLength(1);
+    expect(root.textContent).toContain("匹配 1 个");
+    expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toContain('"name"');
+  });
+
+  it("shows an explicit empty state when the field search has no match", async () => {
+    const root = mountPanel();
+    await parseInput(
+      root,
+      '[{"id":1,"name":"Ada","email":"a@example.com","active":true,"createdAt":"today","role":"admin"}]',
+    );
+
+    const search = root.querySelector<HTMLTextAreaElement>('textarea[placeholder="搜索字段名"]');
+    search!.value = "missing";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+
+    expect(root.textContent).toContain("没有匹配字段");
+    expect(root.textContent).toContain("匹配 0 个");
   });
 
   it("distinguishes a valid document without an object array", async () => {
@@ -210,7 +259,7 @@ describe("JsonArrayFilterPanel", () => {
     await parseInput(root, '{"records":[]}');
 
     expect(root.textContent).toContain("$.records");
-    expect(root.textContent).toContain("已选 0 / 0 个属性");
+    expect(root.textContent).toContain("已选 0 / 0 个字段");
     expect(root.querySelectorAll<HTMLTextAreaElement>("textarea")[1].value).toBe("[]");
   });
 

@@ -1,15 +1,20 @@
 <template>
   <div class="json-array-filter-panel">
     <div class="filter-toolbar">
-      <div class="filter-status" aria-live="polite">
-        <strong>数组过滤</strong>
-        <span v-if="status === 'loading'" class="status-hint">正在解析...</span>
-        <span v-else-if="selectedPath" class="status-hint">
-          首个可用数组路径：<code>{{ selectedPath }}</code>
-        </span>
-        <span v-if="target" class="status-hint">
-          已选 {{ selectedProperties.length }} / {{ propertyCandidates.length }} 个属性
-        </span>
+      <div class="filter-status" role="status" aria-live="polite" aria-atomic="true">
+        <div class="filter-title-row">
+          <strong>数组过滤</strong>
+          <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
+        </div>
+        <div class="filter-meta">
+          <span v-if="selectedPath" class="status-hint">
+            数组路径：<code>{{ selectedPath }}</code>
+          </span>
+          <span v-if="target" class="status-hint">{{ target.length }} 条记录</span>
+          <span v-if="target" class="status-hint">
+            已选 {{ selectedProperties.length }} / {{ propertyCandidates.length }} 个字段
+          </span>
+        </div>
       </div>
       <div class="filter-actions">
         <el-button text data-action="clear-input" :disabled="!input" @click="clearInput"
@@ -53,7 +58,7 @@
         <header class="editor-header">
           <div>
             <strong id="array-filter-output-title">数组过滤结果</strong>
-            <span>只读根数组</span>
+            <span>{{ target ? `${target.length} 条记录` : "等待解析" }}</span>
           </div>
         </header>
         <el-input
@@ -70,17 +75,50 @@
 
     <section v-if="target && propertyCandidates.length" class="property-section">
       <div class="property-header">
-        <div>
-          <strong>属性候选</strong>
-          <span>默认全选，取消后即时更新结果</span>
+        <div class="property-title">
+          <div class="property-title-row">
+            <strong>输出字段</strong>
+            <span class="property-count"
+              >{{ selectedProperties.length }} / {{ propertyCandidates.length }}</span
+            >
+          </div>
+          <span>取消字段后即时更新结果</span>
         </div>
-        <span class="property-count"
-          >{{ selectedProperties.length }} / {{ propertyCandidates.length }}</span
-        >
+        <div class="property-actions" role="toolbar" aria-label="字段选择操作">
+          <el-button
+            text
+            size="small"
+            data-action="toggle-all-properties"
+            @click="toggleAllProperties"
+          >
+            {{ allPropertiesSelected ? "取消全选" : "全选" }}
+          </el-button>
+          <el-button
+            text
+            size="small"
+            data-action="clear-properties"
+            :disabled="!selectedProperties.length"
+            @click="clearProperties"
+          >
+            清空选择
+          </el-button>
+        </div>
       </div>
-      <div class="property-options" role="group" aria-label="属性候选">
+      <div v-if="propertyCandidates.length > 5" class="property-tools">
+        <el-input
+          v-model="propertySearch"
+          class="property-search"
+          clearable
+          placeholder="搜索字段名"
+          aria-label="搜索输出字段"
+        />
+        <span v-if="propertySearch.trim()" class="property-filter-count">
+          匹配 {{ filteredProperties.length }} 个
+        </span>
+      </div>
+      <div v-if="filteredProperties.length" class="property-options" role="group" aria-label="输出字段">
         <el-checkbox
-          v-for="property in propertyCandidates"
+          v-for="property in filteredProperties"
           :key="property"
           :model-value="selectedProperties.includes(property)"
           :label="property"
@@ -89,6 +127,7 @@
           {{ property }}
         </el-checkbox>
       </div>
+      <div v-else class="property-empty" role="status">没有匹配字段</div>
     </section>
 
     <div v-if="status === 'idle'" class="state-panel">
@@ -121,7 +160,7 @@ const jsonArrayFilterState = {
 </script>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   collectArrayProperties,
@@ -135,10 +174,42 @@ const selectedPath = ref(jsonArrayFilterState.selectedPath);
 const target = ref<JsonObject[] | null>(jsonArrayFilterState.target);
 const propertyCandidates = ref([...jsonArrayFilterState.propertyCandidates]);
 const selectedProperties = ref([...jsonArrayFilterState.selectedProperties]);
+const propertySearch = ref("");
 const output = ref(jsonArrayFilterState.output);
 const parseError = ref(jsonArrayFilterState.parseError);
 const status = ref<"idle" | "loading" | "ready" | "empty" | "error">(jsonArrayFilterState.status);
 const parseTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+const filteredProperties = computed(() => {
+  const query = propertySearch.value.trim().toLocaleLowerCase();
+  if (!query) return propertyCandidates.value;
+  return propertyCandidates.value.filter((property) =>
+    property.toLocaleLowerCase().includes(query),
+  );
+});
+
+const allPropertiesSelected = computed(
+  () =>
+    propertyCandidates.value.length > 0 &&
+    propertyCandidates.value.every((property) => selectedProperties.value.includes(property)),
+);
+
+const statusLabel = computed(() => {
+  switch (status.value) {
+    case "loading":
+      return "解析中";
+    case "ready":
+      return "已生成";
+    case "empty":
+      return "未找到数组";
+    case "error":
+      return "解析失败";
+    default:
+      return "等待输入";
+  }
+});
+
+const statusClass = computed(() => `is-${status.value}`);
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -149,6 +220,7 @@ function clearDerived(nextStatus: "idle" | "loading" | "empty") {
   target.value = null;
   propertyCandidates.value = [];
   selectedProperties.value = [];
+  propertySearch.value = "";
   output.value = "";
   parseError.value = "";
   status.value = nextStatus;
@@ -199,6 +271,7 @@ function parseDocument(text: string) {
   target.value = found.value;
   propertyCandidates.value = collectArrayProperties(found.value);
   selectedProperties.value = [...propertyCandidates.value];
+  propertySearch.value = "";
   parseError.value = "";
   status.value = "ready";
   refreshOutput();
@@ -224,6 +297,14 @@ function setPropertySelected(property: string, checked: unknown) {
   if (checked === true) next.add(property);
   else next.delete(property);
   selectedProperties.value = propertyCandidates.value.filter((candidate) => next.has(candidate));
+}
+
+function toggleAllProperties() {
+  selectedProperties.value = allPropertiesSelected.value ? [] : [...propertyCandidates.value];
+}
+
+function clearProperties() {
+  selectedProperties.value = [];
 }
 
 function clearInput() {
@@ -280,6 +361,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  overflow: auto;
   container-name: json-array-filter;
   container-type: inline-size;
 }
@@ -288,7 +370,7 @@ onBeforeUnmount(() => {
 .property-header,
 .editor-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -299,12 +381,76 @@ onBeforeUnmount(() => {
 
 .filter-status,
 .filter-actions,
+.filter-title-row,
+.filter-meta,
 .property-header > div,
+.property-title,
+.property-title-row,
+.property-actions,
 .editor-header > div {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.filter-status {
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.filter-title-row,
+.property-title-row {
+  flex-wrap: wrap;
+}
+
+.filter-meta {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.filter-actions,
+.property-actions {
+  flex-shrink: 0;
+}
+
+.property-title {
+  flex-direction: column;
+  align-items: flex-start !important;
+  gap: 4px !important;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 1px 8px;
+  border: 1px solid var(--lc-border);
+  border-radius: 999px;
+  color: var(--lc-text-muted);
+  background: var(--lc-surface-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.status-badge.is-loading {
+  color: var(--lc-accent);
+  border-color: var(--lc-border-active);
+  background: var(--lc-accent-dim);
+}
+
+.status-badge.is-ready {
+  color: var(--lc-success);
+  border-color: color-mix(in srgb, var(--lc-success) 35%, var(--lc-border));
+  background: color-mix(in srgb, var(--lc-success) 10%, var(--lc-surface-0));
+}
+
+.status-badge.is-error {
+  color: var(--lc-danger);
+  border-color: color-mix(in srgb, var(--lc-danger) 35%, var(--lc-border));
+  background: color-mix(in srgb, var(--lc-danger) 8%, var(--lc-surface-0));
 }
 
 .status-hint,
@@ -326,9 +472,10 @@ onBeforeUnmount(() => {
 .filter-editors {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  flex: 1;
+  flex: 1 1 auto;
   gap: 12px;
-  min-height: 280px;
+  min-height: 240px;
+  overflow: hidden;
 }
 
 .editor-column {
@@ -354,6 +501,7 @@ onBeforeUnmount(() => {
 .editor-column :deep(.el-textarea),
 .editor-column :deep(.el-textarea__inner) {
   height: 100%;
+  min-height: 0;
 }
 
 .editor-column :deep(.el-textarea__inner) {
@@ -362,7 +510,11 @@ onBeforeUnmount(() => {
 
 .property-section {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
   padding: 10px 12px;
+  overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
   background: var(--el-fill-color-blank);
@@ -372,11 +524,47 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.property-options {
+.property-tools {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   margin-top: 10px;
+}
+
+.property-search {
+  width: min(100%, 280px);
+}
+
+.property-filter-count {
+  flex-shrink: 0;
+  color: var(--lc-text-muted);
+  font-size: 12px;
+}
+
+.property-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 12px;
+  max-height: 132px;
+  overflow: auto;
+  margin-top: 10px;
+}
+
+.property-options :deep(.el-checkbox) {
+  min-width: 0;
+  margin-right: 0;
+}
+
+.property-options :deep(.el-checkbox__label) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.property-empty {
+  padding: 12px 0 2px;
+  color: var(--lc-text-muted);
+  font-size: 12px;
 }
 
 .state-panel {
@@ -403,12 +591,32 @@ onBeforeUnmount(() => {
 
   .filter-actions {
     width: 100%;
+    justify-content: flex-end;
   }
 
   .filter-editors {
+    flex: 0 0 auto;
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(220px, 1fr));
-    overflow: auto;
+    overflow: visible;
+  }
+
+  .property-section {
+    max-height: 220px;
+  }
+
+  .property-header,
+  .property-tools {
+    width: 100%;
+  }
+
+  .property-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .property-search {
+    flex: 1;
   }
 }
 </style>
