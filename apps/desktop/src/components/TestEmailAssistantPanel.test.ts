@@ -262,6 +262,17 @@ describe("TestEmailAssistantPanel source structure", () => {
     expect(source).toContain(':autosize="isMultilineFieldName(name)');
     expect(source).toContain("navigator.clipboard.writeText(emailPreview.value)");
     expect(source).toContain("tool:system:reveal-in-folder");
+    expect(source).toContain(
+      '<p v-if="errorMessage" class="assistant-error" role="alert">{{ errorMessage }}</p>',
+    );
+    expect(source).toContain("ElMessage.error(message)");
+    const errorPosition = source.indexOf(
+      '<p v-if="errorMessage" class="assistant-error" role="alert">',
+    );
+    const generationPosition = source.indexOf('<div class="word-generation">');
+    const workspacePosition = source.indexOf('<div class="assistant-workspace">');
+    expect(errorPosition).toBeGreaterThan(generationPosition);
+    expect(errorPosition).toBeLessThan(workspacePosition);
   });
 
   it("keeps cancellation quiet and exposes real failures", () => {

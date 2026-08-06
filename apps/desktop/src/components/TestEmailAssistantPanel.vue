@@ -71,6 +71,7 @@
             生成 Word 测试报告
           </el-button>
         </div>
+        <p v-if="errorMessage" class="assistant-error" role="alert">{{ errorMessage }}</p>
         <div v-if="outputPath" class="output-result" role="status">
           <div class="output-copy">
             <el-icon><CircleCheck /></el-icon>
@@ -230,7 +231,6 @@
       </section>
     </div>
 
-    <p v-if="errorMessage" class="assistant-error" role="alert">{{ errorMessage }}</p>
   </section>
 </template>
 
@@ -767,7 +767,9 @@ async function generateDocument() {
     outputPath.value = result.outputPath;
     ElMessage.success("Word 测试报告已生成");
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    const message = formatError(error);
+    errorMessage.value = message;
+    ElMessage.error(message);
   } finally {
     generating.value = false;
   }
