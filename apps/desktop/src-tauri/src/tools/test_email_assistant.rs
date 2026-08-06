@@ -1236,10 +1236,16 @@ fn extract_requirement_numbers(value: &str) -> Result<String, String> {
             .find('.')
             .ok_or_else(|| format!("生成测试报告失败：需求内容第 {line_number} 行缺少“.”分隔符"))?;
         let after_dot = &trimmed[dot_index + 1..];
-        let space_index = after_dot.find(' ').ok_or_else(|| {
-            format!("生成测试报告失败：需求内容第 {line_number} 行缺少空格分隔符")
-        })?;
-        let requirement_number = after_dot[..space_index].trim();
+        let number_start = after_dot
+            .find(|character: char| !character.is_whitespace())
+            .ok_or_else(|| format!("生成测试报告失败：需求内容第 {line_number} 行的需求号为空"))?;
+        let number_text = &after_dot[number_start..];
+        let space_index = number_text
+            .find(|character: char| character.is_whitespace())
+            .ok_or_else(|| {
+                format!("生成测试报告失败：需求内容第 {line_number} 行缺少空格分隔符")
+            })?;
+        let requirement_number = number_text[..space_index].trim();
         if requirement_number.is_empty() {
             return Err(format!(
                 "生成测试报告失败：需求内容第 {line_number} 行的需求号为空"
@@ -1680,6 +1686,25 @@ mod tests {
             suggested_file_name(&named_values),
             Ok(format!(
                 "{}-测试报告-系统_一-需求_二、需求三.docx",
+                Local::now().format("%Y%m%d")
+            ))
+        );
+    }
+
+    #[test]
+    fn suggested_file_name_accepts_numbered_requirement_lines_with_space_after_dot() {
+        let named_values = HashMap::from([
+            ("应用系统名称".to_string(), "系统".to_string()),
+            (
+                "功能需求内容".to_string(),
+                "1. 21313 432423432\n2. 324 43543".to_string(),
+            ),
+        ]);
+
+        assert_eq!(
+            suggested_file_name(&named_values),
+            Ok(format!(
+                "{}-测试报告-系统-21313、324.docx",
                 Local::now().format("%Y%m%d")
             ))
         );
