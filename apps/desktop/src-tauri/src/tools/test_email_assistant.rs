@@ -1200,40 +1200,58 @@ fn write_generated_docx(
         ));
     }
 
-    let base_name = suggested_file_name(template_path, values);
-    persist_without_overwrite(temp, output_dir, &base_name)
+    let base_name = suggested_file_name(values)?;
+    persist_overwrite(temp, output_dir, &base_name)
 }
 
-fn suggested_file_name(template_path: &Path, values: &HashMap<String, String>) -> String {
+fn suggested_file_name(values: &HashMap<String, String>) -> Result<String, String> {
     let application = values
         .get("应用系统名称")
         .map(|value| value.trim())
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "生成测试报告失败：字段“应用系统名称”未填写".to_string())?;
     let feature = values
         .get("功能需求内容")
         .map(|value| value.trim())
-        .filter(|value| !value.is_empty());
-    let raw = match (application, feature) {
-        (Some(application), Some(feature)) => {
-            format!("{application}-{feature}-测试报告")
-        }
-        _ => format!(
-            "{}-测试报告",
-            template_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("测试报告模板")
-        ),
-    };
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "生成测试报告失败：字段“功能需求内容”未填写".to_string())?;
+    let requirement_number = extract_requirement_numbers(feature)?;
+    let date = Local::now().format("%Y%m%d");
+    let raw = format!("{date}-测试报告-{application}-{requirement_number}");
     let cleaned = sanitize_file_name(&raw);
-    format!(
-        "{}.docx",
-        if cleaned.is_empty() {
-            "测试报告"
-        } else {
-            &cleaned
+    Ok(format!("{cleaned}.docx"))
+}
+
+fn extract_requirement_numbers(value: &str) -> Result<String, String> {
+    let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
+    let mut numbers = Vec::new();
+    for (line_index, line) in normalized.lines().enumerate() {
+        let line_number = line_index + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
         }
-    )
+
+        let dot_index = trimmed
+            .find('.')
+            .ok_or_else(|| format!("生成测试报告失败：需求内容第 {line_number} 行缺少“.”分隔符"))?;
+        let after_dot = &trimmed[dot_index + 1..];
+        let space_index = after_dot.find(' ').ok_or_else(|| {
+            format!("生成测试报告失败：需求内容第 {line_number} 行缺少空格分隔符")
+        })?;
+        let requirement_number = after_dot[..space_index].trim();
+        if requirement_number.is_empty() {
+            return Err(format!(
+                "生成测试报告失败：需求内容第 {line_number} 行的需求号为空"
+            ));
+        }
+        numbers.push(requirement_number.to_string());
+    }
+
+    if numbers.is_empty() {
+        return Err("生成测试报告失败：需求内容没有可提取的需求号".to_string());
+    }
+    Ok(numbers.join("、"))
 }
 
 fn sanitize_file_name(value: &str) -> String {
@@ -1261,40 +1279,20 @@ fn sanitize_file_name(value: &str) -> String {
         .to_string()
 }
 
-fn persist_without_overwrite(
-    mut temp: NamedTempFile,
+fn persist_overwrite(
+    temp: NamedTempFile,
     output_dir: &Path,
     base_name: &str,
 ) -> Result<PathBuf, String> {
-    let base = base_name.strip_suffix(".docx").unwrap_or(base_name);
-    let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    for attempt in 0..1000u32 {
-        let stem = if attempt == 0 {
-            base.to_string()
-        } else if attempt == 1 {
-            format!("{base}-{timestamp}")
-        } else {
-            let suffix = attempt - 1;
-            format!("{base}-{timestamp}-{suffix}")
-        };
-        let candidate = output_dir.join(format!("{stem}.docx"));
-        match temp.persist_noclobber(&candidate) {
-            Ok(_) => return Ok(candidate),
-            Err(persist_error)
-                if persist_error.error.kind() == std::io::ErrorKind::AlreadyExists =>
-            {
-                temp = persist_error.file;
-            }
-            Err(persist_error) => {
-                return Err(format!(
-                    "生成测试报告失败：无法以不覆盖方式保存 {}：{}",
-                    candidate.to_string_lossy(),
-                    persist_error.error
-                ));
-            }
-        }
+    let candidate = output_dir.join(base_name);
+    match temp.persist(&candidate) {
+        Ok(_) => Ok(candidate),
+        Err(error) => Err(format!(
+            "生成测试报告失败：无法覆盖保存 {}：{}",
+            candidate.to_string_lossy(),
+            error.error
+        )),
     }
-    Err("生成测试报告失败：可用输出文件名冲突过多".to_string())
 }
 
 #[cfg(test)]
@@ -1669,22 +1667,47 @@ mod tests {
     }
 
     #[test]
-    fn suggested_file_name_sanitizes_windows_characters_and_falls_back() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("报告模板.docx");
+    fn suggested_file_name_uses_date_extracts_numbers_and_sanitizes() {
         let named_values = HashMap::from([
             ("应用系统名称".to_string(), "系统:一".to_string()),
-            ("功能需求内容".to_string(), "需求/二".to_string()),
+            (
+                "功能需求内容".to_string(),
+                "1.需求/二 新增登录\n\n2.需求三 增加退出".to_string(),
+            ),
         ]);
 
         assert_eq!(
-            suggested_file_name(&path, &named_values),
-            "系统_一-需求_二-测试报告.docx"
+            suggested_file_name(&named_values),
+            Ok(format!(
+                "{}-测试报告-系统_一-需求_二、需求三.docx",
+                Local::now().format("%Y%m%d")
+            ))
         );
-        assert_eq!(
-            suggested_file_name(&path, &HashMap::new()),
-            "报告模板-测试报告.docx"
-        );
+    }
+
+    #[test]
+    fn suggested_file_name_rejects_missing_values_and_invalid_requirement_lines() {
+        let missing_system =
+            HashMap::from([("功能需求内容".to_string(), "1.需求一 描述".to_string())]);
+        assert!(suggested_file_name(&missing_system)
+            .unwrap_err()
+            .contains("应用系统名称"));
+
+        let missing_requirement = HashMap::from([("应用系统名称".to_string(), "系统".to_string())]);
+        assert!(suggested_file_name(&missing_requirement)
+            .unwrap_err()
+            .contains("功能需求内容"));
+
+        let invalid_line = HashMap::from([
+            ("应用系统名称".to_string(), "系统".to_string()),
+            (
+                "功能需求内容".to_string(),
+                "1.需求一 描述\n2.没有空格".to_string(),
+            ),
+        ]);
+        let error = suggested_file_name(&invalid_line).unwrap_err();
+        assert!(error.contains("第 2 行"));
+        assert!(error.contains("空格"));
     }
 
     #[test]
@@ -1712,7 +1735,10 @@ mod tests {
         let source_before = fs::read(&path).unwrap();
         let output = generate_document_payload(&json!({
             "templatePath": path,
-            "values": values(&[("应用系统名称", "系统 & <一>"), ("功能需求内容", "第一行\n第二行")]),
+            "values": values(&[
+                ("应用系统名称", "系统 & <一>"),
+                ("功能需求内容", "1.需求一 第一行\n2.需求二 第二行"),
+            ]),
         }))
         .unwrap();
         assert_eq!(fs::read(&path).unwrap(), source_before);
@@ -1726,7 +1752,7 @@ mod tests {
             .read_to_string(&mut xml)
             .unwrap();
         assert!(xml.contains("系统 &amp; &lt;一&gt;"));
-        assert!(xml.contains("第一行</w:t><w:br/><w:t>第二行"));
+        assert!(xml.contains("1.需求一 第一行</w:t><w:br/><w:t>2.需求二 第二行"));
         assert!(!xml.contains("{{"));
         let mut extra = Vec::new();
         archive
@@ -1749,10 +1775,7 @@ mod tests {
         writer.write_all(b"<Types/>").unwrap();
         writer.start_file("word/document.xml", deflated).unwrap();
         writer
-            .write_all(
-                r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{{字段}}</w:t></w:r></w:p></w:body></w:document>"#
-                    .as_bytes(),
-            )
+            .write_all(r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{{字段}}</w:t></w:r><w:r><w:t>{{应用系统名称}}</w:t></w:r><w:r><w:t>{{功能需求内容}}</w:t></w:r></w:p></w:body></w:document>"#.as_bytes())
             .unwrap();
         writer.start_file("custom/data.bin", stored).unwrap();
         writer.write_all(b"keep me").unwrap();
@@ -1760,7 +1783,11 @@ mod tests {
 
         let output = generate_document_payload(&json!({
             "templatePath": path,
-            "values": values(&[("字段", "已填写")]),
+            "values": values(&[
+                ("字段", "已填写"),
+                ("应用系统名称", "系统"),
+                ("功能需求内容", "1.需求 描述"),
+            ]),
         }))
         .unwrap();
         let output_path = PathBuf::from(output["outputPath"].as_str().unwrap());
@@ -1819,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_generation_never_overwrites_existing_output() {
+    fn repeated_generation_overwrites_existing_output() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("模板.docx");
         write_docx(
@@ -1830,12 +1857,13 @@ mod tests {
         );
         let payload = json!({
             "templatePath": path,
-            "values": values(&[("应用系统名称", "系统"), ("功能需求内容", "需求")]),
+            "values": values(&[("应用系统名称", "系统"), ("功能需求内容", "1.需求 描述")]),
         });
         let first = generate_document_payload(&payload).unwrap();
+        let first_path = PathBuf::from(first["outputPath"].as_str().unwrap());
+        fs::write(&first_path, b"old output").unwrap();
         let second = generate_document_payload(&payload).unwrap();
-        assert_ne!(first["outputPath"], second["outputPath"]);
-        assert!(Path::new(first["outputPath"].as_str().unwrap()).exists());
-        assert!(Path::new(second["outputPath"].as_str().unwrap()).exists());
+        assert_eq!(first["outputPath"], second["outputPath"]);
+        assert_eq!(&fs::read(&first_path).unwrap()[..2], b"PK");
     }
 }
