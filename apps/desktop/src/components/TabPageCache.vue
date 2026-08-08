@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, type Component } from "vue";
+import { computed, defineComponent, h, type Component } from "vue";
 import type { TabItem } from "../types/tabs";
 
 const props = defineProps<{
@@ -39,7 +39,15 @@ function getWrapperComponent(tab: TabItem): Component {
     component = defineComponent({
       name: getWrapperName(tab.id),
       setup() {
-        return () => slots.default?.({ tab }) ?? null;
+        return () =>
+          h(
+            "div",
+            {
+              class: "tab-page-scroll",
+              "data-tab-scroll-id": tab.id,
+            },
+            slots.default?.({ tab }),
+          );
       },
     });
     wrapperComponents.set(tab.id, component);

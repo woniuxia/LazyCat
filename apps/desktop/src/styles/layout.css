@@ -65,9 +65,17 @@
   background: var(--lc-surface-1);
   border-radius: var(--lc-radius-xl);
   padding: 20px 24px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* Keep the viewport inside each cached Tab so its scroll position follows the page. */
+.tab-page-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* ---------- Tab Bar New Button ---------- */

@@ -87,14 +87,26 @@ describe("TabPageCache", () => {
     const { activeId, lifecycle } = mountCache();
     await nextTick();
 
+    const firstScroll = document.querySelector(
+      '[data-tab-scroll-id="first"]',
+    ) as HTMLElement;
+    firstScroll.scrollTop = 240;
     (document.querySelector('[data-tab="first"]') as HTMLButtonElement).click();
     await nextTick();
     activeId.value = "second";
     await nextTick();
+    const secondScroll = document.querySelector(
+      '[data-tab-scroll-id="second"]',
+    ) as HTMLElement;
+    secondScroll.scrollTop = 80;
     activeId.value = "first";
     await nextTick();
 
     expect(document.querySelector('[data-tab="first"]')?.textContent).toBe("first-edited");
+    expect(document.querySelector('[data-tab-scroll-id="first"]')).toBe(firstScroll);
+    expect((document.querySelector('[data-tab-scroll-id="first"]') as HTMLElement).scrollTop).toBe(
+      240,
+    );
     expect(lifecycle.firstMounted).toBe(1);
     expect(lifecycle.firstUnmounted).toBe(0);
     expect(lifecycle.secondMounted).toBe(1);
