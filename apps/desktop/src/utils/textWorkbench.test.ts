@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { detectMonacoLanguage, fileNameFromPath, summarizeDiff } from "./textWorkbench";
+import {
+  detectMonacoLanguage,
+  fileNameFromPath,
+  filePathsMatch,
+  summarizeDiff,
+} from "./textWorkbench";
 
 describe("textWorkbench", () => {
   it("detects Monaco language from Windows and Unix paths", () => {
@@ -7,6 +12,11 @@ describe("textWorkbench", () => {
     expect(detectMonacoLanguage("/tmp/config.yaml")).toBe("yaml");
     expect(detectMonacoLanguage("README.unknown")).toBe("plaintext");
     expect(fileNameFromPath("C:\\work\\demo.ts")).toBe("demo.ts");
+  });
+
+  it("matches local file paths across separators, case and trailing slashes", () => {
+    expect(filePathsMatch(" C:/Logs/Error.log ", "c:\\logs\\error.log\\")).toBe(true);
+    expect(filePathsMatch("C:\\logs\\error.log", "C:\\logs\\other.log")).toBe(false);
   });
 
   it("summarizes inserted, removed and changed lines", () => {

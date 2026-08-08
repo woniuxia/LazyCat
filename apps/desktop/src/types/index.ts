@@ -17,6 +17,7 @@ export type {
   PortUsageConnectionRow,
 } from "./ports";
 export type { FileLockProcess, FileLockInspectResponse } from "./file-lock";
+export type { FileReadTextResponse } from "./file";
 export type { CalcDraftEntry } from "./calc";
 export type { RegexTemplate, RegexCaptureGroup, RegexMatchResult } from "./regex";
 export type { TabItem } from "./tabs";

@@ -18,6 +18,7 @@ const toolRegistry: Record<string, Component> = {
   "data-dictionary": defineAsyncComponent(() => import("./components/DataDictionaryPanel.vue")),
   "mybatis-helper": defineAsyncComponent(() => import("./components/MybatisPanel.vue")),
   "text-process": defineAsyncComponent(() => import("./components/TextProcessPanel.vue")),
+  "exception-stack": defineAsyncComponent(() => import("./components/ExceptionStackPanel.vue")),
   "naming-case": defineAsyncComponent(() => import("./components/NamingCasePanel.vue")),
   "sql-entity": defineAsyncComponent(() => import("./components/SqlEntityPanel.vue")),
   "http-status": defineAsyncComponent(() => import("./components/HttpStatusPanel.vue")),

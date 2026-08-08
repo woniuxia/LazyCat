@@ -6,6 +6,7 @@ describe("tool registry conversion workbenches", () => {
     expect(getToolComponent("json-workbench")).toBeDefined();
     expect(getToolComponent("data-convert")).toBeDefined();
     expect(getToolComponent("data-dictionary")).toBeDefined();
+    expect(getToolComponent("exception-stack")).toBeDefined();
 
     for (const toolId of [
       "json-process",

@@ -62,3 +62,10 @@ describe("toolCatalog action center", () => {
     expect(isRealToolId("action-center")).toBe(true);
   });
 });
+
+describe("toolCatalog exception stack organizer", () => {
+  it("registers the exception stack organizer as a real tool", () => {
+    expect(getAllTools().some((tool) => tool.id === "exception-stack")).toBe(true);
+    expect(isRealToolId("exception-stack")).toBe(true);
+  });
+});

@@ -87,6 +87,7 @@ declare module 'vue' {
     EncodePanel: typeof import('./src/components/EncodePanel.vue')['default']
     EnvPanel: typeof import('./src/components/EnvPanel.vue')['default']
     EscapeUnescapePanel: typeof import('./src/components/EscapeUnescapePanel.vue')['default']
+    ExceptionStackPanel: typeof import('./src/components/ExceptionStackPanel.vue')['default']
     FileLockPanel: typeof import('./src/components/FileLockPanel.vue')['default']
     FormatterPanel: typeof import('./src/components/FormatterPanel.vue')['default']
     GlobalNotificationPopup: typeof import('./src/components/GlobalNotificationPopup.vue')['default']

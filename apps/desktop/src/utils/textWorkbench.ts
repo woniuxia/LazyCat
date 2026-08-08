@@ -60,6 +60,16 @@ export function fileNameFromPath(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
+export function filePathsMatch(left: string, right: string): boolean {
+  const normalize = (path: string) =>
+    path
+      .trim()
+      .replace(/[\\/]+/g, "\\")
+      .replace(/\\$/, "")
+      .toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
 export function detectMonacoLanguage(path: string): string {
   const fileName = fileNameFromPath(path).toLowerCase();
   if (fileName === "dockerfile") return "dockerfile";

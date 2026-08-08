@@ -534,10 +534,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:widget:reposition": { domain: "widget", action: "reposition" },
 };
 
-export async function invokeToolByChannel(
+export async function invokeToolByChannel<TResponse = unknown>(
   channel: string,
   payload: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<TResponse> {
   const mapping = CHANNEL_MAP[channel];
   if (!mapping) {
     throw new Error(`Unsupported channel: ${channel}`);
@@ -555,13 +555,13 @@ export async function invokeToolByChannel(
       throw new Error("IPC bridge unavailable");
     }
     if (channel === "tool:request-forward:preflight") {
-      return await invoke<unknown>("request_forward_preflight", { payload });
+      return (await invoke<unknown>("request_forward_preflight", { payload })) as TResponse;
     }
     const response = await invoke<ToolResponse>("tool_execute", { request });
     if (!response.ok) {
       throw new Error(response.error?.message ?? "调用失败");
     }
-    return response.data;
+    return response.data as TResponse;
   } catch (error) {
     const rawMessage =
       error instanceof Error

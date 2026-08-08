@@ -94,6 +94,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "color", name: "颜色转换", desc: "颜色格式互转与对比度检查" },
         { id: "escape-unescape", name: "转义/反转义", desc: "JSON/HTML/SQL/JS 字符串转义与反转义" },
         { id: "text-process", name: "文本处理", desc: "文本清洗、过滤提取与结果统计" },
+        {
+          id: "exception-stack",
+          name: "异常堆栈整理器",
+          desc: "JavaScript/TypeScript 与 Java 异常堆栈摘要",
+        },
         { id: "naming-case", name: "命名转换", desc: "camelCase/snake_case/PascalCase 互转" },
         { id: "sql-entity", name: "SQL 转实体类", desc: "CREATE TABLE 转 Java/TS/Go/Python 实体" },
       ],
