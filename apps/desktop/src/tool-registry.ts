@@ -69,10 +69,12 @@ const toolRegistry: Record<string, Component> = {
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };
 
+const manualComponent = defineAsyncComponent(() => import("./components/ManualPanel.vue"));
+
 export function getToolComponent(id: string): Component | undefined {
   // Manual panels use a prefix
   if (id.startsWith("manual-")) {
-    return defineAsyncComponent(() => import("./components/ManualPanel.vue"));
+    return manualComponent;
   }
   return toolRegistry[id];
 }

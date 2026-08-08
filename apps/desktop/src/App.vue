@@ -30,26 +30,28 @@
       <div class="content-inner">
         <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 
-        <Transition name="panel-switch" mode="out-in">
-          <HomePanel
-            v-if="activeTool === HOME_ID"
-            key="home"
-            :all-items="visibleSidebarItems"
-            :merged-home-tools="mergedHomeTools"
-            :is-favorite="isFavorite"
-            @open-tool="onSelect"
-            @toggle-favorite="toggleFavorite"
-            @reorder-favorites="reorderFavorites"
-          />
+        <TabPageCache :tabs="openTabs" :active-id="activeTool">
+          <template #default="{ tab }">
+            <HomePanel
+              v-if="tab.id === HOME_ID"
+              key="home"
+              :all-items="visibleSidebarItems"
+              :merged-home-tools="mergedHomeTools"
+              :is-favorite="isFavorite"
+              @open-tool="onSelect"
+              @toggle-favorite="toggleFavorite"
+              @reorder-favorites="reorderFavorites"
+            />
 
-          <component
-            v-else-if="currentComponent"
-            :is="currentComponent"
-            :key="activeTool"
-            v-bind="currentComponentProps"
-            @open-tool="onSelect"
-          />
-        </Transition>
+            <component
+              v-else-if="currentComponent"
+              :is="currentComponent"
+              :key="tab.id"
+              v-bind="currentComponentProps"
+              @open-tool="onSelect"
+            />
+          </template>
+        </TabPageCache>
       </div>
     </main>
     <ShortcutHelpOverlay ref="shortcutHelp" />
@@ -81,6 +83,7 @@ import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import TopBar from "./components/TopBar.vue";
 import TabBar from "./components/TabBar.vue";
+import TabPageCache from "./components/TabPageCache.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";

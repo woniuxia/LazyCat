@@ -1,0 +1,117 @@
+/** @vitest-environment happy-dom */
+
+import { createApp, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { afterEach, describe, expect, it } from "vitest";
+import type { TabItem } from "../types/tabs";
+import TabPageCache from "./TabPageCache.vue";
+
+const tabs: TabItem[] = [
+  { id: "first", name: "First", pinned: false },
+  { id: "second", name: "Second", pinned: false },
+];
+
+let app: ReturnType<typeof createApp> | null = null;
+let root: HTMLDivElement | null = null;
+
+afterEach(() => {
+  app?.unmount();
+  app = null;
+  root?.remove();
+  root = null;
+});
+
+function mountCache() {
+  const activeId = ref("first");
+  const openTabs = ref([...tabs]);
+  const lifecycle = {
+    firstMounted: 0,
+    firstUnmounted: 0,
+    secondMounted: 0,
+    secondUnmounted: 0,
+  };
+
+  const panels = new Map(
+    tabs.map((tab) => [
+      tab.id,
+      defineComponent({
+        setup() {
+          const value = ref(`${tab.id}-initial`);
+          onMounted(() => {
+            lifecycle[`${tab.id}Mounted` as keyof typeof lifecycle] += 1;
+          });
+          onUnmounted(() => {
+            lifecycle[`${tab.id}Unmounted` as keyof typeof lifecycle] += 1;
+          });
+          return () =>
+            h(
+              "button",
+              {
+                "data-tab": tab.id,
+                onClick: () => {
+                  value.value = `${tab.id}-edited`;
+                },
+              },
+              value.value,
+            );
+        },
+      }),
+    ]),
+  );
+
+  const host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          TabPageCache,
+          { tabs: openTabs.value, activeId: activeId.value },
+          {
+            default: ({ tab }: { tab: TabItem }) => {
+              const Panel = panels.get(tab.id);
+              return Panel ? h(Panel) : null;
+            },
+          },
+        );
+    },
+  });
+
+  root = document.createElement("div");
+  document.body.appendChild(root);
+  app = createApp(host);
+  app.mount(root);
+
+  return { activeId, openTabs, lifecycle };
+}
+
+describe("TabPageCache", () => {
+  it("keeps a page instance when switching tabs", async () => {
+    const { activeId, lifecycle } = mountCache();
+    await nextTick();
+
+    (document.querySelector('[data-tab="first"]') as HTMLButtonElement).click();
+    await nextTick();
+    activeId.value = "second";
+    await nextTick();
+    activeId.value = "first";
+    await nextTick();
+
+    expect(document.querySelector('[data-tab="first"]')?.textContent).toBe("first-edited");
+    expect(lifecycle.firstMounted).toBe(1);
+    expect(lifecycle.firstUnmounted).toBe(0);
+    expect(lifecycle.secondMounted).toBe(1);
+    expect(lifecycle.secondUnmounted).toBe(0);
+  });
+
+  it("destroys the cache when a tab is removed", async () => {
+    const { activeId, openTabs, lifecycle } = mountCache();
+    await nextTick();
+
+    activeId.value = "second";
+    await nextTick();
+    openTabs.value = openTabs.value.filter((tab) => tab.id !== "first");
+    await nextTick();
+
+    expect(lifecycle.firstMounted).toBe(1);
+    expect(lifecycle.firstUnmounted).toBe(1);
+    expect(document.querySelector('[data-tab="first"]')).toBeNull();
+  });
+});
