@@ -44,10 +44,10 @@
             />
 
             <component
-              v-else-if="currentComponent"
-              :is="currentComponent"
+              v-else-if="getToolComponent(tab.id)"
+              :is="getToolComponent(tab.id)"
               :key="tab.id"
-              v-bind="currentComponentProps"
+              v-bind="getTabComponentProps(tab.id)"
               @open-tool="onSelect"
             />
           </template>
@@ -72,7 +72,6 @@ import { useMenuVisibility } from "./composables/useMenuVisibility";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import {
   HOME_ID,
-  HOME_TOOL,
   getSidebarItems,
   getAllTools,
   getAllToolMap,
@@ -197,17 +196,7 @@ const {
 } = useMenuVisibility(sortedSidebarItems);
 const toolSearchMetaMap = computed(() => getToolSearchMetaMap());
 
-const currentTool = computed(() => {
-  if (activeTool.value === HOME_ID) return HOME_TOOL;
-  if (activeTool.value === "settings")
-    return { id: "settings", name: "设置", desc: "快捷键与应用偏好设置" };
-  return allToolMap.get(activeTool.value);
-});
-
-const currentComponent = computed(() => getToolComponent(activeTool.value));
-
-const currentComponentProps = computed(() => {
-  const id = activeTool.value;
+function getTabComponentProps(id: string) {
   if (ENCODE_PANEL_IDS.has(id)) return { activeTool: id };
   if (id.startsWith("manual-")) return { manualId: id };
   if (id === "settings")
@@ -255,7 +244,7 @@ const currentComponentProps = computed(() => {
       },
     };
   return {};
-});
+}
 
 // Show tab bar when there are tabs other than home, or home is not active
 const showTabBar = computed(() => {

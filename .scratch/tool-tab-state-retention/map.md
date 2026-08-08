@@ -14,7 +14,7 @@
 ## Decisions so far
 
 - [页面生命周期契约](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/01-page-lifecycle-contract.md) — Tab 页面保留 UI 实例并在失活时暂停页面级活动；应用级长任务和后台服务脱离页面继续运行，关闭 Tab 不自动取消。
-- [缓存边界与稳定身份](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/02-cache-boundary-and-identity.md) — 所有标签页使用独立缓存容器，`tab.id` 保持一工具一 Tab 身份，关闭 Tab 精确销毁页面缓存但不取消应用级任务。
+- [缓存边界与稳定身份](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/02-cache-boundary-and-identity.md) — 每个标签页使用独立页面容器和独立 `KeepAlive` 边界，`tab.id` 保持一工具一 Tab 身份，关闭 Tab 通过卸载宿主精确销毁页面缓存但不取消应用级任务。
 - [非活动数据刷新](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/03-inactive-data-refresh.md) — 重新激活默认保留页面结果；外部数据只做轻量刷新，保护脏草稿和局部浏览状态，用户已启动的单次异步操作继续执行且按 Tab/操作代次隔离响应。
 - [缓存资源策略](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/04-cache-resource-policy.md) — 暂不自动淘汰仍打开的 Tab；失活时暂停或释放页面级重型资源，保留用户状态，关闭 Tab 才销毁页面缓存。
 - [验收与回归范围](E:/Projects/LazyCat/.scratch/tool-tab-state-retention/issues/05-acceptance-and-regression-surface.md) — 以页面实例连续性、操作次数、资源清理和关键 UI 状态作为验收证据，覆盖代表性工具和单个/批量关闭路径。

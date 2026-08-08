@@ -518,7 +518,16 @@
 <script setup lang="ts">
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+} from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel, suppressClipboardCapture } from "../bridge/tauri";
 import { APP_EVENTS } from "../bridge/events";
@@ -605,6 +614,9 @@ const detailExpandedSections = ref<DetailCollapseSection[]>([]);
 let clipboardUnlisten: UnlistenFn | null = null;
 let clipboardRefreshRunning = false;
 let clipboardRefreshQueued = false;
+let pageActivityGeneration = 0;
+let pageActive = false;
+let initialLoadComplete = false;
 
 const imageContextMenu = reactive({
   visible: false,
@@ -1306,30 +1318,59 @@ async function refreshFromClipboardChange(): Promise<void> {
   }
 }
 
-onMounted(async () => {
+async function startPageActivity(): Promise<void> {
+  if (pageActive) return;
+
+  pageActive = true;
+  const generation = ++pageActivityGeneration;
   window.addEventListener("resize", handleResize);
   document.addEventListener("click", onDocumentClick);
   document.addEventListener("keydown", onDocumentKeydown);
   document.addEventListener("scroll", onDocumentScroll, true);
+
   try {
-    clipboardUnlisten = await listen(APP_EVENTS.CLIPBOARD_CHANGED, () => {
+    const unlisten = await listen(APP_EVENTS.CLIPBOARD_CHANGED, () => {
       void refreshFromClipboardChange();
     });
+    if (!pageActive || generation !== pageActivityGeneration) {
+      unlisten();
+      return;
+    }
+    clipboardUnlisten = unlisten;
   } catch {
-    clipboardUnlisten = null;
+    if (generation === pageActivityGeneration) clipboardUnlisten = null;
   }
-  await Promise.all([loadCaptureStatus(), loadList(true)]);
-  updateViewportHeight();
-});
+}
 
-onBeforeUnmount(() => {
+function stopPageActivity(): void {
+  pageActive = false;
+  pageActivityGeneration += 1;
   window.removeEventListener("resize", handleResize);
   document.removeEventListener("click", onDocumentClick);
   document.removeEventListener("keydown", onDocumentKeydown);
   document.removeEventListener("scroll", onDocumentScroll, true);
   clipboardUnlisten?.();
   clipboardUnlisten = null;
+  hideImageContextMenu();
+}
+
+onMounted(async () => {
+  void startPageActivity();
+  await Promise.all([loadCaptureStatus(), loadList(true)]);
+  initialLoadComplete = true;
+  updateViewportHeight();
 });
+
+onActivated(() => {
+  void startPageActivity();
+  if (initialLoadComplete) {
+    void refreshFromClipboardChange();
+    void nextTick(updateViewportHeight);
+  }
+});
+
+onDeactivated(stopPageActivity);
+onBeforeUnmount(stopPageActivity);
 </script>
 
 <style scoped>

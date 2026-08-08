@@ -1,63 +1,21 @@
 <template>
-  <!-- Stable wrapper names let KeepAlive remove exactly the tabs no longer in the list. -->
-  <KeepAlive :include="cacheNames">
-    <component v-if="activeTab && activeComponent" :is="activeComponent" :key="activeTab.id" />
-  </KeepAlive>
+  <TabPageHost v-for="tab in tabs" :key="tab.id" :tab="tab" :active="tab.id === activeId">
+    <template #default="slotProps">
+      <slot v-bind="slotProps" />
+    </template>
+  </TabPageHost>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, type Component } from "vue";
 import type { TabItem } from "../types/tabs";
+import TabPageHost from "./TabPageHost.vue";
 
-const props = defineProps<{
+defineProps<{
   tabs: readonly TabItem[];
   activeId: string;
 }>();
 
-const slots = defineSlots<{
+defineSlots<{
   default(props: { tab: TabItem }): unknown;
 }>();
-
-const wrapperNames = new Map<string, string>();
-const wrapperComponents = new Map<string, Component>();
-
-function getWrapperName(id: string): string {
-  let name = wrapperNames.get(id);
-  if (!name) {
-    const encodedId = Array.from(id)
-      .map((character) => character.codePointAt(0)!.toString(16))
-      .join("_");
-    name = `LazyCatTabPage_${encodedId || "empty"}`;
-    wrapperNames.set(id, name);
-  }
-  return name;
-}
-
-function getWrapperComponent(tab: TabItem): Component {
-  let component = wrapperComponents.get(tab.id);
-  if (!component) {
-    component = defineComponent({
-      name: getWrapperName(tab.id),
-      setup() {
-        return () =>
-          h(
-            "div",
-            {
-              class: "tab-page-scroll",
-              "data-tab-scroll-id": tab.id,
-            },
-            slots.default?.({ tab }),
-          );
-      },
-    });
-    wrapperComponents.set(tab.id, component);
-  }
-  return component;
-}
-
-const activeTab = computed(() => props.tabs.find((tab) => tab.id === props.activeId) ?? null);
-const activeComponent = computed(() =>
-  activeTab.value ? getWrapperComponent(activeTab.value) : null,
-);
-const cacheNames = computed(() => props.tabs.map((tab) => getWrapperName(tab.id)));
 </script>

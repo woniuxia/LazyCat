@@ -146,7 +146,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import {
   CopyDocument,
   Plus,
@@ -743,9 +752,14 @@ async function copyAccessUrl() {
 let logsTimer: ReturnType<typeof setInterval> | null = null;
 let logsFailureCount = 0;
 const logsPaused = ref(false);
+const pageActive = ref(true);
 
 const shouldPollLogs = computed(
-  () => activeTab.value === "logs" && !!selectedProject.value?.runtime.running && !logsPaused.value,
+  () =>
+    pageActive.value &&
+    activeTab.value === "logs" &&
+    !!selectedProject.value?.runtime.running &&
+    !logsPaused.value,
 );
 
 const logsStatus = computed<"active" | "stopped" | "paused">(() => {
@@ -799,6 +813,14 @@ watch([selectedProjectId, activeTab], () => {
 });
 
 onBeforeUnmount(stopLogsTimer);
+
+onActivated(() => {
+  pageActive.value = true;
+});
+
+onDeactivated(() => {
+  pageActive.value = false;
+});
 
 onMounted(() => {
   assignRouteForm(null);

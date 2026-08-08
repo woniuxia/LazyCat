@@ -1,6 +1,16 @@
 /** @vitest-environment happy-dom */
 
-import { createApp, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from "vue";
+import {
+  createApp,
+  defineComponent,
+  h,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref,
+} from "vue";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TabItem } from "../types/tabs";
 import TabPageCache from "./TabPageCache.vue";
@@ -26,8 +36,12 @@ function mountCache() {
   const lifecycle = {
     firstMounted: 0,
     firstUnmounted: 0,
+    firstActivated: 0,
+    firstDeactivated: 0,
     secondMounted: 0,
     secondUnmounted: 0,
+    secondActivated: 0,
+    secondDeactivated: 0,
   };
 
   const panels = new Map(
@@ -41,6 +55,12 @@ function mountCache() {
           });
           onUnmounted(() => {
             lifecycle[`${tab.id}Unmounted` as keyof typeof lifecycle] += 1;
+          });
+          onActivated(() => {
+            lifecycle[`${tab.id}Activated` as keyof typeof lifecycle] += 1;
+          });
+          onDeactivated(() => {
+            lifecycle[`${tab.id}Deactivated` as keyof typeof lifecycle] += 1;
           });
           return () =>
             h(
@@ -87,17 +107,15 @@ describe("TabPageCache", () => {
     const { activeId, lifecycle } = mountCache();
     await nextTick();
 
-    const firstScroll = document.querySelector(
-      '[data-tab-scroll-id="first"]',
-    ) as HTMLElement;
+    const firstScroll = document.querySelector('[data-tab-scroll-id="first"]') as HTMLElement;
     firstScroll.scrollTop = 240;
     (document.querySelector('[data-tab="first"]') as HTMLButtonElement).click();
     await nextTick();
     activeId.value = "second";
     await nextTick();
-    const secondScroll = document.querySelector(
-      '[data-tab-scroll-id="second"]',
-    ) as HTMLElement;
+    const secondScroll = document.querySelector('[data-tab-scroll-id="second"]') as HTMLElement;
+    expect(document.querySelector('[data-tab-scroll-id="first"]')).toBe(firstScroll);
+    expect(document.querySelector('[data-tab="first"]')).toBeNull();
     secondScroll.scrollTop = 80;
     activeId.value = "first";
     await nextTick();
@@ -109,8 +127,12 @@ describe("TabPageCache", () => {
     );
     expect(lifecycle.firstMounted).toBe(1);
     expect(lifecycle.firstUnmounted).toBe(0);
+    expect(lifecycle.firstActivated).toBe(2);
+    expect(lifecycle.firstDeactivated).toBe(1);
     expect(lifecycle.secondMounted).toBe(1);
     expect(lifecycle.secondUnmounted).toBe(0);
+    expect(lifecycle.secondActivated).toBe(1);
+    expect(lifecycle.secondDeactivated).toBe(1);
   });
 
   it("destroys the cache when a tab is removed", async () => {
@@ -125,5 +147,19 @@ describe("TabPageCache", () => {
     expect(lifecycle.firstMounted).toBe(1);
     expect(lifecycle.firstUnmounted).toBe(1);
     expect(document.querySelector('[data-tab="first"]')).toBeNull();
+  });
+
+  it("destroys every page instance when all tabs are removed", async () => {
+    const { activeId, openTabs, lifecycle } = mountCache();
+    await nextTick();
+
+    activeId.value = "second";
+    await nextTick();
+    openTabs.value = [];
+    await nextTick();
+
+    expect(lifecycle.firstUnmounted).toBe(1);
+    expect(lifecycle.secondUnmounted).toBe(1);
+    expect(document.querySelector("[data-tab-scroll-id]")).toBeNull();
   });
 });

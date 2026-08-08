@@ -184,6 +184,7 @@ declare module 'vue' {
     SqlEntityPanel: typeof import('./src/components/SqlEntityPanel.vue')['default']
     TabBar: typeof import('./src/components/TabBar.vue')['default']
     TabPageCache: typeof import('./src/components/TabPageCache.vue')['default']
+    TabPageHost: typeof import('./src/components/TabPageHost.vue')['default']
     TestEmailAssistantPanel: typeof import('./src/components/TestEmailAssistantPanel.vue')['default']
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
     TimestampPanel: typeof import('./src/components/TimestampPanel.vue')['default']
