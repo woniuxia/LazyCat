@@ -24,14 +24,19 @@
           v-for="(item, index) in mergedHomeTools"
           :key="item.tool.id"
           class="home-tool-card"
-          :class="{ 'is-favorite': item.isFavorite }"
+          :class="{
+            'is-favorite': item.isFavorite,
+            'is-home-entry': isHomeEntryCard(mergedHomeEntryKey(item.tool.id)),
+          }"
           :data-id="item.tool.id"
+          :data-home-entry-key="mergedHomeEntryKey(item.tool.id)"
           :style="{ '--card-index': index }"
           tabindex="0"
           @click="emit('openTool', item.tool.id)"
           @keyup.enter="emit('openTool', item.tool.id)"
           @mousemove="onCardMouseMove"
           @mouseleave="onCardMouseLeave"
+          @animationend="onHomeCardAnimationEnd"
         >
           <span v-if="item.isFavorite" class="drag-handle">⠿</span>
           <el-button
@@ -59,12 +64,17 @@
           v-for="(tool, toolIndex) in group.tools"
           :key="tool.id"
           class="home-tool-card"
+          :class="{
+            'is-home-entry': isHomeEntryCard(groupedHomeEntryKey(group.id, tool.id)),
+          }"
+          :data-home-entry-key="groupedHomeEntryKey(group.id, tool.id)"
           :style="{ '--card-index': groupIndex * 10 + toolIndex }"
           tabindex="0"
           @click="emit('openTool', tool.id)"
           @keyup.enter="emit('openTool', tool.id)"
           @mousemove="onCardMouseMove"
           @mouseleave="onCardMouseLeave"
+          @animationend="onHomeCardAnimationEnd"
         >
           <el-button
             class="home-tool-card-action"
@@ -148,10 +158,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { computed, nextTick, onBeforeUnmount, onDeactivated, onMounted, onUpdated, ref } from "vue";
 import Sortable from "sortablejs";
 import type { SidebarItem } from "../types";
 import type { MergedHomeTool } from "../composables/useFavorites";
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
 interface GroupedTool {
   id: string;
@@ -196,6 +208,82 @@ const hasAnyContent = computed(
   () => props.mergedHomeTools.length > 0 || groupedTools.value.length > 0,
 );
 
+function mergedHomeEntryKey(id: string): string {
+  return `merged:${id}`;
+}
+
+function groupedHomeEntryKey(groupId: string, toolId: string): string {
+  return `group:${groupId}:${toolId}`;
+}
+
+function getHomeEntryKeys(): string[] {
+  return [
+    ...props.mergedHomeTools.map((item) => mergedHomeEntryKey(item.tool.id)),
+    ...groupedTools.value.flatMap((group) =>
+      group.tools.map((tool) => groupedHomeEntryKey(group.id, tool.id)),
+    ),
+  ];
+}
+
+function getHomeEntrySignature(): string {
+  return JSON.stringify({
+    merged: props.mergedHomeTools.map(({ tool, isFavorite }) => [
+      tool.id,
+      tool.name,
+      tool.desc,
+      isFavorite,
+    ]),
+    grouped: groupedTools.value.map((group) => [
+      group.id,
+      group.name,
+      group.tools.map((tool) => [tool.id, tool.name, tool.desc, props.isFavorite(tool.id)]),
+    ]),
+  });
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(REDUCED_MOTION_QUERY).matches
+  );
+}
+
+const pendingHomeEntryKeys = ref<Set<string>>(
+  new Set(prefersReducedMotion() ? [] : getHomeEntryKeys()),
+);
+let lastHomeEntrySignature = getHomeEntrySignature();
+
+function isHomeEntryCard(key: string): boolean {
+  return pendingHomeEntryKeys.value.has(key);
+}
+
+function onHomeCardAnimationEnd(event: AnimationEvent) {
+  if (event.animationName !== "cardReveal") return;
+  const key = (event.currentTarget as HTMLElement).dataset.homeEntryKey;
+  if (!key || !pendingHomeEntryKeys.value.has(key)) return;
+
+  const nextKeys = new Set(pendingHomeEntryKeys.value);
+  nextKeys.delete(key);
+  pendingHomeEntryKeys.value = nextKeys;
+}
+
+function syncPendingHomeEntryKeys() {
+  const currentSignature = getHomeEntrySignature();
+  if (currentSignature === lastHomeEntrySignature) return;
+
+  lastHomeEntrySignature = currentSignature;
+  pendingHomeEntryKeys.value = new Set();
+}
+
+let reducedMotionQuery: MediaQueryList | null = null;
+
+function onReducedMotionChange(event: MediaQueryListEvent) {
+  if (event.matches) {
+    pendingHomeEntryKeys.value = new Set();
+  }
+}
+
 // SortableJS for drag-reorder of favorite cards
 const mergedGridRef = ref<HTMLElement | null>(null);
 let sortableInstance: Sortable | null = null;
@@ -226,10 +314,22 @@ function initSortable() {
   });
 }
 
-onMounted(() => nextTick(initSortable));
+onMounted(() => {
+  if (typeof window.matchMedia === "function") {
+    reducedMotionQuery = window.matchMedia(REDUCED_MOTION_QUERY);
+    reducedMotionQuery.addEventListener("change", onReducedMotionChange);
+  }
+  void nextTick(initSortable);
+});
+onUpdated(syncPendingHomeEntryKeys);
+onDeactivated(() => {
+  pendingHomeEntryKeys.value = new Set();
+});
 onBeforeUnmount(() => {
   sortableInstance?.destroy();
   sortableInstance = null;
+  reducedMotionQuery?.removeEventListener("change", onReducedMotionChange);
+  reducedMotionQuery = null;
 });
 
 function onCardMouseMove(e: MouseEvent) {

@@ -11,8 +11,11 @@ import {
   onUnmounted,
   ref,
 } from "vue";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MergedHomeTool } from "../composables/useFavorites";
+import type { SidebarItem } from "../types";
 import type { TabItem } from "../types/tabs";
+import HomePanel from "./HomePanel.vue";
 import TabPageCache from "./TabPageCache.vue";
 
 const tabs: TabItem[] = [
@@ -22,12 +25,14 @@ const tabs: TabItem[] = [
 
 let app: ReturnType<typeof createApp> | null = null;
 let root: HTMLDivElement | null = null;
+const originalMatchMedia = window.matchMedia;
 
 afterEach(() => {
   app?.unmount();
   app = null;
   root?.remove();
   root = null;
+  window.matchMedia = originalMatchMedia;
 });
 
 function mountCache() {
@@ -102,6 +107,85 @@ function mountCache() {
   return { activeId, openTabs, lifecycle };
 }
 
+function createHomeTool(id: string): MergedHomeTool {
+  return {
+    tool: { id, name: id, desc: `${id} description` },
+    isFavorite: false,
+    count: 0,
+  };
+}
+
+function mountHomeCache(options: { reducedMotion?: boolean } = {}) {
+  const activeId = ref("home");
+  const mergedHomeTools = ref([createHomeTool("first-tool")]);
+  const openTabs: TabItem[] = [
+    { id: "home", name: "Home", pinned: true },
+    { id: "tool", name: "Tool", pinned: false },
+  ];
+  const allItems: SidebarItem[] = [];
+  const mediaQuery = {
+    matches: options.reducedMotion ?? false,
+    media: "(prefers-reduced-motion: reduce)",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  } as unknown as MediaQueryList;
+  window.matchMedia = vi.fn(() => mediaQuery);
+
+  const host = defineComponent({
+    setup() {
+      return () =>
+        h(
+          TabPageCache,
+          { tabs: openTabs, activeId: activeId.value },
+          {
+            default: ({ tab }: { tab: TabItem }) =>
+              tab.id === "home"
+                ? h(HomePanel, {
+                    allItems,
+                    mergedHomeTools: mergedHomeTools.value,
+                    isFavorite: () => false,
+                  })
+                : h("div", { "data-tab": "tool" }, "tool"),
+          },
+        );
+    },
+  });
+
+  root = document.createElement("div");
+  document.body.appendChild(root);
+  app = createApp(host);
+  app.component(
+    "el-button",
+    defineComponent({
+      setup(_, { attrs, slots }) {
+        return () => h("button", attrs, slots.default?.());
+      },
+    }),
+  );
+  app.component(
+    "el-empty",
+    defineComponent({
+      props: { description: { type: String, default: "" } },
+      setup(props) {
+        return () => h("div", props.description);
+      },
+    }),
+  );
+  app.mount(root);
+
+  return { activeId, mergedHomeTools };
+}
+
+function getHomeCards() {
+  return [...document.querySelectorAll<HTMLElement>(".home-tool-card")];
+}
+
+function finishHomeCardEntry(card: HTMLElement) {
+  const event = new Event("animationend");
+  Object.defineProperty(event, "animationName", { value: "cardReveal" });
+  card.dispatchEvent(event);
+}
+
 describe("TabPageCache", () => {
   it("keeps a page instance when switching tabs", async () => {
     const { activeId, lifecycle } = mountCache();
@@ -161,5 +245,78 @@ describe("TabPageCache", () => {
     expect(lifecycle.firstUnmounted).toBe(1);
     expect(lifecycle.secondUnmounted).toBe(1);
     expect(document.querySelector("[data-tab-scroll-id]")).toBeNull();
+  });
+
+  it("restores an interrupted home entry immediately after cached activation", async () => {
+    const { activeId } = mountHomeCache();
+    await nextTick();
+
+    expect(getHomeCards()).toHaveLength(1);
+    expect(getHomeCards()[0].classList.contains("is-home-entry")).toBe(true);
+
+    activeId.value = "tool";
+    await nextTick();
+    activeId.value = "home";
+    await nextTick();
+
+    expect(getHomeCards()[0].classList.contains("is-home-entry")).toBe(false);
+  });
+
+  it("does not animate home cards added after first presentation", async () => {
+    const { mergedHomeTools } = mountHomeCache();
+    await nextTick();
+
+    finishHomeCardEntry(getHomeCards()[0]);
+    await nextTick();
+    expect(getHomeCards()[0].classList.contains("is-home-entry")).toBe(false);
+
+    mergedHomeTools.value.push(createHomeTool("second-tool"));
+    await nextTick();
+
+    expect(getHomeCards()).toHaveLength(2);
+    expect(getHomeCards().every((card) => !card.classList.contains("is-home-entry"))).toBe(true);
+  });
+
+  it("shows home cards added during first presentation without delaying them", async () => {
+    const { mergedHomeTools } = mountHomeCache();
+    await nextTick();
+
+    mergedHomeTools.value.push(createHomeTool("second-tool"));
+    await nextTick();
+
+    expect(getHomeCards()).toHaveLength(2);
+    expect(getHomeCards().every((card) => !card.classList.contains("is-home-entry"))).toBe(true);
+  });
+
+  it("ends first presentation when existing home content changes", async () => {
+    const { mergedHomeTools } = mountHomeCache();
+    await nextTick();
+
+    mergedHomeTools.value[0].tool.name = "renamed-tool";
+    await nextTick();
+
+    expect(getHomeCards()[0].classList.contains("is-home-entry")).toBe(false);
+  });
+
+  it("shows home cards changed while inactive immediately after restoration", async () => {
+    const { activeId, mergedHomeTools } = mountHomeCache();
+    await nextTick();
+
+    activeId.value = "tool";
+    await nextTick();
+    mergedHomeTools.value.push(createHomeTool("second-tool"));
+    await nextTick();
+    activeId.value = "home";
+    await nextTick();
+
+    expect(getHomeCards()).toHaveLength(2);
+    expect(getHomeCards().every((card) => !card.classList.contains("is-home-entry"))).toBe(true);
+  });
+
+  it("skips the first home entry animation when reduced motion is preferred", async () => {
+    mountHomeCache({ reducedMotion: true });
+    await nextTick();
+
+    expect(getHomeCards()[0].classList.contains("is-home-entry")).toBe(false);
   });
 });
