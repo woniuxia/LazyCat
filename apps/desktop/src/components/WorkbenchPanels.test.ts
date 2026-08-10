@@ -5,6 +5,7 @@ import { workbenchTabState } from "./workbenchTabState";
 const jsonSource = readFileSync(new URL("./JsonWorkbenchPanel.vue", import.meta.url), "utf8");
 const dataSource = readFileSync(new URL("./DataConvertPanel.vue", import.meta.url), "utf8");
 const jsonProcessSource = readFileSync(new URL("./JsonProcessPanel.vue", import.meta.url), "utf8");
+const layoutSource = readFileSync(new URL("../styles/layout.css", import.meta.url), "utf8");
 
 afterEach(() => {
   workbenchTabState.json = "process";
@@ -58,5 +59,12 @@ describe("conversion workbench panels", () => {
     expect(jsonProcessSource).toContain("@media (max-width: 900px)");
     expect(jsonProcessSource).toContain("grid-template-columns: 1fr");
     expect(jsonProcessSource).toContain("overflow: auto");
+  });
+
+  it("lets cached tool pages stretch their content area", () => {
+    const tabPageRule = layoutSource.match(/\.tab-page-scroll\s*\{[\s\S]*?\}/)?.[0] ?? "";
+
+    expect(tabPageRule).toContain("display: flex;");
+    expect(tabPageRule).toContain("flex-direction: column;");
   });
 });
