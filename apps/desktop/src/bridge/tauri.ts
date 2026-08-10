@@ -281,6 +281,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:file:read-text": { domain: "file", action: "read_text" },
   "tool:file:write-text": { domain: "file", action: "write_text" },
   "tool:image:convert": { domain: "image", action: "convert" },
+  "tool:image:compress": { domain: "image", action: "compress" },
   "tool:image:info": { domain: "image", action: "info" },
   "tool:hosts:save": { domain: "hosts", action: "save" },
   "tool:hosts:list": { domain: "hosts", action: "list" },
