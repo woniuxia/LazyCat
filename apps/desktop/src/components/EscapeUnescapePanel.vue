@@ -77,8 +77,7 @@ function escapeForJsonString(value: string): string {
 }
 
 function unescapeForJsonString(value: string): string {
-  const quoted = `"${value.replaceAll('"', '\\"')}"`;
-  return JSON.parse(quoted) as string;
+  return JSON.parse(`"${value}"`) as string;
 }
 
 function escapeForHtml(value: string): string {
