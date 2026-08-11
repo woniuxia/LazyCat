@@ -132,6 +132,18 @@ impl ArchiveSession {
         &self.staging_path
     }
 
+    pub fn cleanup_staging(&mut self) -> Result<(), String> {
+        if self.committed || !self.staging_path.exists() {
+            return Ok(());
+        }
+        fs::remove_dir_all(&self.staging_path).map_err(|error| {
+            format!(
+                "清理归档临时目录失败（{}）：{error}",
+                self.staging_path.display()
+            )
+        })
+    }
+
     pub fn commit(&mut self, cancelled: &AtomicBool) -> Result<PathBuf, ArchiveError> {
         self.commit_with_rename(cancelled, rename_with_retry)
     }
@@ -224,9 +236,7 @@ impl ArchiveSession {
 
 impl Drop for ArchiveSession {
     fn drop(&mut self) {
-        if !self.committed {
-            let _ = fs::remove_dir_all(&self.staging_path);
-        }
+        let _ = self.cleanup_staging();
     }
 }
 

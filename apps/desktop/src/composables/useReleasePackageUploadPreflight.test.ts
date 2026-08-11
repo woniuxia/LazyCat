@@ -301,4 +301,50 @@ describe("useReleasePackageUploadPreflight", () => {
     await preflight.reset();
     expect(invokeMock).toHaveBeenCalledTimes(3);
   });
+
+  it("cancels an in-flight check and discards its late token", async () => {
+    let resolveCheck!: (value: unknown) => void;
+    invokeMock
+      .mockResolvedValueOnce({
+        probeToken: "probe-1",
+        host: "server.example",
+        port: 22,
+        keyType: "ed25519",
+        fingerprintSha256: "SHA256:key",
+        trust: "trusted",
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCheck = resolve;
+          }),
+      )
+      .mockResolvedValue({ ok: true });
+    const preflight = useReleasePackageUploadPreflight();
+    await preflight.probe(41);
+
+    const pendingCheck = preflight.check({
+      environmentId: 41,
+      targets: ["frontend"],
+      privateKeyPassphrase: "secret",
+    });
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
+
+    await preflight.cancel();
+    expect(preflight.checking.value).toBe(false);
+    expect(preflight.preflightToken.value).toBe("");
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:remote-discard", {
+      probeToken: "probe-1",
+    });
+
+    resolveCheck({
+      preflightToken: "late-preflight",
+      expiresAt: "2026-07-22T12:00:00Z",
+      targets: [],
+    });
+    await expect(pendingCheck).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "tool:release-package:remote-discard", {
+      preflightToken: "late-preflight",
+    });
+  });
 });

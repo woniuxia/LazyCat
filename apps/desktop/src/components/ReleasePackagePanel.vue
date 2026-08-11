@@ -91,8 +91,14 @@
                   @click="prepareStart"
                   >开始打包</el-button
                 >
-                <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun"
-                  >终止打包</el-button
+                <el-button
+                  v-if="running"
+                  :icon="VideoPause"
+                  type="danger"
+                  :loading="cancelling"
+                  :disabled="cancelling"
+                  @click="cancelRun"
+                  >{{ cancelling ? "终止中" : "终止打包" }}</el-button
                 >
                 <el-button v-else-if="hasCommittedArchive" :icon="FolderOpened" @click="openArchive"
                   >打开归档目录</el-button
@@ -993,8 +999,14 @@
         </div>
       </div>
       <template #footer>
-        <el-button v-if="starting" type="danger" :disabled="cancelPendingStart" @click="cancelRun">
-          {{ cancelPendingStart ? "等待终止" : retryMode ? "终止上传" : "终止打包" }}
+        <el-button
+          v-if="starting"
+          type="danger"
+          :loading="cancelPendingStart"
+          :disabled="cancelPendingStart"
+          @click="cancelRun"
+        >
+          {{ cancelPendingStart ? "终止中" : retryMode ? "终止上传" : "终止打包" }}
         </el-button>
         <el-button v-else @click="closeStartDialog">取消</el-button>
         <el-button
@@ -1223,6 +1235,7 @@ const switchingEnvironment = ref(false);
 const pendingSavedIdentity = ref<PendingSavedIdentity | null>(null);
 const starting = ref(false);
 const cancelPendingStart = ref(false);
+let resolveStartCancellation: (() => void) | null = null;
 const confirmVisible = ref(false);
 const productionConfirmed = ref(false);
 const branchChecking = ref(false);
@@ -1372,9 +1385,11 @@ const backendStatus = computed<ReleasePackageTargetStatus>(
   () => currentProjectRuntime.value?.targetStatus.backend ?? "idle",
 );
 const running = runtime.isRunning;
+const cancelling = computed(() => currentProjectRuntime.value?.cancelRequested ?? false);
 const editorLocked = computed(
   () =>
     running.value ||
+    starting.value ||
     saving.value ||
     switchingEnvironment.value ||
     pendingSavedIdentity.value !== null,
@@ -2157,23 +2172,32 @@ async function confirmCommandRetry(): Promise<void> {
     productionConfirmed.value = false;
   }
 }
-async function confirmArchiveOverwrite(environmentId: number): Promise<boolean | null> {
-  const target = (await invokeToolByChannel("tool:release-package:target-check", {
-    environmentId,
-    folderName: folderName.value,
-  })) as ReleasePackageTargetCheckResult;
-  if (!target.exists) return false;
+async function confirmArchiveOverwrite(
+  environmentId: number,
+  cancellation: Promise<null>,
+): Promise<boolean | null> {
+  const target = (await Promise.race([
+    invokeToolByChannel("tool:release-package:target-check", {
+      environmentId,
+      folderName: folderName.value,
+    }),
+    cancellation,
+  ])) as ReleasePackageTargetCheckResult | null;
+  if (!target || !target.exists) return target === null ? null : false;
   try {
-    await ElMessageBox.confirm(
-      "目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。",
-      "目标归档目录已存在",
-      {
-        type: "warning",
-        confirmButtonText: "直接覆盖",
-        cancelButtonText: "取消",
-      },
-    );
-    return true;
+    const decision = await Promise.race([
+      ElMessageBox.confirm(
+        "目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。",
+        "目标归档目录已存在",
+        {
+          type: "warning",
+          confirmButtonText: "直接覆盖",
+          cancelButtonText: "取消",
+        },
+      ).then(() => true),
+      cancellation,
+    ]);
+    return decision === null ? null : true;
   } catch (error) {
     if (error === "cancel" || error === "close") return null;
     throw error;
@@ -2235,34 +2259,37 @@ async function ensureCommandRetryHostTrusted(): Promise<boolean> {
   return true;
 }
 
-async function confirmRemoteOverwrite(): Promise<boolean> {
+async function confirmRemoteOverwrite(cancellation: Promise<null>): Promise<boolean> {
   const existingTargets =
     uploadPreflight.preflightResult.value?.targets.filter((target) => target.exists) ?? [];
   overwriteRemoteTargets.value = existingTargets.map((target) => target.target);
   if (existingTargets.length === 0) return true;
   try {
-    await ElMessageBox.confirm(
-      h("div", { class: "release-package-remote-overwrite" }, [
-        h("p", "完整替换以上远程目标"),
-        h(
-          "ul",
-          existingTargets.map((target) =>
-            h("li", [
-              h("strong", target.target === "frontend" ? "前端：" : "后端："),
-              h("code", target.remotePath),
-            ]),
+    const decision = await Promise.race([
+      ElMessageBox.confirm(
+        h("div", { class: "release-package-remote-overwrite" }, [
+          h("p", "完整替换以上远程目标"),
+          h(
+            "ul",
+            existingTargets.map((target) =>
+              h("li", [
+                h("strong", target.target === "frontend" ? "前端：" : "后端："),
+                h("code", target.remotePath),
+              ]),
+            ),
           ),
-        ),
-        h("p", "替换失败时会尝试恢复原目标，但仍应确认服务器上没有并行发布。"),
-      ]),
-      "远程目标已存在",
-      {
-        type: "warning",
-        confirmButtonText: "确认完整替换",
-        cancelButtonText: "取消",
-      },
-    );
-    return true;
+          h("p", "替换失败时会尝试恢复原目标，但仍应确认服务器上没有并行发布。"),
+        ]),
+        "远程目标已存在",
+        {
+          type: "warning",
+          confirmButtonText: "确认完整替换",
+          cancelButtonText: "取消",
+        },
+      ).then(() => true),
+      cancellation,
+    ]);
+    return decision !== null;
   } catch (error) {
     overwriteRemoteTargets.value = [];
     if (error === "cancel" || error === "close") return false;
@@ -2273,21 +2300,36 @@ async function confirmRemoteOverwrite(): Promise<boolean> {
 async function runUploadPreflight(
   environmentId: number,
   targets: ReleasePackageTarget[],
+  cancellation: Promise<null>,
 ): Promise<boolean> {
   const uploadError = validateReleasePackageUpload(environmentDraft);
   if (uploadError) throw new Error(uploadError);
   if (environmentDraft.sshAuthType === "password" && environmentDraft.vaultEntryId === null) {
     throw new Error("请选择密码库服务器凭据");
   }
-  if (!(await ensureHostTrusted(environmentId))) return false;
-  await uploadPreflight.check({
-    environmentId,
-    targets: [...targets],
-    ...(environmentDraft.sshAuthType === "private_key"
-      ? { privateKeyPassphrase: credentialSecret.value || undefined }
-      : {}),
+  const hostTrusted = await Promise.race([ensureHostTrusted(environmentId), cancellation]);
+  if (hostTrusted === null || !hostTrusted) return false;
+  const preflight = await Promise.race([
+    uploadPreflight.check({
+      environmentId,
+      targets: [...targets],
+      ...(environmentDraft.sshAuthType === "private_key"
+        ? { privateKeyPassphrase: credentialSecret.value || undefined }
+        : {}),
+    }),
+    cancellation,
+  ]);
+  if (preflight === null) return false;
+  return confirmRemoteOverwrite(cancellation);
+}
+
+function createStartCancellationSignal(): Promise<null> {
+  return new Promise((resolve) => {
+    resolveStartCancellation = () => {
+      resolve(null);
+      resolveStartCancellation = null;
+    };
   });
-  return confirmRemoteOverwrite();
 }
 
 async function confirmStart(): Promise<void> {
@@ -2311,20 +2353,27 @@ async function confirmStart(): Promise<void> {
   }
   starting.value = true;
   cancelPendingStart.value = false;
+  const startCancellation = createStartCancellationSignal();
   let runtimeStartBegun = false;
   const retryTokenValue = retryToken.value;
   try {
     let overwriteExisting = false;
     if (packageType === "local_archive") {
-      const overwriteDecision = await confirmArchiveOverwrite(environmentId);
+      const overwriteDecision = await Promise.race([
+        confirmArchiveOverwrite(environmentId, startCancellation),
+        startCancellation,
+      ]);
       if (overwriteDecision === null) {
         await stopPendingActionDispatch("cancelled");
         return;
       }
       overwriteExisting = overwriteDecision;
     } else if (packageType === "server_upload") {
-      const preflightAccepted = await runUploadPreflight(environmentId, selectedTargets.value);
-      if (!preflightAccepted) {
+      const preflightAccepted = await Promise.race([
+        runUploadPreflight(environmentId, selectedTargets.value, startCancellation),
+        startCancellation,
+      ]);
+      if (preflightAccepted === null || !preflightAccepted) {
         await stopPendingActionDispatch("cancelled");
         return;
       }
@@ -2385,6 +2434,7 @@ async function confirmStart(): Promise<void> {
     }
     await handleUploadIntegrationError(error);
   } finally {
+    resolveStartCancellation = null;
     starting.value = false;
     cancelPendingStart.value = false;
     productionConfirmed.value = false;
@@ -2394,14 +2444,21 @@ async function confirmStart(): Promise<void> {
 
 async function cancelRun(): Promise<void> {
   if (starting.value && !runtime.activeRunId.value) {
+    if (cancelPendingStart.value) return;
     cancelPendingStart.value = true;
-    ElMessage.info("启动完成后将立即终止打包");
+    resolveStartCancellation?.();
+    ElMessageBox.close();
+    try {
+      await uploadPreflight.cancel();
+    } catch (error) {
+      showError(error);
+    }
+    confirmVisible.value = false;
+    ElMessage.info("正在取消启动");
     return;
   }
   try {
-    await runtime.cancel();
-    cancelPendingStart.value = false;
-    ElMessage.info("已请求终止打包");
+    if (await runtime.cancel()) ElMessage.info("已请求终止打包");
   } catch (error) {
     showError(error);
   }

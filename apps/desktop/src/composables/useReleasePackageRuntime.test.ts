@@ -119,8 +119,8 @@ describe("release package runtime state", () => {
     expect(runtime.status.value).toBe("succeeded");
     expect(runtime.pendingEnvironmentId.value).toBeNull();
 
-    await runtime.cancel();
-    expect(invokeMock).toHaveBeenCalledWith("tool:release-package:cancel", { runId: "run-1" });
+    expect(await runtime.cancel()).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
     runtime.reset();
     expect(runtime.status.value).toBe("idle");
     expect(runtime.logs.value).toEqual([]);
@@ -270,5 +270,28 @@ describe("release package runtime state", () => {
       totalBytes: 1_024,
       currentPath: "assets/app.js",
     });
+  });
+
+  it("locks a cancellation request until the terminal event arrives", async () => {
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+    runtime.beginStart(41, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 41);
+
+    const first = runtime.cancel();
+    const second = runtime.cancel();
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(runtime.getEnvironmentRuntime(41).cancelRequested).toBe(true);
+
+    emit("release-package://status", status("run-1", 41, "cancelled"));
+    expect(runtime.getEnvironmentRuntime(41).cancelRequested).toBe(false);
   });
 });

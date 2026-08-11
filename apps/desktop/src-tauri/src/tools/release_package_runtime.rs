@@ -296,7 +296,6 @@ struct ActiveRun {
     process_slots: ProcessSlots,
     ssh_sockets: Arc<SshSocketRegistry>,
     finished: Arc<AtomicBool>,
-    cancel_won: Arc<AtomicBool>,
     claim_lock: Arc<Mutex<()>>,
 }
 
@@ -1160,7 +1159,17 @@ fn combine_package_and_deploy(
         }
         Err(error) if error.cancelled => {
             summary.status = "cancelled";
-            summary.error = Some(error.message);
+            if !error.recovery_paths.is_empty() {
+                let warning = format!(
+                    "{}；需人工检查：{}",
+                    error.message,
+                    error.recovery_paths.join("、")
+                );
+                summary.error = Some(match summary.error.take() {
+                    Some(existing) => format!("{existing}；{warning}"),
+                    None => warning,
+                });
+            }
             summary.retry_descriptor = None;
             summary.remote_committed = false;
             summary
@@ -1994,6 +2003,22 @@ fn merge_pipeline_error(existing: Option<&str>, error: PipelineError) -> Pipelin
     }
 }
 
+fn cancelled_pipeline_result(error: Option<String>) -> Result<PipelineSummary, PipelineError> {
+    match error.filter(|message| !message.is_empty()) {
+        Some(error) => Ok(PipelineSummary {
+            status: "cancelled",
+            archive_path: None,
+            manifests: Vec::new(),
+            error: Some(error),
+            retry_descriptor: None,
+            remote_committed: false,
+            local_committed: false,
+            failed_commands: Vec::new(),
+        }),
+        None => Err(PipelineError::Cancelled { phase: "overall" }),
+    }
+}
+
 fn run_local_archive_pipeline(
     identity: &RunIdentity,
     summary: BuildSummary,
@@ -2183,7 +2208,10 @@ where
                 None,
             );
         }
-        return Err(PipelineError::Cancelled { phase: "overall" });
+        if let Err(warning) = archive.cleanup_staging() {
+            errors.push(warning);
+        }
+        return cancelled_pipeline_result((!errors.is_empty()).then(|| errors.join("；")));
     }
     let success_count = archived_targets.len();
     if success_count == 0 {
@@ -2205,8 +2233,26 @@ where
             warning,
         }) => (final_path, Some(warning)),
         Err(error) => {
-            let accumulated_error = errors.join("；");
             let archive_error = archive_pipeline_error(error, "overall");
+            if let Err(warning) = archive.cleanup_staging() {
+                errors.push(warning);
+            }
+            if cancelled.load(Ordering::Acquire) {
+                for target in &archived_targets {
+                    emit_local_archive_target_status(
+                        sink.as_ref(),
+                        identity,
+                        target.target,
+                        "cancelled",
+                        None,
+                    );
+                }
+                if let PipelineError::Failed { message } = archive_error {
+                    errors.push(message);
+                }
+                return cancelled_pipeline_result((!errors.is_empty()).then(|| errors.join("；")));
+            }
+            let accumulated_error = errors.join("；");
             let (status, message) = match &archive_error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
@@ -2253,13 +2299,13 @@ fn claim_pipeline_result(
     let _guard = claim_lock.lock().unwrap();
     let committed =
         matches!(&result, Ok(summary) if summary.remote_committed || summary.local_committed);
-    let archived_cancellation = matches!(
+    let cancelled_summary = matches!(
         &result,
-        Ok(summary) if summary.status == "cancelled" && summary.archive_path.is_some()
+        Ok(summary) if summary.status == "cancelled" && summary.error.is_some()
     );
     let result = if cancelled.load(Ordering::Acquire) && !committed {
         cancel_won.store(true, Ordering::Release);
-        if archived_cancellation {
+        if cancelled_summary {
             result
         } else {
             Err(PipelineError::Cancelled { phase: "overall" })
@@ -2273,16 +2319,11 @@ fn claim_pipeline_result(
 
 fn request_cancel(active: &ActiveRun) -> bool {
     let _guard = active.claim_lock.lock().unwrap();
-    active.cancelled.store(true, Ordering::Release);
-    active.upload_stop.store(true, Ordering::Release);
     if active.finished.load(Ordering::Acquire) {
-        if active.cancel_won.load(Ordering::Acquire) {
-            return true;
-        }
-        active.cancelled.store(false, Ordering::Release);
-        active.upload_stop.store(false, Ordering::Release);
         return false;
     }
+    active.cancelled.store(true, Ordering::Release);
+    active.upload_stop.store(true, Ordering::Release);
     active.process_slots.terminate_all();
     active.ssh_sockets.shutdown_all();
     true
@@ -2320,7 +2361,6 @@ pub fn start(
             process_slots: process_slots.clone(),
             ssh_sockets: ssh_sockets.clone(),
             finished: finished.clone(),
-            cancel_won: cancel_won.clone(),
             claim_lock: claim_lock.clone(),
         });
     }
@@ -2443,7 +2483,6 @@ pub fn upload_retry(
             process_slots,
             ssh_sockets: ssh_sockets.clone(),
             finished: finished.clone(),
-            cancel_won: cancel_won.clone(),
             claim_lock: claim_lock.clone(),
         });
     }
@@ -2667,7 +2706,6 @@ pub fn command_retry(
         process_slots,
         ssh_sockets,
         finished,
-        cancel_won,
         claim_lock,
     });
     if start_tx.send((authorization, retry)).is_err() {
@@ -4279,7 +4317,6 @@ mod pipeline_tests {
             process_slots: ProcessSlots::new(),
             ssh_sockets: Arc::new(SshSocketRegistry::new()),
             finished,
-            cancel_won: Arc::new(AtomicBool::new(false)),
             claim_lock,
         };
         assert!(!request_cancel(&active));
@@ -4306,7 +4343,6 @@ mod pipeline_tests {
             process_slots: ProcessSlots::new(),
             ssh_sockets: ssh_sockets.clone(),
             finished: Arc::new(AtomicBool::new(false)),
-            cancel_won: Arc::new(AtomicBool::new(false)),
             claim_lock: Arc::new(Mutex::new(())),
         };
 

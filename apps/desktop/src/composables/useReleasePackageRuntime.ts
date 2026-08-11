@@ -6,6 +6,7 @@ import type {
   ReleasePackageEnvironmentKind,
   ReleasePackageLogEvent,
   ReleasePackagePhase,
+  ReleasePackageCancelResult,
   ReleasePackageRunStatus,
   ReleasePackageStatusEvent,
   ReleasePackageTarget,
@@ -36,6 +37,7 @@ export interface ReleasePackageEnvironmentRuntime {
   targetErrors: Partial<Record<ReleasePackageTarget, string>>;
   commandStatus: Record<ReleasePackageTarget, ReleasePackageCommandStatus>;
   commandErrors: Partial<Record<ReleasePackageTarget, string>>;
+  cancelRequested: boolean;
   commandRetryToken: string;
   frontendLogs: ReleasePackageLogEvent[];
   backendLogs: ReleasePackageLogEvent[];
@@ -120,6 +122,7 @@ function createEnvironmentRuntime(
       backend: targets.includes("backend") ? "pending" : "skipped",
     },
     commandErrors: {},
+    cancelRequested: false,
     retryToken: "",
     commandRetryToken: "",
   };
@@ -176,6 +179,7 @@ function applyEnvironmentStatus(event: ReleasePackageStatusEvent): void {
   runtime.status = event.status;
   runtime.archivePath = event.archivePath ?? "";
   runtime.error = event.error ?? "";
+  runtime.cancelRequested = false;
   runtime.retryToken = event.retryToken ?? "";
   runtime.commandRetryToken = event.commandRetryToken ?? "";
 }
@@ -255,9 +259,30 @@ function abortStart(message: string): void {
   state.error = message;
 }
 
-async function cancel(): Promise<void> {
-  if (!state.activeRunId) return;
-  await invokeToolByChannel("tool:release-package:cancel", { runId: state.activeRunId });
+async function cancel(): Promise<boolean> {
+  const runId = state.activeRunId;
+  const environmentId = state.activeEnvironmentId;
+  if (
+    !runId ||
+    environmentId === null ||
+    (state.status !== "running" && state.status !== "uploading")
+  ) {
+    return false;
+  }
+
+  const runtime = getMutableEnvironmentRuntime(environmentId);
+  if (runtime.cancelRequested) return true;
+  runtime.cancelRequested = true;
+  try {
+    const result = (await invokeToolByChannel("tool:release-package:cancel", {
+      runId,
+    })) as ReleasePackageCancelResult;
+    if (!result.cancelRequested) runtime.cancelRequested = false;
+    return result.cancelRequested;
+  } catch (error) {
+    runtime.cancelRequested = false;
+    throw error;
+  }
 }
 
 function reset(): void {

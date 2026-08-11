@@ -144,6 +144,10 @@ export function useReleasePackageUploadPreflight() {
     }
   }
 
+  async function cancel(): Promise<void> {
+    await reset();
+  }
+
   return {
     probeResult,
     preflightResult,
@@ -152,6 +156,7 @@ export function useReleasePackageUploadPreflight() {
     probe,
     trustHost,
     check,
+    cancel,
     reset,
   };
 }
