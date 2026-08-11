@@ -740,6 +740,14 @@ describe("ReleasePackagePanel", () => {
     }
     expect(source).toContain('ref="frontendLogContainer"');
     expect(source).toContain('ref="backendLogContainer"');
+    expect(source).toContain('@scroll="handleLogScroll(\'frontend\')"');
+    expect(source).toContain('@scroll="handleLogScroll(\'backend\')"');
+    expect(source).toContain('@scroll="handleLogScroll(\'upload\')"');
+    expect(source).toContain("const logFollowState = reactive");
+    expect(source).toContain("container.scrollTop = container.scrollHeight");
+    expect(source).toContain('scrollLogToBottom("frontend", true)');
+    expect(source).toContain('scrollLogToBottom("backend", true)');
+    expect(source).toContain('scrollLogToBottom("upload", true)');
     expect(source).toContain('aria-live="polite"');
   });
 
@@ -990,6 +998,12 @@ describe("ReleasePackagePanel", () => {
     );
     expect(source).toContain(
       ":class=\"{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }\"",
+    );
+    expect(source).toMatch(
+      /\.release-package-log-columns\.has-upload-lane\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+    );
+    expect(source).toMatch(
+      /\.release-package-log-columns\.has-upload-lane\s+\.upload-log-lane\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*border-top:\s*1px\s+solid/su,
     );
     expect(source).toContain("uploadProgress");
     expect(source).toContain("完整替换以上远程目标");

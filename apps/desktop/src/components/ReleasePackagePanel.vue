@@ -676,7 +676,7 @@
           <header class="log-card-header">
             <div>
               <h3>{{ selectedProject.name }} · 运行日志</h3>
-              <p>日志归属于当前项目，前后端任务独立执行和滚动。</p>
+              <p>日志归属于当前项目，前后端打包并列展示，上传日志单独一行。</p>
             </div>
             <el-tag
               class="log-status"
@@ -728,6 +728,7 @@
                 class="release-package-log"
                 aria-live="polite"
                 aria-label="前端打包日志"
+                @scroll="handleLogScroll('frontend')"
               >
                 <div v-if="frontendLogs.length === 0" class="log-empty">暂无前端日志</div>
                 <div
@@ -767,6 +768,7 @@
                 class="release-package-log"
                 aria-live="polite"
                 aria-label="后端打包日志"
+                @scroll="handleLogScroll('backend')"
               >
                 <div v-if="backendLogs.length === 0" class="log-empty">暂无后端日志</div>
                 <div
@@ -854,6 +856,7 @@
                 class="release-package-log"
                 aria-live="polite"
                 aria-label="服务器上传日志"
+                @scroll="handleLogScroll('upload')"
               >
                 <div v-if="uploadLogs.length === 0" class="log-empty">暂无上传日志</div>
                 <div
@@ -1259,6 +1262,12 @@ const projectTitleInput = ref<InputInstance | null>(null);
 const frontendLogContainer = ref<HTMLElement | null>(null);
 const backendLogContainer = ref<HTMLElement | null>(null);
 const uploadLogContainer = ref<HTMLElement | null>(null);
+type ReleasePackageLogLane = "frontend" | "backend" | "upload";
+const logFollowState = reactive<Record<ReleasePackageLogLane, boolean>>({
+  frontend: true,
+  backend: true,
+  upload: true,
+});
 const runtime = useReleasePackageRuntime();
 const uploadPreflight = useReleasePackageUploadPreflight();
 const commandRetry = useReleasePackageCommandRetry();
@@ -2495,24 +2504,61 @@ async function openArchive(): Promise<void> {
   }
 }
 
-async function scrollLogToBottom(container: HTMLElement | null): Promise<void> {
-  await nextTick();
+function getLogContainer(lane: ReleasePackageLogLane): HTMLElement | null {
+  if (lane === "frontend") return frontendLogContainer.value;
+  if (lane === "backend") return backendLogContainer.value;
+  return uploadLogContainer.value;
+}
+
+function resetLogFollowState(): void {
+  logFollowState.frontend = true;
+  logFollowState.backend = true;
+  logFollowState.upload = true;
+}
+
+function handleLogScroll(lane: ReleasePackageLogLane): void {
+  const container = getLogContainer(lane);
   if (!container) return;
-  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
-  if (nearBottom) container.scrollTop = container.scrollHeight;
+  logFollowState[lane] = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
+}
+
+async function scrollLogToBottom(
+  lane: ReleasePackageLogLane,
+  force = false,
+): Promise<void> {
+  await nextTick();
+  const container = getLogContainer(lane);
+  if (!container) return;
+  if (!force && !logFollowState[lane]) return;
+  container.scrollTop = container.scrollHeight;
+}
+
+function resetLogFollowStateAndScroll(): void {
+  resetLogFollowState();
+  void scrollLogToBottom("frontend", true);
+  void scrollLogToBottom("backend", true);
+  void scrollLogToBottom("upload", true);
 }
 
 watch(
   () => frontendLogs.value.length,
-  () => scrollLogToBottom(frontendLogContainer.value),
+  () => void scrollLogToBottom("frontend"),
 );
 watch(
   () => backendLogs.value.length,
-  () => scrollLogToBottom(backendLogContainer.value),
+  () => void scrollLogToBottom("backend"),
 );
 watch(
   () => uploadLogs.value.length,
-  () => scrollLogToBottom(uploadLogContainer.value),
+  () => void scrollLogToBottom("upload"),
+);
+watch(
+  () => selectedEnvironment.value?.id,
+  () => resetLogFollowStateAndScroll(),
+);
+watch(
+  () => currentProjectRuntime.value?.runId,
+  () => resetLogFollowStateAndScroll(),
 );
 watch(
   () => environmentDraft.packageType,
@@ -3058,10 +3104,15 @@ onMounted(async () => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .release-package-log-columns.has-upload-lane {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .release-package-log-lane + .release-package-log-lane {
   border-left: 1px solid #ebeef5;
+}
+.release-package-log-columns.has-upload-lane .upload-log-lane {
+  grid-column: 1 / -1;
+  border-top: 1px solid #ebeef5;
+  border-left: 0;
 }
 .log-lane-header {
   display: flex;
@@ -3129,7 +3180,9 @@ onMounted(async () => {
   min-height: 180px;
   max-height: 320px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px 14px;
+  scrollbar-gutter: stable;
   color: #303133;
   background: #fff;
   font: 12px/1.65 var(--lc-font-mono, Consolas, monospace);
@@ -3436,12 +3489,7 @@ onMounted(async () => {
   .vault-credential-field {
     grid-column: 1 / -1;
   }
-  .release-package-log-columns.has-upload-lane {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .upload-log-lane {
-    grid-column: 1 / -1;
-    border-top: 1px solid #ebeef5;
+  .release-package-log-columns.has-upload-lane .upload-log-lane {
     border-left: 0 !important;
   }
 }
