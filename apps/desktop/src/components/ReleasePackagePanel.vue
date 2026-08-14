@@ -2762,23 +2762,31 @@ onBeforeUnmount(() => {
 <style scoped>
 .release-package-panel {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 14px;
   width: 100%;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 .release-package-workspace {
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 0;
-  overflow: visible;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
   border: 1px solid #e4e7ed;
   border-radius: 10px;
   background: #f7f8fa;
   box-shadow: 0 4px 18px rgb(31 45 61 / 5%);
 }
 .release-package-projects {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 14px 12px;
   border-right: 1px solid #e4e7ed;
   background: #fbfcfd;
@@ -2845,7 +2853,10 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 .release-package-editor {
+  min-height: 0;
   min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 18px;
 }
 .editor-header {
@@ -3651,11 +3662,13 @@ onBeforeUnmount(() => {
 @media (max-width: 960px) {
   .release-package-workspace {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .release-package-projects {
     display: flex;
     gap: 8px;
     overflow-x: auto;
+    overflow-y: hidden;
     border-right: 0;
     border-bottom: 1px solid #e4e7ed;
   }
