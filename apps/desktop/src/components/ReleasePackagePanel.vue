@@ -630,29 +630,31 @@
                   <p class="server-command-note">
                     全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。
                   </p>
-                  <el-form-item label="上传后命令最长运行时间（秒）" required>
-                    <el-input-number
-                      v-model="environmentDraft.postUploadCommandTimeoutSeconds"
-                      :disabled="running"
-                      :min="1"
-                      :max="86400"
-                      controls-position="right"
-                      class="full-width"
-                    />
-                    <p class="command-hint">
-                      每条命令单独计时；超时会关闭 SSH 通道，远端进程状态标记为未知。
-                    </p>
-                  </el-form-item>
-                  <div class="health-check-header">
-                    <div>
-                      <strong>部署后健康检查</strong>
-                      <span>上传及全部后置命令完成后，通过 HTTP 验证服务状态</span>
+                  <div class="deployment-validation-row">
+                    <el-form-item label="上传后命令最长运行时间（秒）" required>
+                      <el-input-number
+                        v-model="environmentDraft.postUploadCommandTimeoutSeconds"
+                        :disabled="running"
+                        :min="1"
+                        :max="86400"
+                        controls-position="right"
+                        class="full-width"
+                      />
+                      <p class="command-hint">
+                        每条命令单独计时；超时会关闭 SSH 通道，远端进程状态标记为未知。
+                      </p>
+                    </el-form-item>
+                    <div class="health-check-header">
+                      <div>
+                        <strong>部署后健康检查</strong>
+                        <span>上传及全部后置命令完成后，通过 HTTP 验证服务状态</span>
+                      </div>
+                      <el-switch
+                        v-model="environmentDraft.healthCheckEnabled"
+                        :disabled="running"
+                        aria-label="启用部署后健康检查"
+                      />
                     </div>
-                    <el-switch
-                      v-model="environmentDraft.healthCheckEnabled"
-                      :disabled="running"
-                      aria-label="启用部署后健康检查"
-                    />
                   </div>
                   <div v-if="environmentDraft.healthCheckEnabled" class="health-check-grid">
                     <el-form-item label="健康检查地址" required>
@@ -3129,13 +3131,19 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
 }
+.deployment-validation-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
 .health-check-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 0 4px;
-  border-top: 1px solid #ebeef5;
+  min-height: 72px;
+  padding: 0 0 4px;
 }
 .health-check-header > div {
   display: grid;
@@ -3740,6 +3748,7 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
   .server-command-grid,
+  .deployment-validation-row,
   .health-check-grid {
     grid-template-columns: 1fr;
   }

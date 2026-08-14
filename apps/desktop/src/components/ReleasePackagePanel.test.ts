@@ -1321,6 +1321,12 @@ describe("ReleasePackagePanel", () => {
 
   it("configures deployment health checks after post-upload commands", () => {
     expect(source).toContain("部署后健康检查");
+    expect(source).toMatch(
+      /<div class="deployment-validation-row">[\s\S]*上传后命令最长运行时间（秒）[\s\S]*<div class="health-check-header">/u,
+    );
+    expect(source).toMatch(
+      /\.deployment-validation-row\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+    );
     expect(source).toContain('v-model="environmentDraft.healthCheckEnabled"');
     expect(source).toContain('v-model="environmentDraft.healthCheckUrl"');
     expect(source).toContain('v-model="environmentDraft.healthCheckMaxRetries"');
