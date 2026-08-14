@@ -894,6 +894,16 @@ impl RemoteFs for CommandRemoteFs {
             .map_err(|error| DeployError::failed(format!("读取上传后命令退出码失败：{error}")))?;
         Ok(RemoteCommandResult { exit_code })
     }
+
+    fn execute_command_with_timeout(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        timeout: Duration,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError> {
+        execute_timed_command(&self.session, command, cancelled, timeout, output)
+    }
 }
 
 pub struct SftpRemoteFs {
@@ -1004,6 +1014,82 @@ fn read_command_streams(
         }
         if !stdout_read && !stderr_read {
             thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+fn read_command_streams_with_deadline(
+    channel: &mut ssh2::Channel,
+    cancelled: &AtomicBool,
+    timeout: Duration,
+    output: &mut dyn FnMut(&str, String),
+) -> Result<(), DeployError> {
+    let deadline = Instant::now() + timeout;
+    let mut decoder = RemoteCommandOutputDecoder::default();
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled_command());
+        }
+        if Instant::now() >= deadline {
+            return Err(DeployError::failed(format!(
+                "上传后命令超时（最长运行时间 {} 秒），远端进程状态未知",
+                timeout.as_secs()
+            )));
+        }
+        let stdout_read =
+            read_command_stream(channel, "stdout", "读取上传后命令", &mut decoder, output)?;
+        let stderr_read = {
+            let mut stderr = channel.stderr();
+            read_command_stream(
+                &mut stderr,
+                "stderr",
+                "读取上传后命令",
+                &mut decoder,
+                output,
+            )?
+        };
+        if channel.eof() {
+            decoder.flush(output);
+            return Ok(());
+        }
+        if !stdout_read && !stderr_read {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+fn execute_timed_command(
+    session: &Session,
+    command: &str,
+    cancelled: &AtomicBool,
+    timeout: Duration,
+    output: &mut dyn FnMut(&str, String),
+) -> Result<RemoteCommandResult, DeployError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(DeployError::cancelled_command());
+    }
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| DeployError::failed(format!("创建 SSH 命令通道失败：{error}")))?;
+    channel
+        .exec(command)
+        .map_err(|error| DeployError::failed(format!("发送上传后命令失败：{error}")))?;
+    session.set_blocking(false);
+    let read_result = read_command_streams_with_deadline(&mut channel, cancelled, timeout, output);
+    session.set_blocking(true);
+    match read_result {
+        Ok(()) => {
+            channel
+                .wait_close()
+                .map_err(|error| DeployError::failed(format!("等待上传后命令结束失败：{error}")))?;
+            let exit_code = channel.exit_status().map_err(|error| {
+                DeployError::failed(format!("读取上传后命令退出码失败：{error}"))
+            })?;
+            Ok(RemoteCommandResult { exit_code })
+        }
+        Err(error) => {
+            let _ = channel.close();
+            Err(error)
         }
     }
 }
@@ -1144,6 +1230,16 @@ impl RemoteFs for SftpRemoteFs {
             .exit_status()
             .map_err(|error| DeployError::failed(format!("读取上传后命令退出码失败：{error}")))?;
         Ok(RemoteCommandResult { exit_code })
+    }
+
+    fn execute_command_with_timeout(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        timeout: Duration,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError> {
+        execute_timed_command(&self.session, command, cancelled, timeout, output)
     }
 }
 pub fn issue_preflight(

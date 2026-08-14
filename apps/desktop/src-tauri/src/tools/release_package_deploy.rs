@@ -174,6 +174,17 @@ pub trait RemoteFs: Send {
         cancelled: &AtomicBool,
         output: &mut dyn FnMut(&str, String),
     ) -> Result<RemoteCommandResult, DeployError>;
+
+    fn execute_command_with_timeout(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        timeout: Duration,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError> {
+        let _ = timeout;
+        self.execute_command(command, cancelled, output)
+    }
 }
 
 #[derive(Clone, Debug)]

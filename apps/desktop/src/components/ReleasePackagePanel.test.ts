@@ -1297,11 +1297,13 @@ describe("ReleasePackagePanel", () => {
       "environmentDraft.backendSuccessKeyword",
       "environmentDraft.frontendPostUploadCommand",
       "environmentDraft.backendPostUploadCommand",
+      "environmentDraft.postUploadCommandTimeoutSeconds",
     ]) {
       expect(source).toContain(`v-model="${model}"`);
     }
     expect(source).toContain("同时匹配 stdout 和 stderr，区分大小写；留空不检测。");
     expect(source).toContain("全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。");
+    expect(source).toContain("每条命令单独计时；超时会关闭 SSH 通道，远端进程状态标记为未知。");
     expect(source).toContain("upload_succeeded_command_failed");
     expect(source).toContain("仅重试失败命令");
     expect(source).toContain("重试上传后命令");

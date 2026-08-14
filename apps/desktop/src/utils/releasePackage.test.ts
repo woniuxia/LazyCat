@@ -67,6 +67,7 @@ const testEnvironment: ReleasePackageEnvironmentConfig = {
   sshPrivateKeyPath: "",
   frontendRemoteDir: "/srv/test/web",
   backendRemotePath: "/srv/test/portal.jar",
+  postUploadCommandTimeoutSeconds: 600,
   healthCheckEnabled: false,
   healthCheckUrl: "",
   healthCheckMaxRetries: 6,
@@ -259,6 +260,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       sshPrivateKeyPath: "",
       frontendRemoteDir: "",
       backendRemotePath: "",
+      postUploadCommandTimeoutSeconds: 600,
       healthCheckEnabled: false,
       healthCheckUrl: "",
       healthCheckMaxRetries: 6,
@@ -327,6 +329,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       healthCheckEnabled: testEnvironment.healthCheckEnabled,
       healthCheckUrl: testEnvironment.healthCheckUrl,
       healthCheckMaxRetries: testEnvironment.healthCheckMaxRetries,
+      postUploadCommandTimeoutSeconds: testEnvironment.postUploadCommandTimeoutSeconds,
     });
     expect(productionDraft).toEqual({
       packageType: productionEnvironment.packageType,
@@ -353,6 +356,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       healthCheckEnabled: productionEnvironment.healthCheckEnabled,
       healthCheckUrl: productionEnvironment.healthCheckUrl,
       healthCheckMaxRetries: productionEnvironment.healthCheckMaxRetries,
+      postUploadCommandTimeoutSeconds: productionEnvironment.postUploadCommandTimeoutSeconds,
     });
 
     const projectDraft = projectToReleasePackageProjectDraft(project);
@@ -496,6 +500,18 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("请输入 SSH 用户名");
     draft.sshUsername = "deploy";
     expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
+  });
+
+  it("validates the post-upload command timeout range", () => {
+    const draft = createEmptyReleasePackageEnvironmentDraft();
+    draft.postUploadCommandTimeoutSeconds = 0;
+    expect(validateReleasePackageUpload(draft)).toBe(
+      "上传后命令最长运行时间必须在 1 到 86400 秒之间",
+    );
+    draft.postUploadCommandTimeoutSeconds = 86_401;
+    expect(validateReleasePackageUpload(draft)).toBe(
+      "上传后命令最长运行时间必须在 1 到 86400 秒之间",
+    );
   });
 
   it("validates deployment health check settings only when enabled", () => {

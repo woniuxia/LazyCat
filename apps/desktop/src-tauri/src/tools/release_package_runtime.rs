@@ -1263,6 +1263,7 @@ fn run_post_upload_commands(
     mut commands: Vec<CommandSnapshot>,
     mut control: Box<dyn RemoteFs>,
     cancelled: Arc<AtomicBool>,
+    command_timeout: Duration,
     sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
     if !summary.remote_committed {
@@ -1309,9 +1310,10 @@ fn run_post_upload_commands(
         let event_sink = Arc::clone(&sink);
         let event_identity = identity.clone();
         let prefix = format!("[{label}命令]");
-        let result = control.execute_command(
+        let result = control.execute_command_with_timeout(
             &snapshot.command,
             cancelled.as_ref(),
+            command_timeout,
             &mut move |stream, line| {
                 event_sink.log(LogEvent {
                     run_id: event_identity.run_id.clone(),
@@ -1650,6 +1652,7 @@ fn run_deployment_phase(
         summary,
         request,
         commands,
+        Duration::from_secs(u64::from(project.post_upload_command_timeout_seconds)),
         authorization.consumed,
         Arc::clone(&cancelled),
         upload_stop,
@@ -1670,6 +1673,7 @@ fn execute_deployment_request(
     summary: PipelineSummary,
     mut request: DeploymentRequest,
     commands: Vec<CommandSnapshot>,
+    command_timeout: Duration,
     consumed: ConsumedPreflight,
     cancelled: Arc<AtomicBool>,
     upload_stop: Arc<AtomicBool>,
@@ -1785,6 +1789,7 @@ fn execute_deployment_request(
                 commands,
                 control,
                 Arc::clone(&cancelled),
+                command_timeout,
                 Arc::clone(&sink),
             );
         }
@@ -1889,6 +1894,7 @@ fn run_retry_deployment_phase(
         summary,
         request,
         commands,
+        Duration::from_secs(u64::from(project.post_upload_command_timeout_seconds)),
         authorization.consumed,
         Arc::clone(&cancelled),
         upload_stop,
@@ -2623,6 +2629,9 @@ pub fn command_retry(
                     commands,
                     Box::new(remote),
                     worker_cancelled.clone(),
+                    Duration::from_secs(u64::from(
+                        thread_project.post_upload_command_timeout_seconds,
+                    )),
                     sink.clone(),
                 ),
                 Err(error) if worker_cancelled.load(Ordering::Acquire) || error.cancelled => {
@@ -2986,6 +2995,7 @@ mod pipeline_tests {
         outcomes: VecDeque<Result<i32, DeployError>>,
         calls: Arc<Mutex<Vec<String>>>,
         cancel_after_calls: Option<(usize, Arc<AtomicBool>)>,
+        observed_timeouts: Option<Arc<Mutex<Vec<Duration>>>>,
     }
 
     impl CommandRemote {
@@ -2998,9 +3008,14 @@ mod pipeline_tests {
                     outcomes: outcomes.into_iter().collect(),
                     calls: Arc::clone(&calls),
                     cancel_after_calls: None,
+                    observed_timeouts: None,
                 },
                 calls,
             )
+        }
+
+        fn record_timeouts(&mut self, observed: Arc<Mutex<Vec<Duration>>>) {
+            self.observed_timeouts = Some(observed);
         }
 
         fn cancelling_after(
@@ -3085,6 +3100,20 @@ mod pipeline_tests {
                 }
                 Err(error) => Err(error),
             }
+        }
+
+        fn execute_command_with_timeout(
+            &mut self,
+            command: &str,
+            cancelled: &AtomicBool,
+            timeout: Duration,
+            output: &mut dyn FnMut(&str, String),
+        ) -> Result<crate::tools::release_package_deploy::RemoteCommandResult, DeployError>
+        {
+            if let Some(observed) = &self.observed_timeouts {
+                observed.lock().unwrap().push(timeout);
+            }
+            self.execute_command(command, cancelled, output)
         }
     }
 
@@ -3424,6 +3453,7 @@ mod pipeline_tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -3767,6 +3797,7 @@ mod pipeline_tests {
             commands,
             Box::new(remote),
             Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(600),
             sink.clone(),
         );
 
@@ -3812,6 +3843,35 @@ mod pipeline_tests {
     }
 
     #[test]
+    fn post_upload_command_timeout_keeps_uploaded_files_and_allows_retry() {
+        let timeout = Duration::from_secs(42);
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let (mut remote, _calls) = CommandRemote::new([Err(DeployError::failed(
+            "上传后命令超时（最长运行时间 42 秒），远端进程状态未知",
+        ))]);
+        remote.record_timeouts(Arc::clone(&observed));
+
+        let summary = run_post_upload_commands(
+            &run_identity("post-upload-timeout"),
+            succeeded_upload_summary(),
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "slow-deploy")],
+            Box::new(remote),
+            Arc::new(AtomicBool::new(false)),
+            timeout,
+            Arc::new(CollectingSink::default()),
+        );
+
+        assert_eq!(*observed.lock().unwrap(), vec![timeout]);
+        assert_eq!(summary.status, "upload_succeeded_command_failed");
+        assert!(summary.remote_committed);
+        assert_eq!(summary.failed_commands.len(), 1);
+        assert!(summary
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("上传后命令未全部成功")));
+    }
+
+    #[test]
     fn committed_cleanup_warning_keeps_control_for_post_upload_commands() {
         let sink = Arc::new(CollectingSink::default());
         let (remote, calls) = CommandRemote::new([Ok(0)]);
@@ -3835,6 +3895,7 @@ mod pipeline_tests {
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             control.expect("committed deployment keeps its control connection"),
             Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(600),
             sink,
         );
 
@@ -3860,6 +3921,7 @@ mod pipeline_tests {
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             Box::new(remote),
             Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(600),
             Arc::new(CollectingSink::default()),
         );
 
@@ -3883,6 +3945,7 @@ mod pipeline_tests {
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             Box::new(remote),
             Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(600),
             Arc::new(CollectingSink::default()),
         );
 
@@ -3912,6 +3975,7 @@ mod pipeline_tests {
             Vec::new(),
             Box::new(remote),
             Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(600),
             sink.clone(),
         );
 
@@ -3955,6 +4019,7 @@ mod pipeline_tests {
             ],
             Box::new(remote),
             cancelled,
+            Duration::from_secs(600),
             sink.clone(),
         );
 
@@ -4676,6 +4741,7 @@ mod pipeline_tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4923,6 +4989,7 @@ mod pipeline_tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4996,6 +5063,7 @@ mod pipeline_tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         };

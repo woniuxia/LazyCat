@@ -41,6 +41,7 @@ export interface ReleasePackageUploadConfig {
   sshPrivateKeyPath: string;
   frontendRemoteDir: string;
   backendRemotePath: string;
+  postUploadCommandTimeoutSeconds: number;
 }
 
 export interface ReleasePackageProjectDraft {

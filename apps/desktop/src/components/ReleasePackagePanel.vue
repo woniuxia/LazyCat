@@ -630,6 +630,19 @@
                   <p class="server-command-note">
                     全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。
                   </p>
+                  <el-form-item label="上传后命令最长运行时间（秒）" required>
+                    <el-input-number
+                      v-model="environmentDraft.postUploadCommandTimeoutSeconds"
+                      :disabled="running"
+                      :min="1"
+                      :max="86400"
+                      controls-position="right"
+                      class="full-width"
+                    />
+                    <p class="command-hint">
+                      每条命令单独计时；超时会关闭 SSH 通道，远端进程状态标记为未知。
+                    </p>
+                  </el-form-item>
                   <div class="health-check-header">
                     <div>
                       <strong>部署后健康检查</strong>

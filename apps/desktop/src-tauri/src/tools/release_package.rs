@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS release_package_environments (
     ssh_private_key_path TEXT NOT NULL DEFAULT '',
     frontend_remote_dir TEXT NOT NULL DEFAULT '',
     backend_remote_path TEXT NOT NULL DEFAULT '',
+    post_upload_command_timeout_seconds INTEGER NOT NULL DEFAULT 600 CHECK (post_upload_command_timeout_seconds BETWEEN 1 AND 86400),
     health_check_enabled INTEGER NOT NULL DEFAULT 0 CHECK (health_check_enabled IN (0, 1)),
     health_check_url TEXT NOT NULL DEFAULT '',
     health_check_max_retries INTEGER NOT NULL DEFAULT 6 CHECK (health_check_max_retries BETWEEN 0 AND 60),
@@ -180,6 +181,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
         ("ssh_private_key_path", "TEXT NOT NULL DEFAULT ''"),
         ("frontend_remote_dir", "TEXT NOT NULL DEFAULT ''"),
         ("backend_remote_path", "TEXT NOT NULL DEFAULT ''"),
+        ("post_upload_command_timeout_seconds", "INTEGER NOT NULL DEFAULT 600 CHECK (post_upload_command_timeout_seconds BETWEEN 1 AND 86400)"),
         ("frontend_success_keyword", "TEXT NOT NULL DEFAULT ''"),
         ("backend_success_keyword", "TEXT NOT NULL DEFAULT ''"),
         ("frontend_post_upload_command", "TEXT NOT NULL DEFAULT ''"),
@@ -474,6 +476,11 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
     )?;
     add_environment_column_if_missing(
         &transaction,
+        "post_upload_command_timeout_seconds",
+        "INTEGER NOT NULL DEFAULT 600 CHECK (post_upload_command_timeout_seconds BETWEEN 1 AND 86400)",
+    )?;
+    add_environment_column_if_missing(
+        &transaction,
         "health_check_url",
         "TEXT NOT NULL DEFAULT ''",
     )?;
@@ -715,6 +722,7 @@ struct EnvironmentPayload {
     ssh_private_key_path: String,
     frontend_remote_dir: String,
     backend_remote_path: String,
+    post_upload_command_timeout_seconds: u32,
     health_check_enabled: bool,
     health_check_url: String,
     health_check_max_retries: u32,
@@ -938,6 +946,12 @@ fn parse_environment_fields(payload: &Value) -> Result<EnvironmentPayload, Strin
         health_check_enabled: optional_bool(payload, "healthCheckEnabled", false)?,
         health_check_url: optional_string(payload, "healthCheckUrl")?,
         health_check_max_retries: optional_bounded_u32(payload, "healthCheckMaxRetries", 6, 60)?,
+        post_upload_command_timeout_seconds: optional_bounded_u32(
+            payload,
+            "postUploadCommandTimeoutSeconds",
+            600,
+            86400,
+        )?,
     };
     validate_environment_payload(&environment)?;
     Ok(environment)
@@ -952,6 +966,9 @@ fn parse_environment_payload(payload: &Value) -> Result<EnvironmentPayload, Stri
 }
 
 fn validate_environment_payload(environment: &EnvironmentPayload) -> Result<(), String> {
+    if environment.post_upload_command_timeout_seconds == 0 {
+        return Err("postUploadCommandTimeoutSeconds must be between 1 and 86400".into());
+    }
     if environment.package_type == ReleasePackageType::LocalArchive
         && environment.output_root.is_empty()
     {
@@ -1058,6 +1075,7 @@ struct RawEnvironmentConfig {
     health_check_enabled: bool,
     health_check_url: String,
     health_check_max_retries: i64,
+    post_upload_command_timeout_seconds: i64,
     created_at: String,
     updated_at: String,
 }
@@ -1094,8 +1112,9 @@ fn raw_environment_from_row(row: &Row<'_>) -> rusqlite::Result<RawEnvironmentCon
         health_check_enabled: row.get(27)?,
         health_check_url: row.get(28)?,
         health_check_max_retries: row.get(29)?,
-        created_at: row.get(30)?,
-        updated_at: row.get(31)?,
+        post_upload_command_timeout_seconds: row.get(30)?,
+        created_at: row.get(31)?,
+        updated_at: row.get(32)?,
     })
 }
 
@@ -1127,6 +1146,7 @@ fn environment_payload_from_config(
         health_check_enabled: environment.health_check_enabled,
         health_check_url: environment.health_check_url.clone(),
         health_check_max_retries: environment.health_check_max_retries,
+        post_upload_command_timeout_seconds: environment.post_upload_command_timeout_seconds,
     }
 }
 
@@ -1152,6 +1172,11 @@ fn environment_from_raw(
         .ok()
         .filter(|retries| *retries <= 60)
         .ok_or("上线包环境的健康检查最多重试次数无效")?;
+    let post_upload_command_timeout_seconds =
+        u32::try_from(raw.post_upload_command_timeout_seconds)
+            .ok()
+            .filter(|seconds| (1..=86400).contains(seconds))
+            .ok_or("上线包环境的上传后命令最长运行时间无效")?;
     let mut result = ReleasePackageEnvironmentConfig {
         id: raw.id,
         project_id: raw.project_id,
@@ -1184,6 +1209,7 @@ fn environment_from_raw(
         health_check_enabled: raw.health_check_enabled,
         health_check_url: raw.health_check_url,
         health_check_max_retries,
+        post_upload_command_timeout_seconds,
         created_at: raw.created_at,
         updated_at: raw.updated_at,
     };
@@ -1206,6 +1232,7 @@ const ENVIRONMENT_SELECT: &str = "SELECT environment.id, environment.project_id,
             environment.ssh_private_key_path, environment.frontend_remote_dir,
             environment.backend_remote_path, environment.health_check_enabled,
             environment.health_check_url, environment.health_check_max_retries,
+            environment.post_upload_command_timeout_seconds,
             environment.created_at, environment.updated_at
      FROM release_package_environments environment
      JOIN release_package_projects project ON project.id=environment.project_id";
@@ -1461,11 +1488,12 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 backend_post_upload_command, backend_artifact_path,
                 ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
                 ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                post_upload_command_timeout_seconds,
                 health_check_enabled, health_check_url, health_check_max_retries
              ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23, ?24, ?25, ?26
+                ?22, ?23, ?24, ?25, ?26, ?27
              )",
             params![
                 project_id,
@@ -1491,6 +1519,7 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 environment.ssh_private_key_path,
                 environment.frontend_remote_dir,
                 environment.backend_remote_path,
+                environment.post_upload_command_timeout_seconds,
                 environment.health_check_enabled,
                 environment.health_check_url,
                 environment.health_check_max_retries,
@@ -1579,8 +1608,9 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 ssh_private_key_path=?19, frontend_remote_dir=?20,
                 backend_remote_path=?21, health_check_enabled=?22,
                 health_check_url=?23, health_check_max_retries=?24,
+                post_upload_command_timeout_seconds=?25,
                 updated_at=CURRENT_TIMESTAMP
-             WHERE id=?25",
+             WHERE id=?26",
             params![
                 environment.output_root,
                 environment.package_type.as_str(),
@@ -1606,6 +1636,7 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 environment.health_check_enabled,
                 environment.health_check_url,
                 environment.health_check_max_retries,
+                environment.post_upload_command_timeout_seconds,
                 environment_id,
             ],
         )
@@ -2562,7 +2593,8 @@ mod tests {
                 "backendRemotePath": "/srv/portal/app.jar",
                 "healthCheckEnabled": true,
                 "healthCheckUrl": "https://portal.example.com/health",
-                "healthCheckMaxRetries": 4
+                "healthCheckMaxRetries": 4,
+                "postUploadCommandTimeoutSeconds": 42
             }
         })
     }
@@ -2977,18 +3009,18 @@ mod tests {
                     '' AS ssh_auth_type, NULL AS vault_entry_id, '' AS ssh_private_key_path,
                     '' AS frontend_remote_dir, '' AS backend_remote_path,
                     0 AS health_check_enabled, '' AS health_check_url,
-                    6 AS health_check_max_retries,
+                    6 AS health_check_max_retries, 600 AS post_upload_command_timeout_seconds,
                     '' AS created_at, '' AS updated_at WHERE 0;
                  INSERT INTO release_package_projects VALUES
                     (1, '损坏项目', 'D:\\web', 'D:\\server', 'created', 'updated');
                  INSERT INTO release_package_environments
                  SELECT 1, 1, 'test', '', 'local_archive', 'master', '', '', '', '',
                     'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
-                    '', '', '', 0, '', 6, 'created', 'updated';
+                    '', '', '', 0, '', 6, 600, 'created', 'updated';
                  INSERT INTO release_package_environments
                  SELECT 2, 1, 'production', '', 'local_archive', 'master', '', '', '', '',
                     'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
-                    '', '', '', 0, '', 6, 'created', 'updated';",
+                    '', '', '', 0, '', 6, 600, 'created', 'updated';",
             )
             .unwrap();
             conn.execute(
@@ -4053,6 +4085,7 @@ mod tests {
             "https://portal.example.com/health"
         );
         assert_eq!(production["healthCheckMaxRetries"], 4);
+        assert_eq!(production["postUploadCommandTimeoutSeconds"], 42);
         assert_eq!(
             production["frontendPostUploadCommand"],
             "cd /srv/web\n  ./reload.sh"
@@ -4070,6 +4103,7 @@ mod tests {
         update["environmentConfig"]["backendPostUploadCommand"] =
             json!("systemctl restart portal-pro");
         update["environmentConfig"]["healthCheckMaxRetries"] = json!(8);
+        update["environmentConfig"]["postUploadCommandTimeoutSeconds"] = json!(90);
         project_update_with_conn(&conn, &update).unwrap();
         let updated = load_environment(&conn, environment_id).unwrap();
         assert_eq!(updated.project_name, "客户门户 Pro");
@@ -4078,6 +4112,7 @@ mod tests {
             "systemctl restart portal-pro"
         );
         assert!(updated.health_check_enabled);
+        assert_eq!(updated.post_upload_command_timeout_seconds, 90);
         assert_eq!(
             updated.health_check_url,
             "https://portal.example.com/health"
@@ -4456,6 +4491,7 @@ mod tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4601,6 +4637,7 @@ mod tests {
             health_check_enabled: false,
             health_check_url: String::new(),
             health_check_max_retries: 6,
+            post_upload_command_timeout_seconds: 600,
             created_at: String::new(),
             updated_at: String::new(),
         };

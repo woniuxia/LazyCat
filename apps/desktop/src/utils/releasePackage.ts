@@ -175,6 +175,7 @@ export function createEmptyReleasePackageEnvironmentDraft(): ReleasePackageEnvir
     sshPrivateKeyPath: "",
     frontendRemoteDir: "",
     backendRemotePath: "",
+    postUploadCommandTimeoutSeconds: 600,
   };
 }
 
@@ -223,6 +224,7 @@ export function environmentToReleasePackageDraft(
     sshPrivateKeyPath: environment.sshPrivateKeyPath,
     frontendRemoteDir: environment.frontendRemoteDir,
     backendRemotePath: environment.backendRemotePath,
+    postUploadCommandTimeoutSeconds: environment.postUploadCommandTimeoutSeconds,
   });
 }
 
@@ -264,11 +266,19 @@ export function normalizeReleasePackageEnvironmentDraft(
     sshPrivateKeyPath: draft.sshPrivateKeyPath.trim(),
     frontendRemoteDir: draft.frontendRemoteDir.trim(),
     backendRemotePath: draft.backendRemotePath.trim(),
+    postUploadCommandTimeoutSeconds: draft.postUploadCommandTimeoutSeconds,
   };
 }
 
 export function validateReleasePackageUpload(draft: ReleasePackageEnvironmentDraft): string | null {
   const value = normalizeReleasePackageEnvironmentDraft(draft);
+  if (
+    !Number.isInteger(value.postUploadCommandTimeoutSeconds) ||
+    value.postUploadCommandTimeoutSeconds < 1 ||
+    value.postUploadCommandTimeoutSeconds > 86_400
+  ) {
+    return "上传后命令最长运行时间必须在 1 到 86400 秒之间";
+  }
   if (value.sshAuthType === "password" && value.vaultEntryId === null) {
     return "请选择密码库服务器凭据";
   }

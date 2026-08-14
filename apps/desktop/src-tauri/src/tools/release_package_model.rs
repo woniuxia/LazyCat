@@ -93,6 +93,7 @@ pub struct ReleasePackageEnvironmentConfig {
     pub ssh_private_key_path: String,
     pub frontend_remote_dir: String,
     pub backend_remote_path: String,
+    pub post_upload_command_timeout_seconds: u32,
     pub health_check_enabled: bool,
     pub health_check_url: String,
     pub health_check_max_retries: u32,
