@@ -10,6 +10,7 @@ import { createEmptyReleasePackageEnvironmentDraft } from "../utils/releasePacka
 const panelHarness = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: ReleasePackageStatusEvent }) => void>(),
   invoke: vi.fn(),
+  focusInput: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -122,8 +123,13 @@ function registerElementStubs(
       name,
       defineComponent({
         inheritAttrs: false,
-        setup(_props, { attrs, slots }) {
-          return () => h("div", attrs, slots.default?.());
+        setup(_props, { attrs, slots, expose }) {
+          if (name === "el-input") expose({ focus: panelHarness.focusInput });
+          return () =>
+            h("div", attrs, [
+              slots.default?.(),
+              name === "el-dialog" && attrs.modelValue ? slots.footer?.() : null,
+            ]);
         },
       }),
     );
@@ -166,6 +172,16 @@ function findButton(root: HostNode, text: string): HostNode | null {
   let result: HostNode | null = null;
   const visit = (node: HostNode) => {
     if (!result && node.type === "button" && nodeText(node).trim() === text) result = node;
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
+function findButtons(root: HostNode, text: string): HostNode[] {
+  const result: HostNode[] = [];
+  const visit = (node: HostNode) => {
+    if (node.type === "button" && nodeText(node).trim() === text) result.push(node);
     node.children.forEach(visit);
   };
   visit(root);
@@ -740,9 +756,9 @@ describe("ReleasePackagePanel", () => {
     }
     expect(source).toContain('ref="frontendLogContainer"');
     expect(source).toContain('ref="backendLogContainer"');
-    expect(source).toContain('@scroll="handleLogScroll(\'frontend\')"');
-    expect(source).toContain('@scroll="handleLogScroll(\'backend\')"');
-    expect(source).toContain('@scroll="handleLogScroll(\'upload\')"');
+    expect(source).toContain("@scroll=\"handleLogScroll('frontend')\"");
+    expect(source).toContain("@scroll=\"handleLogScroll('backend')\"");
+    expect(source).toContain("@scroll=\"handleLogScroll('upload')\"");
     expect(source).toContain("const logFollowState = reactive");
     expect(source).toContain("container.scrollTop = container.scrollHeight");
     expect(source).toContain('scrollLogToBottom("frontend", true)');
@@ -825,6 +841,270 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('type="password"');
     expect(source).toContain('credentialSecret.value = ""');
     expect(source).not.toContain("environmentDraft.password");
+  });
+
+  it("unlocks a locked password-bound upload in the current confirmation dialog and resumes it", async () => {
+    panelHarness.invoke.mockReset();
+    panelHarness.focusInput.mockReset();
+    const uploadProject: ReleasePackageProject = {
+      ...mountedProject,
+      environments: [
+        {
+          ...mountedProject.environments[0],
+          packageType: "server_upload",
+          sshAuthType: "password",
+          vaultEntryId: 11,
+          frontendRemoteDir: "/srv/portal/web",
+          backendRemotePath: "/srv/portal/portal.jar",
+        },
+        mountedProject.environments[1],
+      ],
+    };
+    let vaultUnlocked = false;
+    let unlockAttempts = 0;
+    panelHarness.invoke.mockImplementation(
+      async (channel: string, payload: Record<string, unknown>) => {
+        if (channel === "tool:release-package:project-list") return { projects: [uploadProject] };
+        if (channel === "tool:vault:meta-list") {
+          return [
+            {
+              id: 11,
+              category: "server",
+              title: "生产服务器",
+              plainFields: { address: "deploy.internal", port: 22, account: "deploy" },
+            },
+          ];
+        }
+        if (channel === "tool:release-package:prepare") return { packageType: "server_upload" };
+        if (channel === "tool:release-package:remote-probe") {
+          return {
+            probeToken: "probe-1",
+            host: "deploy.internal",
+            port: 22,
+            keyType: "ed25519",
+            fingerprintSha256: "SHA256:key",
+            trust: "trusted",
+          };
+        }
+        if (channel === "tool:vault:status") return { setup: true, unlocked: vaultUnlocked };
+        if (channel === "tool:vault:unlock") {
+          unlockAttempts += 1;
+          if (unlockAttempts === 1) throw new Error("wrong_password");
+          vaultUnlocked = true;
+          return { unlocked: true };
+        }
+        if (channel === "tool:release-package:remote-preflight") {
+          return { preflightToken: "preflight-1", expiresAt: "later", targets: [] };
+        }
+        if (channel === "tool:release-package:start") {
+          expect(payload.preflightToken).toBe("preflight-1");
+          return { runId: "run-1" };
+        }
+        return {};
+      },
+    );
+
+    const [{ default: ReleasePackagePanel }, { useReleasePackageRuntime }] = await Promise.all([
+      import("./ReleasePackagePanel.vue"),
+      import("../composables/useReleasePackageRuntime"),
+    ]);
+    const runtime = useReleasePackageRuntime();
+    runtime.reset();
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    await (findButton(root, "开始打包")?.props.onClick as () => Promise<void>)();
+    await flushMountedPanel();
+    const confirmUpload = findButton(root, "确认构建并上传");
+    expect(
+      confirmUpload,
+      `${buttonTexts(root).join(" | ")} calls=${panelHarness.invoke.mock.calls.map((call) => call[0]).join(",")}`,
+    ).not.toBeNull();
+    await (confirmUpload?.props.onClick as () => Promise<void>)();
+    await flushMountedPanel();
+    expect(buttonTexts(root)).toContain("解锁并继续");
+    expect(buttonTexts(root)).not.toContain("确认构建并上传");
+
+    const passwordInput = findNode(root, (node) => node.props.placeholder === "输入主密码");
+    (passwordInput?.props["onUpdate:modelValue"] as (value: string) => void)("wrong");
+    await nextTick();
+    await (findButton(root, "解锁并继续")?.props.onClick as () => Promise<void>)();
+    await flushMountedPanel();
+    expect(findNode(root, (node) => node.props.error === "主密码错误，请重试")).not.toBeNull();
+    const clearedInput = findNode(root, (node) => node.props.placeholder === "输入主密码");
+    expect(clearedInput?.props.modelValue ?? clearedInput?.props["model-value"]).toBe("");
+    expect(panelHarness.focusInput).toHaveBeenCalled();
+
+    const correctedInput = findNode(root, (node) => node.props.placeholder === "输入主密码");
+    (correctedInput?.props["onUpdate:modelValue"] as (value: string) => void)("master");
+    await nextTick();
+    const submitOnEnter = correctedInput?.props.onKeyup as (event: KeyboardEvent) => void;
+    expect(submitOnEnter).toBeTypeOf("function");
+    submitOnEnter(new KeyboardEvent("keyup", { key: "Enter" }));
+    for (let index = 0; index < 4; index += 1) await flushMountedPanel();
+
+    expect(panelHarness.invoke).toHaveBeenCalledWith("tool:vault:unlock", {
+      masterPassword: "master",
+    });
+    const channels = panelHarness.invoke.mock.calls.map((call) => call[0]);
+    expect(channels.indexOf("tool:release-package:remote-probe")).toBeLessThan(
+      channels.indexOf("tool:vault:status"),
+    );
+    expect(channels.indexOf("tool:vault:unlock")).toBeLessThan(
+      channels.indexOf("tool:release-package:remote-preflight"),
+    );
+    expect(channels.indexOf("tool:release-package:remote-preflight")).toBeLessThan(
+      channels.indexOf("tool:release-package:start"),
+    );
+    expect(buttonTexts(root)).not.toContain("解锁并继续");
+    app.unmount();
+    runtime.reset();
+  });
+
+  it.each([
+    {
+      flow: "upload retry",
+      status: "package_succeeded_upload_failed" as const,
+      actionLabel: "重试上传",
+      confirmLabel: "确认重试",
+      preflightChannel: "tool:release-package:remote-preflight",
+      startChannel: "tool:release-package:upload-retry",
+    },
+    {
+      flow: "command retry",
+      status: "upload_succeeded_command_failed" as const,
+      actionLabel: "仅重试失败命令",
+      confirmLabel: "仅重试失败命令",
+      preflightChannel: "tool:release-package:command-retry-preflight",
+      startChannel: "tool:release-package:command-retry-start",
+    },
+  ])("unlocks and resumes $flow inside its existing dialog", async (scenario) => {
+    panelHarness.invoke.mockReset();
+    const uploadProject: ReleasePackageProject = {
+      ...mountedProject,
+      environments: [
+        {
+          ...mountedProject.environments[0],
+          packageType: "server_upload",
+          sshAuthType: "password",
+          vaultEntryId: 11,
+          frontendRemoteDir: "/srv/portal/web",
+          backendRemotePath: "/srv/portal/portal.jar",
+        },
+        mountedProject.environments[1],
+      ],
+    };
+    let vaultUnlocked = scenario.flow === "upload retry";
+    let preflightAttempts = 0;
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [uploadProject] };
+      if (channel === "tool:vault:meta-list") {
+        return [
+          {
+            id: 11,
+            category: "server",
+            title: "生产服务器",
+            plainFields: { address: "deploy.internal", port: 22, account: "deploy" },
+          },
+        ];
+      }
+      if (
+        channel === "tool:release-package:remote-probe" ||
+        channel === "tool:release-package:command-retry-prepare"
+      ) {
+        return {
+          probeToken: "probe-retry",
+          host: "deploy.internal",
+          port: 22,
+          username: "deploy",
+          keyType: "ed25519",
+          fingerprintSha256: "SHA256:key",
+          trust: "trusted",
+          authType: "password",
+          targets: ["backend"],
+        };
+      }
+      if (channel === "tool:vault:status") return { setup: true, unlocked: vaultUnlocked };
+      if (channel === "tool:vault:unlock") {
+        vaultUnlocked = true;
+        return { unlocked: true };
+      }
+      if (channel === "tool:release-package:remote-preflight") {
+        preflightAttempts += 1;
+        if (scenario.flow === "upload retry" && preflightAttempts === 1) {
+          vaultUnlocked = false;
+          throw new Error("vault_locked");
+        }
+        return { preflightToken: "preflight-retry", expiresAt: "later", targets: [] };
+      }
+      if (channel === "tool:release-package:command-retry-preflight") {
+        return { authToken: "auth-retry", expiresAt: "later" };
+      }
+      if (channel === scenario.startChannel) return { runId: `run-${scenario.flow}` };
+      return {};
+    });
+
+    const [{ default: ReleasePackagePanel }, { useReleasePackageRuntime }] = await Promise.all([
+      import("./ReleasePackagePanel.vue"),
+      import("../composables/useReleasePackageRuntime"),
+    ]);
+    const runtime = useReleasePackageRuntime();
+    runtime.reset();
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    runtime.beginStart(41, ["frontend", "backend"]);
+    panelHarness.listeners.get(APP_EVENTS.RELEASE_PACKAGE_STATUS)?.({
+      payload: {
+        runId: "failed-run",
+        environmentId: 41,
+        projectId: uploadProject.id,
+        environment: "test",
+        status: scenario.status,
+        phase: "overall",
+        retryToken: "upload-retry",
+        commandRetryToken: "command-retry",
+      },
+    });
+    await nextTick();
+    await (findButton(root, scenario.actionLabel)?.props.onClick as () => Promise<void>)();
+    await flushMountedPanel();
+    const confirmationButtons = findButtons(root, scenario.confirmLabel);
+    const confirmationButton = confirmationButtons.at(-1);
+    expect(confirmationButton).toBeDefined();
+    await (confirmationButton?.props.onClick as () => Promise<void>)();
+    await flushMountedPanel();
+    expect(buttonTexts(root)).toContain("解锁并继续");
+
+    const passwordInput = findNode(root, (node) => node.props.placeholder === "输入主密码");
+    (passwordInput?.props["onUpdate:modelValue"] as (value: string) => void)("master");
+    await nextTick();
+    await (findButton(root, "解锁并继续")?.props.onClick as () => Promise<void>)();
+    for (let index = 0; index < 4; index += 1) await flushMountedPanel();
+
+    const channels = panelHarness.invoke.mock.calls.map((call) => call[0]);
+    expect(channels.indexOf("tool:vault:unlock")).toBeLessThan(
+      channels.lastIndexOf(scenario.preflightChannel),
+    );
+    expect(channels.lastIndexOf(scenario.preflightChannel)).toBeLessThan(
+      channels.indexOf(scenario.startChannel),
+    );
+    if (scenario.flow === "upload retry") {
+      expect(
+        channels.filter((channel) => channel === "tool:release-package:remote-probe"),
+      ).toHaveLength(1);
+    }
+    expect(buttonTexts(root)).not.toContain("解锁并继续");
+    app.unmount();
+    runtime.reset();
   });
 
   it("awaits remote token revocation on dialog reset and terminal paths", () => {

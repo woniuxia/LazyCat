@@ -1820,7 +1820,6 @@ fn upload_endpoint_with_conn(
     if project.ssh_auth_type == "password" {
         let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
         let metadata = super::vault::server_credential_metadata(conn, entry_id)?;
-        super::vault::require_unlocked(conn)?;
         return Ok(UploadEndpoint {
             endpoint: RemoteEndpoint {
                 host: metadata.address.to_ascii_lowercase(),
@@ -2018,6 +2017,7 @@ fn command_retry_prepare_with_conn(conn: &Connection, payload: &Value) -> Result
     result["targets"] = json!(prepared.targets);
     result["authType"] = json!(prepared.binding.auth_type);
     result["username"] = json!(prepared.binding.endpoint.username);
+    result["vaultEntryId"] = json!(prepared.binding.vault_entry_id);
     Ok(result)
 }
 
@@ -3643,11 +3643,60 @@ mod tests {
         assert_eq!(endpoint.endpoint.port, 2200);
         assert_eq!(endpoint.endpoint.username, "deploy");
 
+        super::super::vault::force_lock();
+        let endpoint_while_locked = upload_endpoint_with_conn(
+            &conn,
+            &load_environment(&conn, environment_id(&conn, project_id, "production")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(endpoint_while_locked.endpoint, endpoint.endpoint);
+        let locked_error = match super::super::vault::resolve_server_credential(&conn, 11) {
+            Ok(_) => panic!("locked Vault unexpectedly returned a server password"),
+            Err(error) => error,
+        };
+        assert!(locked_error.contains("vault_locked"));
+
         let error = parse_private_key_auth_secret(&json!({ "password": "injected" }))
             .err()
             .unwrap();
         assert_eq!(error, "私钥认证不能提交密码");
+    }
+
+    #[test]
+    fn issued_password_preflight_authorizes_upload_after_vault_locks() {
+        let binding = PreflightBinding {
+            environment_id: 7,
+            project_id: 3,
+            environment: ReleasePackageEnvironmentKind::Test,
+            endpoint: RemoteEndpoint {
+                host: "deploy.example".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            auth_type: "password".into(),
+            vault_entry_id: Some(11),
+            private_key_path: String::new(),
+            targets: vec![RemoteTarget::Backend],
+            command_retry_token: None,
+            frontend_remote_dir: String::new(),
+            backend_remote_path: "/srv/app/app.jar".into(),
+        };
+        let issued = issue_preflight(
+            binding.clone(),
+            "SHA256:key".into(),
+            AuthSecret::Password(Zeroizing::new("secret".into())),
+            &[],
+        )
+        .unwrap();
+
         super::super::vault::force_lock();
+
+        super::super::release_package_runtime::consume_deploy_authorization(
+            &issued.token,
+            &binding,
+            &[],
+        )
+        .unwrap();
     }
 
     #[test]

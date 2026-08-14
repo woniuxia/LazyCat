@@ -1001,6 +1001,23 @@
           </div>
         </div>
       </div>
+      <VaultInlineUnlock
+        v-model="vaultInlineUnlock.masterPassword.value"
+        :visible="vaultUnlockContext === 'start' && vaultInlineUnlock.visible.value"
+        :credential-label="vaultInlineUnlock.credentialLabel.value"
+        :error="vaultInlineUnlock.error.value"
+        :submitting="vaultInlineUnlock.submitting.value"
+        :focus-nonce="vaultInlineUnlock.focusNonce.value"
+        @submit="vaultInlineUnlock.submit"
+      />
+      <div
+        v-if="vaultConfigurationErrorContext === 'start'"
+        class="vault-configuration-error"
+        role="alert"
+      >
+        <span>{{ vaultConfigurationError }}</span>
+        <el-button type="primary" link @click="openVault">打开密码管理</el-button>
+      </div>
       <template #footer>
         <el-button
           v-if="starting"
@@ -1026,7 +1043,10 @@
           {{ retryMode ? "确认生产发布" : "检查分支并确认" }}
         </el-button>
         <el-button
-          v-else-if="selectedEnvironmentKind !== 'production' || productionConfirmed"
+          v-else-if="
+            (selectedEnvironmentKind !== 'production' || productionConfirmed) &&
+            vaultUnlockContext !== 'start'
+          "
           type="primary"
           :loading="starting"
           :disabled="starting"
@@ -1101,6 +1121,23 @@
           <code>{{ commandRetry.prepareResult.value.fingerprintSha256 }}</code>
         </div>
       </div>
+      <VaultInlineUnlock
+        v-model="vaultInlineUnlock.masterPassword.value"
+        :visible="vaultUnlockContext === 'command_retry' && vaultInlineUnlock.visible.value"
+        :credential-label="vaultInlineUnlock.credentialLabel.value"
+        :error="vaultInlineUnlock.error.value"
+        :submitting="vaultInlineUnlock.submitting.value"
+        :focus-nonce="vaultInlineUnlock.focusNonce.value"
+        @submit="vaultInlineUnlock.submit"
+      />
+      <div
+        v-if="vaultConfigurationErrorContext === 'command_retry'"
+        class="vault-configuration-error"
+        role="alert"
+      >
+        <span>{{ vaultConfigurationError }}</span>
+        <el-button type="primary" link @click="openVault">打开密码管理</el-button>
+      </div>
       <template #footer>
         <el-button :disabled="commandRetryStarting" @click="closeCommandRetryDialog"
           >取消</el-button
@@ -1118,7 +1155,10 @@
           确认生产发布
         </el-button>
         <el-button
-          v-else-if="selectedEnvironmentKind !== 'production' || productionConfirmed"
+          v-else-if="
+            (selectedEnvironmentKind !== 'production' || productionConfirmed) &&
+            vaultUnlockContext !== 'command_retry'
+          "
           type="primary"
           :loading="commandRetryStarting"
           :disabled="commandRetryStarting"
@@ -1132,7 +1172,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
   CopyDocument,
   Delete,
@@ -1152,6 +1192,8 @@ import { useActionDispatchIntent } from "../composables/useActionDispatchIntent"
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
 import { useReleasePackageCommandRetry } from "../composables/useReleasePackageCommandRetry";
 import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
+import { useVaultInlineUnlock } from "../composables/useVaultInlineUnlock";
+import VaultInlineUnlock from "./VaultInlineUnlock.vue";
 import type { ActionDispatchRequest } from "../types";
 import type { UsageSummary } from "../types/usage";
 import type {
@@ -1253,6 +1295,9 @@ const overwriteRemoteTargets = ref<ReleasePackageTarget[]>([]);
 const retryMode = ref(false);
 const commandRetryVisible = ref(false);
 const commandRetryStarting = ref(false);
+const vaultUnlockContext = ref<"start" | "command_retry" | null>(null);
+const vaultConfigurationError = ref("");
+const vaultConfigurationErrorContext = ref<"start" | "command_retry" | null>(null);
 const serverConfigSections = ref<string[]>([]);
 const vaultServerOptions = ref<VaultServerOption[]>([]);
 const vaultOptionsLoading = ref(false);
@@ -1271,6 +1316,7 @@ const logFollowState = reactive<Record<ReleasePackageLogLane, boolean>>({
 const runtime = useReleasePackageRuntime();
 const uploadPreflight = useReleasePackageUploadPreflight();
 const commandRetry = useReleasePackageCommandRetry();
+const vaultInlineUnlock = useVaultInlineUnlock();
 const { watchPendingIntent } = useActionDispatchIntent();
 const statusTagTypes: Record<
   ReleasePackageRunStatus,
@@ -1538,35 +1584,25 @@ function openVault(): void {
   emit("open-tool", "vault");
 }
 
-async function handleUploadIntegrationError(error: unknown): Promise<void> {
+async function handleUploadIntegrationError(
+  error: unknown,
+  context?: "start" | "command_retry",
+): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("vault_locked")) {
-    try {
-      await ElMessageBox.confirm(
-        "密码库当前已锁定。请先打开密码管理并解锁，再重新发起上传。",
-        "需要解锁密码库",
-        {
-          type: "warning",
-          confirmButtonText: "打开密码管理",
-          cancelButtonText: "稍后处理",
-        },
-      );
-      openVault();
-    } catch (confirmError) {
-      if (confirmError !== "cancel" && confirmError !== "close") showError(confirmError);
-    }
-    return;
+  let configurationError = "";
+  if (message.includes("vault_not_initialized")) {
+    configurationError = "密码库尚未初始化，请先在密码管理中设置主密码";
+  } else if (message.includes("vault_entry_not_found")) {
+    configurationError = "绑定的密码库凭据不存在，请重新选择并保存配置";
+  } else if (message.includes("vault_entry_invalid_category")) {
+    configurationError = "绑定的密码库条目不是服务器凭据，请重新选择";
+  } else if (message.includes("vault_entry_incomplete")) {
+    configurationError = "绑定的服务器凭据缺少地址、端口、账号或密码，请在密码管理中补充";
   }
-  if (message.includes("vault_entry_not_found")) {
-    ElMessage.error("绑定的密码库凭据不存在，请重新选择并保存配置");
-    return;
-  }
-  if (message.includes("vault_entry_invalid_category")) {
-    ElMessage.error("绑定的密码库条目不是服务器凭据，请重新选择");
-    return;
-  }
-  if (message.includes("vault_entry_incomplete")) {
-    ElMessage.error("绑定的服务器凭据缺少地址、端口、账号或密码，请在密码管理中补充");
+  if (configurationError) {
+    vaultConfigurationError.value = configurationError;
+    vaultConfigurationErrorContext.value = context ?? null;
+    ElMessage.error(configurationError);
     return;
   }
   showError(error);
@@ -1913,6 +1949,14 @@ async function choosePrivateKey(): Promise<void> {
 async function clearSensitiveStartState(): Promise<void> {
   credentialSecret.value = "";
   overwriteRemoteTargets.value = [];
+  if (vaultConfigurationErrorContext.value === "start") {
+    vaultConfigurationError.value = "";
+    vaultConfigurationErrorContext.value = null;
+  }
+  if (vaultUnlockContext.value === "start") {
+    vaultUnlockContext.value = null;
+    vaultInlineUnlock.reset();
+  }
   try {
     await uploadPreflight.reset();
   } catch (error) {
@@ -2110,6 +2154,14 @@ async function prepareUploadRetry(): Promise<void> {
 async function resetCommandRetryDialog(): Promise<void> {
   commandRetryStarting.value = false;
   productionConfirmed.value = false;
+  if (vaultConfigurationErrorContext.value === "command_retry") {
+    vaultConfigurationError.value = "";
+    vaultConfigurationErrorContext.value = null;
+  }
+  if (vaultUnlockContext.value === "command_retry") {
+    vaultUnlockContext.value = null;
+    vaultInlineUnlock.reset();
+  }
   try {
     await commandRetry.reset();
   } catch (error) {
@@ -2146,6 +2198,7 @@ async function prepareCommandRetry(): Promise<void> {
 }
 
 async function confirmCommandRetry(): Promise<void> {
+  if (commandRetryStarting.value) return;
   const environmentId = selectedEnvironment.value?.id;
   const prepared = commandRetry.prepareResult.value;
   if (!environmentId || !prepared) {
@@ -2159,12 +2212,43 @@ async function confirmCommandRetry(): Promise<void> {
   const commandTargets = [...prepared.targets];
   commandRetryStarting.value = true;
   let runtimeStartBegun = false;
+  let awaitingVaultUnlock = false;
   try {
     if (!(await ensureCommandRetryHostTrusted())) {
       commandRetry.privateKeyPassphrase.value = "";
       return;
     }
-    await commandRetry.preflight();
+    if (
+      prepared.authType === "password" &&
+      !(await requireVaultForContinuation(
+        "command_retry",
+        commandRetryCredentialLabel(),
+        confirmCommandRetry,
+      ))
+    ) {
+      awaitingVaultUnlock = true;
+      return;
+    }
+    try {
+      await commandRetry.preflight();
+    } catch (error) {
+      if (!isExpiredProbeError(error)) throw error;
+      const retryTokenValue = commandRetry.retryToken.value;
+      await commandRetry.prepare(environmentId, retryTokenValue);
+      if (!(await ensureCommandRetryHostTrusted())) return;
+      if (
+        commandRetry.prepareResult.value?.authType === "password" &&
+        !(await requireVaultForContinuation(
+          "command_retry",
+          commandRetryCredentialLabel(),
+          confirmCommandRetry,
+        ))
+      ) {
+        awaitingVaultUnlock = true;
+        return;
+      }
+      await commandRetry.preflight();
+    }
     await runtime.ensureListeners();
     runtime.beginStart(environmentId, commandTargets);
     runtimeStartBegun = true;
@@ -2172,13 +2256,22 @@ async function confirmCommandRetry(): Promise<void> {
     runtime.bindStartedRun(result.runId, environmentId);
     commandRetryVisible.value = false;
   } catch (error) {
+    if (prepared.authType === "password" && isVaultLockedError(error)) {
+      requestVaultForContinuation(
+        "command_retry",
+        commandRetryCredentialLabel(),
+        confirmCommandRetry,
+      );
+      awaitingVaultUnlock = true;
+      return;
+    }
     if (runtimeStartBegun) {
       runtime.abortStart(error instanceof Error ? error.message : String(error));
     }
-    await handleUploadIntegrationError(error);
+    await handleUploadIntegrationError(error, "command_retry");
   } finally {
     commandRetryStarting.value = false;
-    productionConfirmed.value = false;
+    if (!awaitingVaultUnlock) productionConfirmed.value = false;
   }
 }
 async function confirmArchiveOverwrite(
@@ -2251,7 +2344,7 @@ async function confirmHostTrust(probe: ReleasePackageRemoteProbeResult): Promise
 }
 
 async function ensureHostTrusted(environmentId: number): Promise<boolean> {
-  const probe = await uploadPreflight.probe(environmentId);
+  const probe = uploadPreflight.probeResult.value ?? (await uploadPreflight.probe(environmentId));
   if (!probe || !(await confirmHostTrust(probe))) return false;
   if (probe.trust !== "trusted") {
     await uploadPreflight.trustHost(environmentId, probe.trust === "changed");
@@ -2266,6 +2359,51 @@ async function ensureCommandRetryHostTrusted(): Promise<boolean> {
     await commandRetry.trustHost(probe.trust === "changed");
   }
   return true;
+}
+
+function isVaultLockedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("vault_locked");
+}
+
+function isExpiredProbeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("SSH 探测令牌") &&
+    (message.includes("过期") || message.includes("无效") || message.includes("已使用"))
+  );
+}
+
+function startVaultCredentialLabel(): string {
+  return selectedVaultCredential.value?.title || `凭据 #${environmentDraft.vaultEntryId ?? "-"}`;
+}
+
+function commandRetryCredentialLabel(): string {
+  const prepared = commandRetry.prepareResult.value;
+  if (!prepared) return "绑定的服务器凭据";
+  const binding = prepared.vaultEntryId ? `凭据 #${prepared.vaultEntryId} · ` : "";
+  return `${binding}${prepared.username}@${prepared.host}:${prepared.port}`;
+}
+
+type VaultUnlockContext = Exclude<typeof vaultUnlockContext.value, null>;
+
+function requestVaultForContinuation(
+  context: VaultUnlockContext,
+  label: string,
+  continuation: () => Promise<void>,
+): void {
+  vaultUnlockContext.value = context;
+  vaultInlineUnlock.request(label, continuation);
+}
+
+async function requireVaultForContinuation(
+  context: VaultUnlockContext,
+  label: string,
+  continuation: () => Promise<void>,
+): Promise<boolean> {
+  if (await vaultInlineUnlock.requireUnlocked(label, continuation)) return true;
+  vaultUnlockContext.value = context;
+  return false;
 }
 
 async function confirmRemoteOverwrite(cancellation: Promise<null>): Promise<boolean> {
@@ -2310,26 +2448,46 @@ async function runUploadPreflight(
   environmentId: number,
   targets: ReleasePackageTarget[],
   cancellation: Promise<null>,
-): Promise<boolean> {
+): Promise<"accepted" | "cancelled" | "awaiting_unlock"> {
   const uploadError = validateReleasePackageUpload(environmentDraft);
   if (uploadError) throw new Error(uploadError);
   if (environmentDraft.sshAuthType === "password" && environmentDraft.vaultEntryId === null) {
     throw new Error("请选择密码库服务器凭据");
   }
   const hostTrusted = await Promise.race([ensureHostTrusted(environmentId), cancellation]);
-  if (hostTrusted === null || !hostTrusted) return false;
-  const preflight = await Promise.race([
+  if (hostTrusted === null || !hostTrusted) return "cancelled";
+  if (
+    environmentDraft.sshAuthType === "password" &&
+    !(await requireVaultForContinuation("start", startVaultCredentialLabel(), confirmStart))
+  ) {
+    return "awaiting_unlock";
+  }
+
+  const check = () =>
     uploadPreflight.check({
       environmentId,
       targets: [...targets],
       ...(environmentDraft.sshAuthType === "private_key"
         ? { privateKeyPassphrase: credentialSecret.value || undefined }
         : {}),
-    }),
-    cancellation,
-  ]);
-  if (preflight === null) return false;
-  return confirmRemoteOverwrite(cancellation);
+    });
+  let preflight;
+  try {
+    preflight = await Promise.race([check(), cancellation]);
+  } catch (error) {
+    if (!isExpiredProbeError(error)) throw error;
+    await uploadPreflight.reset();
+    if (!(await ensureHostTrusted(environmentId))) return "cancelled";
+    if (
+      environmentDraft.sshAuthType === "password" &&
+      !(await requireVaultForContinuation("start", startVaultCredentialLabel(), confirmStart))
+    ) {
+      return "awaiting_unlock";
+    }
+    preflight = await Promise.race([check(), cancellation]);
+  }
+  if (preflight === null) return "cancelled";
+  return (await confirmRemoteOverwrite(cancellation)) ? "accepted" : "cancelled";
 }
 
 function createStartCancellationSignal(): Promise<null> {
@@ -2342,6 +2500,7 @@ function createStartCancellationSignal(): Promise<null> {
 }
 
 async function confirmStart(): Promise<void> {
+  if (starting.value) return;
   const environmentId = selectedEnvironment.value?.id;
   const targetsError = validateReleasePackageTargets(selectedTargets.value);
   const isRetry = retryMode.value;
@@ -2364,6 +2523,7 @@ async function confirmStart(): Promise<void> {
   cancelPendingStart.value = false;
   const startCancellation = createStartCancellationSignal();
   let runtimeStartBegun = false;
+  let awaitingVaultUnlock = false;
   const retryTokenValue = retryToken.value;
   try {
     let overwriteExisting = false;
@@ -2378,11 +2538,15 @@ async function confirmStart(): Promise<void> {
       }
       overwriteExisting = overwriteDecision;
     } else if (packageType === "server_upload") {
-      const preflightAccepted = await Promise.race([
+      const preflightOutcome = await Promise.race([
         runUploadPreflight(environmentId, selectedTargets.value, startCancellation),
         startCancellation,
       ]);
-      if (preflightAccepted === null || !preflightAccepted) {
+      if (preflightOutcome === "awaiting_unlock") {
+        awaitingVaultUnlock = true;
+        return;
+      }
+      if (preflightOutcome === null || preflightOutcome === "cancelled") {
         await stopPendingActionDispatch("cancelled");
         return;
       }
@@ -2430,6 +2594,15 @@ async function confirmStart(): Promise<void> {
       }
     }
   } catch (error) {
+    if (
+      packageType === "server_upload" &&
+      environmentDraft.sshAuthType === "password" &&
+      isVaultLockedError(error)
+    ) {
+      requestVaultForContinuation("start", startVaultCredentialLabel(), confirmStart);
+      awaitingVaultUnlock = true;
+      return;
+    }
     if (runtimeStartBegun) {
       runtime.abortStart(error instanceof Error ? error.message : String(error));
     }
@@ -2441,13 +2614,15 @@ async function confirmStart(): Promise<void> {
     } catch (dispatchError) {
       showError(dispatchError);
     }
-    await handleUploadIntegrationError(error);
+    await handleUploadIntegrationError(error, "start");
   } finally {
     resolveStartCancellation = null;
     starting.value = false;
     cancelPendingStart.value = false;
-    productionConfirmed.value = false;
-    await clearSensitiveStartState();
+    if (!awaitingVaultUnlock) {
+      productionConfirmed.value = false;
+      await clearSensitiveStartState();
+    }
   }
 }
 
@@ -2522,10 +2697,7 @@ function handleLogScroll(lane: ReleasePackageLogLane): void {
   logFollowState[lane] = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
 }
 
-async function scrollLogToBottom(
-  lane: ReleasePackageLogLane,
-  force = false,
-): Promise<void> {
+async function scrollLogToBottom(lane: ReleasePackageLogLane, force = false): Promise<void> {
   await nextTick();
   const container = getLogContainer(lane);
   if (!container) return;
@@ -2579,6 +2751,11 @@ onMounted(async () => {
   } catch (error) {
     showError(error);
   }
+});
+
+onBeforeUnmount(() => {
+  vaultUnlockContext.value = null;
+  vaultInlineUnlock.reset();
 });
 </script>
 
@@ -3358,6 +3535,19 @@ onMounted(async () => {
   gap: 8px;
   margin-top: 16px;
 }
+.vault-configuration-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #f56c6c;
+  border-radius: 6px;
+  color: #c45656;
+  background: #fef0f0;
+  font-size: 13px;
+}
 .preflight-host,
 .preflight-target-row {
   display: grid;
@@ -3584,6 +3774,10 @@ onMounted(async () => {
   .preflight-target-row :deep(.el-tag) {
     grid-column: 2;
     justify-self: start;
+  }
+  .vault-configuration-error {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

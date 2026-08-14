@@ -200,6 +200,7 @@ declare module 'vue' {
     TopBar: typeof import('./src/components/TopBar.vue')['default']
     UuidPanel: typeof import('./src/components/UuidPanel.vue')['default']
     VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
+    VaultInlineUnlock: typeof import('./src/components/VaultInlineUnlock.vue')['default']
     VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
     VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
     VaultSecuritySettingsDialog: typeof import('./src/components/VaultSecuritySettingsDialog.vue')['default']

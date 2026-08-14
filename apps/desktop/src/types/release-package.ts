@@ -143,6 +143,7 @@ export interface ReleasePackageCommandRetryPrepareResult extends ReleasePackageR
   targets: ReleasePackageTarget[];
   authType: ReleasePackageSshAuthType;
   username: string;
+  vaultEntryId: number | null;
 }
 
 export interface ReleasePackageCommandRetryPreflightResult {
