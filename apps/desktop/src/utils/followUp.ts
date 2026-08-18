@@ -18,8 +18,12 @@ export function emptyFollowUpDraft(now = new Date()): FollowUpDraft {
 export function quickReviewAt(days: number, now = new Date()): string {
   const next = new Date(now);
   next.setDate(next.getDate() + days);
-  next.setSeconds(0, 0);
+  next.setHours(9, 0, 0, 0);
   return next.toISOString();
+}
+
+export function disabledFollowUpReviewMinutes(): number[] {
+  return Array.from({ length: 60 }, (_, minute) => minute).filter((minute) => minute % 15 !== 0);
 }
 
 export function followUpGroup(item: FollowUpItem, now = new Date()): FollowUpGroup {

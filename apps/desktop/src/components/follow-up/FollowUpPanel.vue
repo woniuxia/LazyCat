@@ -268,9 +268,12 @@
             <el-date-picker
               v-model="draft.reviewAt"
               type="datetime"
+              format="YYYY-MM-DD HH:mm"
               value-format="YYYY-MM-DDTHH:mm:ssZ"
               placeholder="选择复查时间"
               :disabled="editingEnded"
+              :default-time="reviewDefaultTime"
+              :disabled-minutes="disabledFollowUpReviewMinutes"
             /><el-button-group
               ><el-button
                 v-for="shortcut in shortcuts"
@@ -327,7 +330,10 @@
             <el-date-picker
               v-model="lifecycleReviewAt"
               type="datetime"
+              format="YYYY-MM-DD HH:mm"
               value-format="YYYY-MM-DDTHH:mm:ssZ"
+              :default-time="reviewDefaultTime"
+              :disabled-minutes="disabledFollowUpReviewMinutes"
             /><el-button-group
               ><el-button
                 v-for="shortcut in shortcuts"
@@ -375,6 +381,7 @@ import type {
   TodoAssignee,
 } from "../../types/follow-up";
 import {
+  disabledFollowUpReviewMinutes,
   emptyFollowUpDraft,
   externalDeadlineReached,
   followUpGroup,
@@ -402,6 +409,7 @@ const filters = reactive<FollowUpFilters>({
 });
 const draft = reactive<FollowUpDraft>(emptyFollowUpDraft());
 const priorities = ["P0", "P1", "P2", "P3"] as const;
+const reviewDefaultTime = new Date(2000, 0, 1, 9, 0, 0);
 const shortcuts = [
   { label: "明天", days: 1 },
   { label: "3 天后", days: 3 },

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { FollowUpItem } from "../types/follow-up";
-import { buildFollowUpTodoInput, externalDeadlineReached, groupFollowUpItems } from "./followUp";
+import {
+  buildFollowUpTodoInput,
+  disabledFollowUpReviewMinutes,
+  emptyFollowUpDraft,
+  externalDeadlineReached,
+  groupFollowUpItems,
+  quickReviewAt,
+} from "./followUp";
 
 function item(id: number, reviewAt: string | null, endedAt: string | null = null): FollowUpItem {
   return {
@@ -29,6 +36,23 @@ function item(id: number, reviewAt: string | null, endedAt: string | null = null
 }
 
 describe("follow-up grouping", () => {
+  it("defaults a new review to 09:00 on the next local day", () => {
+    const now = new Date("2026-08-18T22:47:30+08:00");
+    const expected = new Date(now);
+    expected.setDate(expected.getDate() + 1);
+    expected.setHours(9, 0, 0, 0);
+
+    expect(quickReviewAt(1, now)).toBe(expected.toISOString());
+    expect(emptyFollowUpDraft(now).reviewAt).toBe(expected.toISOString());
+  });
+
+  it("only enables quarter-hour review minute marks", () => {
+    const disabledMinutes = disabledFollowUpReviewMinutes();
+    expect(disabledMinutes).toHaveLength(56);
+    expect([0, 15, 30, 45].every((minute) => !disabledMinutes.includes(minute))).toBe(true);
+    expect([1, 14, 16, 59].every((minute) => disabledMinutes.includes(minute))).toBe(true);
+  });
+
   it("groups by persisted review time using the next seven local calendar days", () => {
     const now = new Date("2026-08-18T10:00:00+08:00");
     const groups = groupFollowUpItems(
