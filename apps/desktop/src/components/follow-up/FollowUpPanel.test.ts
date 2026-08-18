@@ -105,10 +105,16 @@ describe("FollowUpPanel", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads and renders the four review groups with scan metadata", async () => {
+  it("defaults to all items and switches to a review group", async () => {
     const { app, root } = await mountPanel();
+    const sectionButtons = Array.from(root.querySelectorAll<HTMLButtonElement>(".section-button"));
+    expect(sectionButtons[0]?.textContent).toContain("全部");
+    expect(sectionButtons[0]?.textContent).toContain("4");
+    expect(sectionButtons[0]?.classList.contains("active")).toBe(true);
     expect(root.textContent).toContain("待复查");
     expect(root.textContent).toContain("现在复查");
+    expect(root.textContent).toContain("以后事项");
+    expect(root.textContent).toContain("已结束事项");
     expect(root.textContent).toContain("等待最终确认");
     expect(root.textContent).toContain("外部期限已到");
     const firstCard = root.querySelector(".follow-up-card");
@@ -122,6 +128,7 @@ describe("FollowUpPanel", () => {
     later?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await nextTick();
     expect(root.textContent).toContain("以后事项");
+    expect(root.querySelector(".follow-up-scroll")?.textContent).not.toContain("现在复查");
     app.unmount();
   });
 

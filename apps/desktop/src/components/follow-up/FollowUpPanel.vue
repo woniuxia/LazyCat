@@ -10,7 +10,7 @@
         @click="activeGroup = section.key"
       >
         <span>{{ section.label }}</span
-        ><span class="section-count">{{ groups[section.key].length }}</span>
+        ><span class="section-count">{{ sectionCounts[section.key] }}</span>
       </button>
       <div class="sidebar-filter-title">筛选</div>
       <el-select v-model="filters.personId" clearable placeholder="全部责任人" size="small">
@@ -383,6 +383,7 @@ import {
 } from "../../utils/followUp";
 
 const emit = defineEmits<{ createTodo: [item: FollowUpItem] }>();
+type FollowUpSectionKey = "all" | FollowUpGroup;
 let reminderUnlisten: UnlistenFn | null = null;
 let loadSequence = 0;
 const loading = ref(true),
@@ -390,7 +391,7 @@ const loading = ref(true),
   items = ref<FollowUpItem[]>([]),
   assignees = ref<TodoAssignee[]>([]),
   selectedId = ref<number | null>(null),
-  activeGroup = ref<FollowUpGroup>("due"),
+  activeGroup = ref<FollowUpSectionKey>("all"),
   editVisible = ref(false),
   lifecycleVisible = ref(false);
 const filters = reactive<FollowUpFilters>({
@@ -406,19 +407,30 @@ const shortcuts = [
   { label: "3 天后", days: 3 },
   { label: "1 周后", days: 7 },
 ];
-const sections: [
-  { key: FollowUpGroup; label: string },
-  { key: FollowUpGroup; label: string },
-  { key: FollowUpGroup; label: string },
-  { key: FollowUpGroup; label: string },
-] = [
+const sections: ReadonlyArray<{ key: FollowUpSectionKey; label: string }> = [
+  { key: "all", label: "全部" },
   { key: "due", label: "待复查" },
   { key: "soon", label: "近期复查" },
   { key: "later", label: "以后复查" },
   { key: "ended", label: "已结束" },
 ];
 const groups = computed(() => groupFollowUpItems(items.value));
-const visibleItems = computed(() => groups.value[activeGroup.value]);
+const allItems = computed(() => [
+  ...groups.value.due,
+  ...groups.value.soon,
+  ...groups.value.later,
+  ...groups.value.ended,
+]);
+const sectionCounts = computed<Record<FollowUpSectionKey, number>>(() => ({
+  all: allItems.value.length,
+  due: groups.value.due.length,
+  soon: groups.value.soon.length,
+  later: groups.value.later.length,
+  ended: groups.value.ended.length,
+}));
+const visibleItems = computed(() =>
+  activeGroup.value === "all" ? allItems.value : groups.value[activeGroup.value],
+);
 const selected = computed(() => items.value.find((item) => item.id === selectedId.value) ?? null);
 const activeGroupLabel = computed(
   () => sections.find((section) => section.key === activeGroup.value)?.label ?? "",
@@ -426,7 +438,9 @@ const activeGroupLabel = computed(
 const emptyDescription = computed(() =>
   filters.keyword || filters.personId || filters.priority || filters.attentionStatus
     ? "当前筛选条件下暂无关注事项"
-    : `${activeGroupLabel.value}暂无关注事项`,
+    : activeGroup.value === "all"
+      ? "暂无关注事项"
+      : `${activeGroupLabel.value}暂无关注事项`,
 );
 const editingEnded = computed(() =>
   Boolean(draft.id && selected.value?.attentionStatus === "ended"),
@@ -525,7 +539,7 @@ async function saveItem() {
     selectedId.value = saved.id;
     await loadItems();
     const current = items.value.find((item) => item.id === saved.id);
-    if (current) activeGroup.value = followUpGroup(current);
+    if (current && activeGroup.value !== "all") activeGroup.value = followUpGroup(current);
     ElMessage.success(draft.id ? "关注事项已更新" : "关注事项已创建");
   } catch (error) {
     ElMessage.error((error as Error).message || "保存失败");
@@ -580,7 +594,8 @@ async function submitLifecycle() {
     });
     lifecycleVisible.value = false;
     await reloadSelected();
-    if (selected.value) activeGroup.value = followUpGroup(selected.value);
+    if (selected.value && activeGroup.value !== "all")
+      activeGroup.value = followUpGroup(selected.value);
     ElMessage.success("状态已更新");
   } catch (error) {
     ElMessage.error((error as Error).message || "状态更新失败");
