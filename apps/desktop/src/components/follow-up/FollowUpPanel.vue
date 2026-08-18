@@ -265,16 +265,26 @@
         </div>
         <el-form-item label="复查时间" :required="!editingEnded"
           ><div class="date-field">
-            <el-date-picker
-              v-model="draft.reviewAt"
-              type="datetime"
-              format="YYYY-MM-DD HH:mm"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="选择复查时间"
-              :disabled="editingEnded"
-              :default-time="reviewDefaultTime"
-              :disabled-minutes="disabledFollowUpReviewMinutes"
-            /><el-button-group
+            <div class="review-date-time">
+              <el-date-picker
+                v-model="draftReviewDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择复查日期"
+                :disabled="editingEnded"
+              />
+              <el-time-select
+                v-model="draftReviewTime"
+                class="follow-up-review-time"
+                start="00:00"
+                step="00:15"
+                end="23:45"
+                placeholder="选择时间"
+                :clearable="false"
+                :disabled="editingEnded || !draftReviewDate"
+              />
+            </div>
+            <el-button-group
               ><el-button
                 v-for="shortcut in shortcuts"
                 :key="shortcut.days"
@@ -327,14 +337,25 @@
         /></el-form-item>
         <el-form-item v-if="lifecycleNeedsReview" label="新的复查时间" required
           ><div class="date-field">
-            <el-date-picker
-              v-model="lifecycleReviewAt"
-              type="datetime"
-              format="YYYY-MM-DD HH:mm"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              :default-time="reviewDefaultTime"
-              :disabled-minutes="disabledFollowUpReviewMinutes"
-            /><el-button-group
+            <div class="review-date-time">
+              <el-date-picker
+                v-model="lifecycleReviewDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择复查日期"
+              />
+              <el-time-select
+                v-model="lifecycleReviewTime"
+                class="follow-up-review-time"
+                start="00:00"
+                step="00:15"
+                end="23:45"
+                placeholder="选择时间"
+                :clearable="false"
+                :disabled="!lifecycleReviewDate"
+              />
+            </div>
+            <el-button-group
               ><el-button
                 v-for="shortcut in shortcuts"
                 :key="shortcut.days"
@@ -381,13 +402,13 @@ import type {
   TodoAssignee,
 } from "../../types/follow-up";
 import {
-  disabledFollowUpReviewMinutes,
   emptyFollowUpDraft,
   externalDeadlineReached,
   followUpGroup,
   groupFollowUpItems,
   quickReviewAt,
 } from "../../utils/followUp";
+import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedule";
 
 const emit = defineEmits<{ createTodo: [item: FollowUpItem] }>();
 type FollowUpSectionKey = "all" | FollowUpGroup;
@@ -409,7 +430,6 @@ const filters = reactive<FollowUpFilters>({
 });
 const draft = reactive<FollowUpDraft>(emptyFollowUpDraft());
 const priorities = ["P0", "P1", "P2", "P3"] as const;
-const reviewDefaultTime = new Date(2000, 0, 1, 9, 0, 0);
 const shortcuts = [
   { label: "明天", days: 1 },
   { label: "3 天后", days: 3 },
@@ -457,6 +477,40 @@ type LifecycleMode = "continue" | "completed" | "canceled" | "stop" | "reopen";
 const lifecycleMode = ref<LifecycleMode>("continue"),
   lifecycleContent = ref(""),
   lifecycleReviewAt = ref("");
+function reviewPart(value: string, part: "date" | "time") {
+  return splitDateTimeParts(value)[part];
+}
+function updateReviewPart(value: string, part: "date" | "time", nextPart: string) {
+  if (!nextPart) return "";
+  const current = splitDateTimeParts(value);
+  const date = part === "date" ? nextPart : current.date;
+  const time = part === "time" ? nextPart : current.time || "09:00";
+  return combineDateTimeParts(date, time) ?? "";
+}
+const draftReviewDate = computed({
+  get: () => reviewPart(draft.reviewAt, "date"),
+  set: (value: string) => {
+    draft.reviewAt = updateReviewPart(draft.reviewAt, "date", value);
+  },
+});
+const draftReviewTime = computed({
+  get: () => reviewPart(draft.reviewAt, "time"),
+  set: (value: string) => {
+    draft.reviewAt = updateReviewPart(draft.reviewAt, "time", value);
+  },
+});
+const lifecycleReviewDate = computed({
+  get: () => reviewPart(lifecycleReviewAt.value, "date"),
+  set: (value: string) => {
+    lifecycleReviewAt.value = updateReviewPart(lifecycleReviewAt.value, "date", value);
+  },
+});
+const lifecycleReviewTime = computed({
+  get: () => reviewPart(lifecycleReviewAt.value, "time"),
+  set: (value: string) => {
+    lifecycleReviewAt.value = updateReviewPart(lifecycleReviewAt.value, "time", value);
+  },
+});
 const lifecycleNeedsReview = computed(
   () => lifecycleMode.value === "continue" || lifecycleMode.value === "reopen",
 );
@@ -1118,6 +1172,17 @@ defineExpose({ focus, loadItems });
   gap: 8px;
   width: 100%;
 }
+.review-date-time {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) 112px;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.review-date-time .el-date-editor,
+.review-date-time .el-select {
+  width: 100%;
+}
 .person-field .el-select,
 .date-field .el-date-editor {
   flex: 1;
@@ -1173,6 +1238,9 @@ defineExpose({ focus, loadItems });
   .date-field {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .review-date-time {
+    width: 100%;
   }
   .card-meta {
     grid-template-columns: 1fr;

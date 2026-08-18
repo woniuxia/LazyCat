@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { FollowUpItem } from "../types/follow-up";
 import {
   buildFollowUpTodoInput,
-  disabledFollowUpReviewMinutes,
   emptyFollowUpDraft,
   externalDeadlineReached,
   groupFollowUpItems,
@@ -44,13 +43,6 @@ describe("follow-up grouping", () => {
 
     expect(quickReviewAt(1, now)).toBe(expected.toISOString());
     expect(emptyFollowUpDraft(now).reviewAt).toBe(expected.toISOString());
-  });
-
-  it("only enables quarter-hour review minute marks", () => {
-    const disabledMinutes = disabledFollowUpReviewMinutes();
-    expect(disabledMinutes).toHaveLength(56);
-    expect([0, 15, 30, 45].every((minute) => !disabledMinutes.includes(minute))).toBe(true);
-    expect([1, 14, 16, 59].every((minute) => disabledMinutes.includes(minute))).toBe(true);
   });
 
   it("groups by persisted review time using the next seven local calendar days", () => {

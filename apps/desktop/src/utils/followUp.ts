@@ -22,10 +22,6 @@ export function quickReviewAt(days: number, now = new Date()): string {
   return next.toISOString();
 }
 
-export function disabledFollowUpReviewMinutes(): number[] {
-  return Array.from({ length: 60 }, (_, minute) => minute).filter((minute) => minute % 15 !== 0);
-}
-
 export function followUpGroup(item: FollowUpItem, now = new Date()): FollowUpGroup {
   if (item.attentionStatus === "ended") return "ended";
   const reviewAt = new Date(item.reviewAt ?? "");

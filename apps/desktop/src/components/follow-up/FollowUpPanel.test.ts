@@ -146,6 +146,34 @@ describe("FollowUpPanel", () => {
     app.unmount();
   });
 
+  it("uses stepped controls for quarter-hour review selection", async () => {
+    const { app, root } = await mountPanel();
+    buttonByText(root, "新增关注事项")?.click();
+    await nextTick();
+
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const dateInput = dialog?.querySelector<HTMLInputElement>(".review-date-time input");
+    const timeInput = dialog?.querySelector<HTMLInputElement>(".follow-up-review-time input");
+    const selectedTimes = Array.from(
+      dialog?.querySelectorAll<HTMLElement>(".follow-up-review-time .el-select__selected-item") ??
+        [],
+      (item) => item.textContent?.trim(),
+    );
+    if (!dateInput || !timeInput) throw new Error("review date and time inputs did not render");
+    expect(dateInput.value).toBe("2026-08-19");
+    expect(selectedTimes).toContain("09:00");
+    timeInput.click();
+    await nextTick();
+
+    const options = Array.from(
+      document.body.querySelectorAll<HTMLElement>(".el-select-dropdown__item"),
+      (option) => option.textContent?.trim(),
+    ).filter((option): option is string => Boolean(option && /^\d{2}:\d{2}$/.test(option)));
+    expect(options.slice(0, 5)).toEqual(["00:00", "00:15", "00:30", "00:45", "01:00"]);
+    expect(options).not.toContain("00:01");
+    app.unmount();
+  });
+
   it("keeps the newest list response when requests finish out of order", async () => {
     const { app, panel, root } = await mountPanel();
     const older = deferred<FollowUpItem[]>();
