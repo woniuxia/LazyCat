@@ -12,6 +12,7 @@ pub mod encode;
 pub mod env;
 pub mod file;
 pub mod file_lock;
+pub mod follow_up;
 pub mod format;
 pub mod gen;
 pub mod helpers;
@@ -89,6 +90,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "crypto" => crypto::execute(action, payload),
         "data_dictionary" => data_dictionary::execute(action, payload),
         "format" => format::execute(action, payload),
+        "follow_up" => follow_up::execute(action, payload),
         "network" => network::execute(action, payload),
         "dns" => dns::execute(action, payload),
         "env" => env::execute(action, payload),
@@ -141,6 +143,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "crypto" => Some(crypto::supported_actions()),
         "data_dictionary" => Some(data_dictionary::supported_actions()),
         "format" => Some(format::supported_actions()),
+        "follow_up" => Some(follow_up::supported_actions()),
         "network" => Some(network::supported_actions()),
         "dns" => Some(dns::supported_actions()),
         "env" => Some(env::supported_actions()),

@@ -23,6 +23,7 @@ const DOMAINS: &[&str] = &[
     "crypto",
     "data_dictionary",
     "format",
+    "follow_up",
     "network",
     "request_forward",
     "dns",

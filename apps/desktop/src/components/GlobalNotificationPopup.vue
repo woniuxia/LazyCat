@@ -47,6 +47,17 @@
         </div>
       </section>
 
+      <section v-else-if="currentFollowUp" class="notification-card">
+        <div class="title-row">
+          <span class="status-badge priority-badge">复查</span>
+          <h1 class="notification-title">{{ currentFollowUp.title }}</h1>
+        </div>
+        <p class="notification-body">{{ currentFollowUp.body }}</p>
+        <div v-if="currentFollowUp.reviewAt" class="notification-footer">
+          <span>复查时间</span><strong>{{ formatFireTime(currentFollowUp.reviewAt) }}</strong>
+        </div>
+      </section>
+
       <section v-else-if="currentPackage" class="notification-card package-card">
         <div class="title-row">
           <span class="status-badge" :class="`package-${currentPackage.status}`">{{
@@ -124,6 +135,39 @@
               :command="option.minutes"
               >{{ option.label }}</el-dropdown-item
             >
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </footer>
+
+    <footer v-else-if="currentFollowUp" class="popup-actions">
+      <button
+        class="action-btn action-primary"
+        type="button"
+        :disabled="actionPending"
+        @click="openFollowUp"
+      >
+        查看
+      </button>
+      <el-dropdown
+        v-if="currentFollowUp.itemId"
+        trigger="click"
+        placement="top-end"
+        :disabled="actionPending"
+        @command="handleFollowUpSnooze"
+      >
+        <button class="action-btn action-ghost" type="button" :disabled="actionPending">
+          稍后提醒 <span>▾</span>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="option in snoozeOptions"
+              :key="option.minutes"
+              :command="option.minutes"
+            >
+              {{ option.label }}
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -220,6 +264,9 @@ const currentNotification = computed(() => queue.value[0] ?? null);
 const currentTodo = computed(() =>
   currentNotification.value?.kind === "todo-reminder" ? currentNotification.value : null,
 );
+const currentFollowUp = computed(() =>
+  currentNotification.value?.kind === "follow-up-review" ? currentNotification.value : null,
+);
 const currentPackage = computed(() =>
   currentNotification.value?.kind === "release-package" ? currentNotification.value : null,
 );
@@ -278,18 +325,22 @@ const canOpenDirectory = computed(() =>
 );
 const headerTitle = computed(() => {
   if (currentTodo.value) return "任务提醒";
+  if (currentFollowUp.value) return "关注事项复查";
   if (currentActionCombination.value) return actionCombinationCopy.value.title;
   return packageCopy.value.title;
 });
 const headerSubtitle = computed(() =>
   currentTodo.value
     ? formatFireTime(currentTodo.value.fireAt)
-    : currentActionCombination.value
-      ? "动作中心运行结果"
-      : "上线包打包结果",
+    : currentFollowUp.value
+      ? `${currentFollowUp.value.dueCount} 项待复查`
+      : currentActionCombination.value
+        ? "动作中心运行结果"
+        : "上线包打包结果",
 );
 const headerIcon = computed(() => {
   if (currentTodo.value) return AlarmClock;
+  if (currentFollowUp.value) return AlarmClock;
   if (currentActionCombination.value?.status === "failed") return WarningFilled;
   if (currentActionCombination.value) return CircleCheckFilled;
   if (
@@ -303,7 +354,7 @@ const headerIcon = computed(() => {
   return CircleCheckFilled;
 });
 const headerTone = computed(() =>
-  currentTodo.value
+  currentTodo.value || currentFollowUp.value
     ? "tone-reminder"
     : `tone-${currentActionCombination.value?.status ?? currentPackage.value?.status ?? "failed"}`,
 );
@@ -398,6 +449,21 @@ async function handleSnoozeCommand(minutes: string | number) {
       taskReminderId: item.taskReminderId,
       minutes: duration,
     }),
+  );
+}
+async function openFollowUp() {
+  const item = currentFollowUp.value;
+  if (!item) return;
+  await runAction(() =>
+    invoke("global_notification_open_follow_up", { itemId: item.itemId ?? null }),
+  );
+}
+async function handleFollowUpSnooze(minutes: string | number) {
+  const item = currentFollowUp.value;
+  const duration = Number(minutes);
+  if (!item?.itemId || !Number.isFinite(duration)) return;
+  await runAction(() =>
+    invoke("follow_up_popup_snooze", { itemId: item.itemId, minutes: duration }),
   );
 }
 async function openReleasePackageTool() {

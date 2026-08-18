@@ -1,5 +1,10 @@
 use chrono::Local;
 use serde::Serialize;
+use std::sync::{
+    atomic::{AtomicU8, Ordering},
+    mpsc, Arc,
+};
+use std::time::Duration;
 use tauri::{
     webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -7,6 +12,7 @@ use tauri::{
 
 use crate::events::EVENT_GLOBAL_NOTIFICATION_PUSH;
 use crate::tools::action_center::CombinationRunDetail;
+use crate::tools::follow_up::ReminderDispatch as FollowUpReminderDispatch;
 use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
 use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
 
@@ -47,6 +53,17 @@ pub(crate) enum GlobalNotification {
         reminder_preset: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<ReminderActionSummary>,
+    },
+    FollowUpReview {
+        id: String,
+        created_at: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        item_id: Option<i64>,
+        due_count: usize,
+        title: String,
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        review_at: Option<String>,
     },
     ReleasePackage {
         id: String,
@@ -177,6 +194,30 @@ pub(crate) fn todo_notifications(reminders: Vec<ReminderDispatch>) -> Vec<Global
         .collect()
 }
 
+pub(crate) fn follow_up_notifications(
+    reminders: Vec<FollowUpReminderDispatch>,
+) -> Vec<GlobalNotification> {
+    let created_at = Local::now().to_rfc3339();
+    reminders
+        .into_iter()
+        .map(|reminder| {
+            let identity = reminder
+                .item_id
+                .map(|id| format!("item:{id}:{}", reminder.review_at.as_deref().unwrap_or("")))
+                .unwrap_or_else(|| format!("aggregate:{created_at}"));
+            GlobalNotification::FollowUpReview {
+                id: format!("follow-up-review:{identity}"),
+                created_at: created_at.clone(),
+                item_id: reminder.item_id,
+                due_count: reminder.due_count,
+                title: reminder.title,
+                body: reminder.body,
+                review_at: reminder.review_at,
+            }
+        })
+        .collect()
+}
+
 fn notification_init_script(notifications: &[GlobalNotification]) -> String {
     let serialized = serde_json::to_string(notifications).unwrap_or_else(|_| "[]".to_string());
     format!(
@@ -215,58 +256,152 @@ fn position_notification_window(window: &WebviewWindow) {
 }
 
 pub(crate) fn show_notifications(app: &AppHandle, notifications: Vec<GlobalNotification>) {
+    if let Err(error) = try_show_notifications(app, notifications) {
+        eprintln!("show global notifications failed: {error}");
+    }
+}
+
+pub(crate) fn try_show_notifications(
+    app: &AppHandle,
+    notifications: Vec<GlobalNotification>,
+) -> Result<(), String> {
     if notifications.is_empty() {
-        return;
+        return Ok(());
     }
 
     let app_handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        if let Some(window) = app_handle.get_webview_window(GLOBAL_NOTIFICATION_LABEL) {
-            position_notification_window(&window);
-            let _ = window.show();
-            let _ = window.set_focus();
-            #[cfg(windows)]
-            crate::force_foreground(&window);
-            let _ = window.emit(EVENT_GLOBAL_NOTIFICATION_PUSH, &notifications);
+    let (sender, receiver) = mpsc::sync_channel(1);
+    const DISPLAY_PENDING: u8 = 0;
+    const DISPLAY_RUNNING: u8 = 1;
+    const DISPLAY_CANCELLED: u8 = 2;
+    let display_state = Arc::new(AtomicU8::new(DISPLAY_PENDING));
+    let main_thread_state = Arc::clone(&display_state);
+    app.run_on_main_thread(move || {
+        if main_thread_state
+            .compare_exchange(
+                DISPLAY_PENDING,
+                DISPLAY_RUNNING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            let _ = sender.send(Err(
+                "notification display was cancelled before starting".into()
+            ));
             return;
         }
+        let result = (|| -> Result<(), String> {
+            if let Some(window) = app_handle.get_webview_window(GLOBAL_NOTIFICATION_LABEL) {
+                window
+                    .emit(EVENT_GLOBAL_NOTIFICATION_PUSH, &notifications)
+                    .map_err(|error| format!("emit notification payload failed: {error}"))?;
+                position_notification_window(&window);
+                window
+                    .show()
+                    .map_err(|error| format!("show notification window failed: {error}"))?;
+                if let Err(error) = window.set_focus() {
+                    eprintln!("focus notification window failed: {error}");
+                }
+                #[cfg(windows)]
+                crate::force_foreground(&window);
+                return Ok(());
+            }
 
-        let initial_notifications = notifications.clone();
-        let builder =
-            WebviewWindowBuilder::new(&app_handle, GLOBAL_NOTIFICATION_LABEL, notification_url())
-                .title(GLOBAL_NOTIFICATION_TITLE)
-                .inner_size(
-                    GLOBAL_NOTIFICATION_WIDTH as f64,
-                    GLOBAL_NOTIFICATION_HEIGHT as f64,
-                )
-                .decorations(false)
-                .always_on_top(true)
-                .resizable(false)
-                .skip_taskbar(true)
-                .focused(true)
-                .transparent(false)
-                .visible(false)
-                .initialization_script(notification_init_script(&notifications))
-                .on_page_load(move |window, payload| {
-                    if let PageLoadEvent::Finished = payload.event() {
-                        let _ = window.emit(EVENT_GLOBAL_NOTIFICATION_PUSH, &initial_notifications);
+            let initial_notifications = notifications.clone();
+            let builder = WebviewWindowBuilder::new(
+                &app_handle,
+                GLOBAL_NOTIFICATION_LABEL,
+                notification_url(),
+            )
+            .title(GLOBAL_NOTIFICATION_TITLE)
+            .inner_size(
+                GLOBAL_NOTIFICATION_WIDTH as f64,
+                GLOBAL_NOTIFICATION_HEIGHT as f64,
+            )
+            .decorations(false)
+            .always_on_top(true)
+            .resizable(false)
+            .skip_taskbar(true)
+            .focused(true)
+            .transparent(false)
+            .visible(false)
+            .initialization_script(notification_init_script(&notifications))
+            .on_page_load(move |window, payload| {
+                if let PageLoadEvent::Finished = payload.event() {
+                    if let Err(error) =
+                        window.emit(EVENT_GLOBAL_NOTIFICATION_PUSH, &initial_notifications)
+                    {
+                        eprintln!("emit initial notification payload failed: {error}");
                     }
-                });
+                }
+            });
 
-        let Ok(window) = builder.build() else {
-            return;
-        };
-        position_notification_window(&window);
-        let _ = window.show();
-        let _ = window.set_focus();
-        #[cfg(windows)]
-        crate::force_foreground(&window);
-    });
+            let window = builder
+                .build()
+                .map_err(|error| format!("build notification window failed: {error}"))?;
+            position_notification_window(&window);
+            window
+                .show()
+                .map_err(|error| format!("show notification window failed: {error}"))?;
+            if let Err(error) = window.set_focus() {
+                eprintln!("focus notification window failed: {error}");
+            }
+            #[cfg(windows)]
+            crate::force_foreground(&window);
+            Ok(())
+        })();
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("schedule notification display failed: {error}"))?;
+
+    match receiver.recv_timeout(Duration::from_secs(5)) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            if display_state
+                .compare_exchange(
+                    DISPLAY_PENDING,
+                    DISPLAY_CANCELLED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return Err("wait for notification display timed out before it started".into());
+            }
+            receiver
+                .recv()
+                .map_err(|error| format!("wait for running notification display failed: {error}"))?
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err("notification display result channel disconnected".into())
+        }
+    }
 }
 
 #[tauri::command]
 pub(crate) fn global_notification_open_tool(app: AppHandle, tool_id: String) -> Result<(), String> {
     crate::navigate_main_window_to_tool(&app, &tool_id)
+}
+
+#[tauri::command]
+pub(crate) fn global_notification_open_follow_up(
+    app: AppHandle,
+    item_id: Option<i64>,
+) -> Result<(), String> {
+    crate::navigate_main_window_to_tool_context(
+        &app,
+        "todo",
+        item_id.map(|id| id.to_string()),
+        Some(
+            if item_id.is_some() {
+                "follow-up"
+            } else {
+                "follow-up-due"
+            }
+            .to_string(),
+        ),
+    )
 }
 
 #[tauri::command]
@@ -290,12 +425,43 @@ pub(crate) fn global_notification_open_action_run(
 mod tests {
     use super::{
         build_action_combination_notification, build_release_package_notification,
-        todo_notifications, GlobalNotification,
+        follow_up_notifications, todo_notifications, GlobalNotification,
     };
     use crate::tools::action_center::{CombinationRunDetail, CombinationRunStep, ExecutionMode};
+    use crate::tools::follow_up::ReminderDispatch as FollowUpReminderDispatch;
     use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
     use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
     use serde_json::{json, Value};
+
+    #[test]
+    fn follow_up_notifications_keep_individual_and_aggregate_navigation_contracts() {
+        let notifications = follow_up_notifications(vec![
+            FollowUpReminderDispatch {
+                item_id: Some(7),
+                due_count: 1,
+                title: "关注事项待复查".into(),
+                body: "确认接口进度".into(),
+                review_at: Some("2026-08-18T01:00:00+00:00".into()),
+                dispatch_targets: vec![],
+            },
+            FollowUpReminderDispatch {
+                item_id: None,
+                due_count: 3,
+                title: "关注事项待复查".into(),
+                body: "有 3 项关注事项需要复查".into(),
+                review_at: None,
+                dispatch_targets: vec![],
+            },
+        ]);
+        let individual = serde_json::to_value(&notifications[0]).unwrap();
+        let aggregate = serde_json::to_value(&notifications[1]).unwrap();
+        assert_eq!(individual["kind"], "follow-up-review");
+        assert_eq!(individual["itemId"], 7);
+        assert_eq!(individual["dueCount"], 1);
+        assert_eq!(aggregate["dueCount"], 3);
+        assert!(aggregate.get("itemId").is_none());
+        assert!(aggregate.get("reviewAt").is_none());
+    }
 
     fn release_payload(status: &str) -> Value {
         let notification = build_release_package_notification(

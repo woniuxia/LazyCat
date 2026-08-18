@@ -4,7 +4,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::events::{
-    EVENT_CLIPBOARD_CHANGED, EVENT_POMODORO_STATE_CHANGED, EVENT_TODO_REMINDER_FIRED,
+    EVENT_CLIPBOARD_CHANGED, EVENT_FOLLOW_UP_REVIEW_DUE, EVENT_POMODORO_STATE_CHANGED,
+    EVENT_TODO_REMINDER_FIRED,
 };
 use crate::{global_notification, tools, window_manager};
 
@@ -13,6 +14,12 @@ static CLIPBOARD_MONITOR_RUNNING: AtomicBool = AtomicBool::new(false);
 pub(crate) fn emit_todo_refresh_event(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit(EVENT_TODO_REMINDER_FIRED, json!({ "refresh": true }));
+    }
+}
+
+fn emit_follow_up_refresh_event(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit(EVENT_FOLLOW_UP_REVIEW_DUE, json!({ "refresh": true }));
     }
 }
 
@@ -54,6 +61,18 @@ pub(crate) fn reminder_popup_snooze(
 }
 
 #[tauri::command]
+pub(crate) fn follow_up_popup_snooze(
+    app: tauri::AppHandle,
+    item_id: i64,
+    minutes: i64,
+) -> Result<Value, String> {
+    let result =
+        tools::follow_up::execute("item_snooze", &json!({ "id": item_id, "minutes": minutes }))?;
+    emit_follow_up_refresh_event(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub(crate) fn reminder_popup_dismiss(
     app: tauri::AppHandle,
     event_id: i64,
@@ -89,6 +108,28 @@ pub(crate) fn start_todo_scheduler(app: tauri::AppHandle) {
             Err(_) => {
                 // 调度失败不影响主流程，等待下一轮重试
             }
+        }
+
+        match tools::follow_up::scheduler_tick() {
+            Ok(reminders) if !reminders.is_empty() => {
+                let notifications = global_notification::follow_up_notifications(reminders.clone());
+                if let Err(display_error) =
+                    global_notification::try_show_notifications(&app, notifications)
+                {
+                    eprintln!(
+                        "follow-up notification display failed; pending reminders will retry: {display_error}"
+                    );
+                } else {
+                    match tools::follow_up::acknowledge_scheduler_dispatches(&reminders) {
+                        Ok(()) => emit_follow_up_refresh_event(&app),
+                        Err(error) => eprintln!(
+                            "follow-up notification displayed but acknowledgement failed; reminders may retry: {error}"
+                        ),
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(error) => eprintln!("follow-up scheduler tick failed: {error}"),
         }
 
         std::thread::sleep(Duration::from_secs(30));

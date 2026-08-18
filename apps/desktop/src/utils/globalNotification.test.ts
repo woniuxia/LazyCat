@@ -60,6 +60,17 @@ const actionCombinationNotification = {
   error: "路径不存在",
 };
 
+const followUpNotification = {
+  kind: "follow-up-review" as const,
+  id: "follow-up-review:item:7:2026-08-18T01:00:00+00:00",
+  createdAt: "2026-08-18T02:00:00+00:00",
+  itemId: 7,
+  dueCount: 1,
+  title: "关注事项待复查",
+  body: "确认接口进度",
+  reviewAt: "2026-08-18T01:00:00+00:00",
+};
+
 describe("normalizeGlobalNotificationPayload", () => {
   it("normalizes a single notification", () => {
     expect(normalizeGlobalNotificationPayload(todoNotification)).toEqual([todoNotification]);
@@ -80,6 +91,20 @@ describe("normalizeGlobalNotificationPayload", () => {
     expect(normalizeGlobalNotificationPayload(actionCombinationNotification)).toEqual([
       actionCombinationNotification,
     ]);
+  });
+
+  it("accepts individual and aggregate follow-up review notifications", () => {
+    expect(normalizeGlobalNotificationPayload(followUpNotification)).toEqual([
+      followUpNotification,
+    ]);
+    const { itemId: _itemId, reviewAt: _reviewAt, ...aggregate } = followUpNotification;
+    expect(
+      normalizeGlobalNotificationPayload({
+        ...aggregate,
+        id: "follow-up-review:aggregate:1",
+        dueCount: 3,
+      }),
+    ).toHaveLength(1);
   });
 
   it.each(["runId", "combinationId", "combinationName", "status", "failedStepLabels"] as const)(
@@ -278,6 +303,12 @@ describe("mergeGlobalNotificationQueue", () => {
 });
 
 describe("globalNotificationActions", () => {
+  it("allows snooze only for an individual follow-up review", () => {
+    expect(globalNotificationActions(followUpNotification)).toEqual(["open-tool", "snooze"]);
+    const { itemId: _itemId, reviewAt: _reviewAt, ...aggregate } = followUpNotification;
+    expect(globalNotificationActions({ ...aggregate, dueCount: 3 })).toEqual(["open-tool"]);
+  });
+
   it("returns todo reminder actions", () => {
     expect(globalNotificationActions(todoNotification)).toEqual(["complete", "dismiss", "snooze"]);
   });

@@ -37,6 +37,15 @@ export interface TodoReminderNotification extends GlobalNotificationBase {
   action?: TodoReminderActionSummary;
 }
 
+export interface FollowUpReviewNotification extends GlobalNotificationBase {
+  kind: "follow-up-review";
+  itemId?: number;
+  dueCount: number;
+  title: string;
+  body: string;
+  reviewAt?: string;
+}
+
 export interface ReleasePackageNotification extends GlobalNotificationBase {
   kind: "release-package";
   runId: string;
@@ -62,5 +71,6 @@ export interface ActionCombinationNotification extends GlobalNotificationBase {
 
 export type GlobalNotification =
   | TodoReminderNotification
+  | FollowUpReviewNotification
   | ReleasePackageNotification
   | ActionCombinationNotification;

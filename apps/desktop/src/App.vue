@@ -324,6 +324,9 @@ async function handleHotkeyNavigate(intent: HotkeyNavigationIntent): Promise<voi
   } else if (intent.focus?.kind === "todo") {
     const { useTodoNavigation } = await import("./composables/useTodoNavigation");
     useTodoNavigation().requestFocus(intent.focus.itemId);
+  } else if (intent.focus?.kind === "follow-up") {
+    const { useTodoNavigation } = await import("./composables/useTodoNavigation");
+    useTodoNavigation().requestFollowUp(intent.focus.itemId, intent.focus.dueOnly);
   } else if (intent.focus?.kind === "data-dictionary") {
     const { useDataDictionaryNavigation } =
       await import("./composables/useDataDictionaryNavigation");

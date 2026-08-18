@@ -2,6 +2,7 @@ pub const EVENT_MAIN_WINDOW_TOGGLE: &str = "main-window-toggle";
 pub const EVENT_HOTKEY_NAVIGATE: &str = "hotkey-navigate";
 pub const EVENT_CLIPBOARD_CHANGED: &str = "clipboard-changed";
 pub const EVENT_TODO_REMINDER_FIRED: &str = "todo-reminder-fired";
+pub const EVENT_FOLLOW_UP_REVIEW_DUE: &str = "follow-up-review-due";
 pub const EVENT_GLOBAL_NOTIFICATION_PUSH: &str = "global-notification-push";
 pub const EVENT_POMODORO_STATE_CHANGED: &str = "pomodoro-state-changed";
 pub const EVENT_QUICK_CAPTURE_RESET: &str = "quick-capture-reset";
@@ -25,6 +26,7 @@ pub const ALL: &[&str] = &[
     EVENT_HOTKEY_NAVIGATE,
     EVENT_CLIPBOARD_CHANGED,
     EVENT_TODO_REMINDER_FIRED,
+    EVENT_FOLLOW_UP_REVIEW_DUE,
     EVENT_GLOBAL_NOTIFICATION_PUSH,
     EVENT_POMODORO_STATE_CHANGED,
     EVENT_QUICK_CAPTURE_RESET,

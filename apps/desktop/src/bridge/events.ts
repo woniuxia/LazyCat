@@ -8,6 +8,8 @@ export const APP_EVENTS = {
   CLIPBOARD_CHANGED: "clipboard-changed",
   /** Rust -> 主窗口：Todo 提醒触发 payload ReminderDispatch 或 { refresh: true } */
   TODO_REMINDER_FIRED: "todo-reminder-fired",
+  /** Rust -> 主窗口：关注事项复查提醒已触发，刷新关注事项视图 */
+  FOLLOW_UP_REVIEW_DUE: "follow-up-review-due",
   /** Rust -> 全局通知弹窗：通知队列 payload GlobalNotification[] */
   GLOBAL_NOTIFICATION_PUSH: "global-notification-push",
   /** Rust / 前端弹窗 -> 主窗口：番茄钟状态变化 payload { refresh: true } */

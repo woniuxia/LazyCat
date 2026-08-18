@@ -5,6 +5,7 @@ import type {
   ReleasePackageNotification,
   ReleasePackageNotificationStatus,
   TodoReminderNotification,
+  FollowUpReviewNotification,
 } from "../types/global-notification";
 import type { ReleasePackageEnvironmentKind, ReleasePackageType } from "../types/release-package";
 
@@ -119,6 +120,19 @@ function isTodoReminderNotification(value: unknown): value is TodoReminderNotifi
   );
 }
 
+function isFollowUpReviewNotification(value: unknown): value is FollowUpReviewNotification {
+  if (!isRecord(value)) return false;
+  return (
+    value.kind === "follow-up-review" &&
+    hasValidCommonFields(value) &&
+    (value.itemId === undefined || isPositiveSafeInteger(value.itemId)) &&
+    isPositiveSafeInteger(value.dueCount) &&
+    typeof value.title === "string" &&
+    typeof value.body === "string" &&
+    (value.reviewAt === undefined || isNonEmptyString(value.reviewAt))
+  );
+}
+
 function isReleasePackageNotification(value: unknown): value is ReleasePackageNotification {
   if (!isRecord(value)) return false;
   return (
@@ -158,6 +172,7 @@ function isActionCombinationNotification(value: unknown): value is ActionCombina
 
 function parseGlobalNotification(value: unknown): GlobalNotification {
   if (isTodoReminderNotification(value)) return value;
+  if (isFollowUpReviewNotification(value)) return value;
   if (isReleasePackageNotification(value)) return value;
   if (isActionCombinationNotification(value)) return value;
   return invalidNotification();
@@ -190,6 +205,10 @@ export function globalNotificationActions(
 ): GlobalNotificationAction[] {
   if (notification.kind === "todo-reminder") {
     return [notification.action ? "dispatch-action" : "complete", "dismiss", "snooze"];
+  }
+
+  if (notification.kind === "follow-up-review") {
+    return notification.itemId ? ["open-tool", "snooze"] : ["open-tool"];
   }
 
   if (notification.kind === "action-combination") {

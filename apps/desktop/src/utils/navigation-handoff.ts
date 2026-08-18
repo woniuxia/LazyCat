@@ -14,6 +14,7 @@ export type HotkeyFocusTarget =
   | { kind: "action-center"; target: ActionCenterNavigationTarget }
   | { kind: "pm"; itemId: number; projectId: number | null; view?: string }
   | { kind: "todo"; itemId: number }
+  | { kind: "follow-up"; itemId: number | null; dueOnly: boolean }
   | { kind: "data-dictionary"; itemId: number };
 
 export interface HotkeyNavigationIntent {
@@ -122,6 +123,13 @@ function parsePositiveId(value: string | undefined): number | null {
 }
 
 function resolveFocusTarget(payload: HotkeyNavigatePayload): HotkeyFocusTarget | undefined {
+  if (payload.target === "todo" && payload.view?.startsWith("follow-up")) {
+    return {
+      kind: "follow-up",
+      itemId: parsePositiveId(payload.itemId),
+      dueOnly: payload.view === "follow-up-due",
+    };
+  }
   if (!payload.itemId) return undefined;
 
   if (payload.target === "action-center") {
