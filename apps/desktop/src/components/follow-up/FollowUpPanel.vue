@@ -58,18 +58,18 @@
           :class="{ selected: selectedId === item.id }"
           @click="selectItem(item.id)"
         >
-          <span class="priority-stripe" :class="item.priority.toLowerCase()" />
+          <span class="priority-stripe" :class="item.priority.toLowerCase()" aria-hidden="true" />
           <span class="card-main">
-            <span class="card-title-row"
-              ><strong>{{ item.title }}</strong
-              ><el-tag
-                v-if="externalDeadlineReached(item)"
-                type="danger"
+            <span class="card-title-row">
+              <strong :title="item.title">{{ item.title }}</strong>
+              <el-tag
+                class="priority-tag"
+                :class="item.priority.toLowerCase()"
                 size="small"
                 effect="plain"
-                >外部期限已到</el-tag
-              ></span
-            >
+                >{{ item.priority }}</el-tag
+              >
+            </span>
             <span class="card-meta"
               ><span><User />{{ item.personName }}</span
               ><span
@@ -80,14 +80,30 @@
                 }}</span
               ></span
             >
-            <span v-if="item.latestProgress" class="latest-progress">{{
-              item.latestProgress.content
-            }}</span>
-            <span v-if="item.links.length" class="link-summary"
-              ><Link />{{ item.links.length }} 个相关链接</span
+            <span
+              v-if="item.latestProgress || externalDeadlineReached(item) || item.links.length"
+              class="card-supporting"
             >
+              <span
+                v-if="item.latestProgress"
+                class="latest-progress"
+                :title="item.latestProgress.content"
+                >{{ item.latestProgress.content }}</span
+              >
+              <span class="card-indicators">
+                <el-tag
+                  v-if="externalDeadlineReached(item)"
+                  type="danger"
+                  size="small"
+                  effect="plain"
+                  >外部期限已到</el-tag
+                >
+                <span v-if="item.links.length" class="link-summary"
+                  ><Link />{{ item.links.length }} 个相关链接</span
+                >
+              </span>
+            </span>
           </span>
-          <el-tag size="small" effect="plain">{{ item.priority }}</el-tag>
         </button>
       </div>
     </section>
@@ -813,25 +829,34 @@ defineExpose({ focus, loadItems });
 .follow-up-card {
   position: relative;
   width: 100%;
-  display: grid;
-  grid-template-columns: 4px minmax(0, 1fr) auto;
-  gap: 10px;
+  display: block;
   text-align: left;
   border: 1px solid #e5e9ef;
   background: #fff;
   border-radius: 6px;
-  padding: 12px 12px 12px 0;
+  padding: 12px 12px 12px 16px;
   margin-bottom: 8px;
   cursor: pointer;
   overflow: hidden;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
 }
 .follow-up-card:hover,
 .follow-up-card.selected {
   border-color: #8db9e8;
   background: #f7fbff;
 }
+.follow-up-card:focus-visible {
+  outline: 2px solid #4185c5;
+  outline-offset: 2px;
+}
 .priority-stripe {
-  height: 100%;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
   background: #8d99a6;
 }
 .priority-stripe.p0 {
@@ -850,23 +875,45 @@ defineExpose({ focus, loadItems });
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 .card-title-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   min-width: 0;
 }
 .card-title-row strong {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.priority-tag {
+  flex: 0 0 auto;
+  min-width: 34px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.priority-tag.p0 {
+  color: #bd3434;
+  border-color: #efb6b6;
+  background: #fff7f7;
+}
+.priority-tag.p1 {
+  color: #a96110;
+  border-color: #edc791;
+  background: #fffaf2;
+}
 .card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
   font-size: 12px;
   color: #66717d;
 }
@@ -877,16 +924,49 @@ defineExpose({ focus, loadItems });
   align-items: center;
   gap: 4px;
 }
+.card-meta span {
+  min-width: 0;
+}
+.card-meta span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-meta svg,
+.link-summary svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+.card-supporting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 7px;
+  border-top: 1px solid #edf0f3;
+}
 .latest-progress {
+  min-width: 0;
+  flex: 1;
   font-size: 12px;
   color: #4d5966;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.card-indicators {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
 .link-summary {
   font-size: 11px;
   color: #7b8794;
+  white-space: nowrap;
 }
 .follow-up-detail-pane {
   display: flex;
@@ -1070,6 +1150,16 @@ defineExpose({ focus, loadItems });
   .date-field {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .card-meta {
+    grid-template-columns: 1fr;
+  }
+  .card-supporting {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .card-indicators {
+    justify-content: flex-start;
   }
 }
 </style>

@@ -111,6 +111,11 @@ describe("FollowUpPanel", () => {
     expect(root.textContent).toContain("现在复查");
     expect(root.textContent).toContain("等待最终确认");
     expect(root.textContent).toContain("外部期限已到");
+    const firstCard = root.querySelector(".follow-up-card");
+    expect(firstCard?.querySelector(".card-title-row > .priority-tag")?.textContent).toBe("P0");
+    expect(firstCard?.querySelector(".card-supporting .el-tag--danger")?.textContent).toBe(
+      "外部期限已到",
+    );
     const later = Array.from(root.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("以后复查"),
     );
