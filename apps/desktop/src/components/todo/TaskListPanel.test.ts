@@ -12,7 +12,9 @@ vi.mock("./TodoPanel.vue", async () => {
   return {
     default: defineComponent({
       name: "TodoPanelStub",
-      setup: () => () => h("div", { class: "todo-stub" }, "Todo view"),
+      setup(_, { slots }) {
+        return () => h("div", { class: "todo-stub" }, [slots["view-switch"]?.(), "Todo view"]);
+      },
     }),
   };
 });
@@ -22,26 +24,34 @@ vi.mock("../follow-up/FollowUpPanel.vue", async () => {
   return {
     default: defineComponent({
       name: "FollowUpPanelStub",
-      emits: ["createTodo"],
-      setup(_, { emit, expose }) {
+      emits: ["createTodo", "dueCountChange"],
+      setup(_, { emit, expose, slots }) {
         expose({ focus: child.focus });
         return () =>
-          h(
-            "button",
-            {
-              class: "follow-up-stub",
-              onClick: () =>
-                emit("createTodo", {
-                  id: 7,
-                  title: "确认接口交付",
-                  description: "等待联调",
-                  expectedOutcome: "验收通过",
-                  latestProgress: null,
-                  links: [],
-                }),
-            },
-            "Follow-up view",
-          );
+          h("div", { class: "follow-up-stub" }, [
+            slots["view-switch"]?.(),
+            h(
+              "button",
+              {
+                class: "create-todo-stub",
+                onClick: () =>
+                  emit("createTodo", {
+                    id: 7,
+                    title: "确认接口交付",
+                    description: "等待联调",
+                    expectedOutcome: "验收通过",
+                    latestProgress: null,
+                    links: [],
+                  }),
+              },
+              "Follow-up view",
+            ),
+            h(
+              "button",
+              { class: "due-count-stub", onClick: () => emit("dueCountChange", 120) },
+              "Update due count",
+            ),
+          ]);
       },
     }),
   };
@@ -49,14 +59,14 @@ vi.mock("../follow-up/FollowUpPanel.vue", async () => {
 
 import TaskListPanel from "./TaskListPanel.vue";
 
-async function mountPanel() {
+async function mountPanel(waitForFocus = true) {
   const root = document.createElement("div");
   document.body.append(root);
   const app = createApp(TaskListPanel);
   app.use(ElementPlus);
   app.mount(root);
   await nextTick();
-  await vi.waitFor(() => expect(child.focus).toHaveBeenCalled());
+  if (waitForFocus) await vi.waitFor(() => expect(child.focus).toHaveBeenCalled());
   return { app, root };
 }
 
@@ -65,6 +75,25 @@ describe("TaskListPanel", () => {
     child.focus.mockReset();
     useNavigationHandoff().reset();
     useTodoNavigation().consumeFollowUpFocus();
+  });
+
+  it("switches views from the sidebar control and caps the due badge", async () => {
+    const { app, root } = await mountPanel(false);
+
+    expect(root.querySelector(".task-view-switch")?.textContent).toContain("我的任务");
+    expect(root.querySelector(".task-view-switch")?.textContent).toContain("关注事项");
+    const followUpButton = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(".task-view-switch button"),
+    ).find((button) => button.textContent?.includes("关注事项"));
+    followUpButton?.click();
+    await nextTick();
+    expect(root.querySelector<HTMLElement>(".todo-stub")?.style.display).toBe("none");
+    expect(root.querySelector<HTMLElement>(".follow-up-stub")?.style.display).not.toBe("none");
+
+    root.querySelector<HTMLButtonElement>(".due-count-stub")?.click();
+    await nextTick();
+    expect(root.querySelector(".follow-up-stub .due-count")?.textContent?.trim()).toBe("99+");
+    app.unmount();
   });
 
   afterEach(() => {
@@ -84,7 +113,7 @@ describe("TaskListPanel", () => {
   it("prefills a transient Todo draft and returns to the Todo view", async () => {
     useTodoNavigation().requestFollowUp(7, true);
     const { app, root } = await mountPanel();
-    root.querySelector<HTMLButtonElement>(".follow-up-stub")?.click();
+    root.querySelector<HTMLButtonElement>(".create-todo-stub")?.click();
     await nextTick();
 
     expect(useNavigationHandoff().consumePendingToolInput("todo")).toMatchObject({

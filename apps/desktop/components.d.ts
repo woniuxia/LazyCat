@@ -188,6 +188,7 @@ declare module 'vue' {
     TabPageCache: typeof import('./src/components/TabPageCache.vue')['default']
     TabPageHost: typeof import('./src/components/TabPageHost.vue')['default']
     TaskListPanel: typeof import('./src/components/todo/TaskListPanel.vue')['default']
+    TaskViewSwitch: typeof import('./src/components/todo/TaskViewSwitch.vue')['default']
     TestEmailAssistantPanel: typeof import('./src/components/TestEmailAssistantPanel.vue')['default']
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
     TimestampPanel: typeof import('./src/components/TimestampPanel.vue')['default']

@@ -8,7 +8,9 @@
         v-model:filter-type="filterType"
         v-model:filter-priority="filterPriority"
         @open-basics="basicsDialogVisible = true"
-      />
+      >
+        <slot name="view-switch" />
+      </TodoSidebar>
       <section class="todo-list-pane">
         <div class="toolbar">
           <div class="toolbar-left">

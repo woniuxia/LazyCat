@@ -1,5 +1,6 @@
 <template>
   <aside class="todo-stats todo-sidebar">
+    <slot />
     <div class="stats-section">
       <div class="stats-section-header">
         <div class="stats-section-title">概览</div>

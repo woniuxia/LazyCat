@@ -1,16 +1,28 @@
 <template>
   <div class="task-list-panel">
-    <header class="task-view-switch">
-      <el-segmented v-model="activeView" :options="viewOptions" />
-    </header>
-    <div class="task-view-body">
-      <TodoPanel v-show="activeView === 'todo'" />
-      <FollowUpPanel
-        ref="followUpRef"
-        v-show="activeView === 'follow-up'"
-        @create-todo="createTodoFromFollowUp"
-      />
-    </div>
+    <TodoPanel v-show="activeView === 'todo'">
+      <template #view-switch>
+        <TaskViewSwitch
+          :active-view="activeView"
+          :due-count="followUpDueCount"
+          @change="activeView = $event"
+        />
+      </template>
+    </TodoPanel>
+    <FollowUpPanel
+      v-show="activeView === 'follow-up'"
+      ref="followUpRef"
+      @create-todo="createTodoFromFollowUp"
+      @due-count-change="followUpDueCount = $event"
+    >
+      <template #view-switch>
+        <TaskViewSwitch
+          :active-view="activeView"
+          :due-count="followUpDueCount"
+          @change="activeView = $event"
+        />
+      </template>
+    </FollowUpPanel>
   </div>
 </template>
 
@@ -22,12 +34,10 @@ import type { FollowUpItem } from "../../types/follow-up";
 import { buildFollowUpTodoInput } from "../../utils/followUp";
 import FollowUpPanel from "../follow-up/FollowUpPanel.vue";
 import TodoPanel from "./TodoPanel.vue";
+import TaskViewSwitch from "./TaskViewSwitch.vue";
 
 const activeView = ref<"todo" | "follow-up">("todo");
-const viewOptions = [
-  { label: "我的任务", value: "todo" },
-  { label: "关注事项", value: "follow-up" },
-];
+const followUpDueCount = ref(0);
 const followUpRef = ref<InstanceType<typeof FollowUpPanel> | null>(null);
 const { pendingFollowUpFocus, consumeFollowUpFocus } = useTodoNavigation();
 const navigationHandoff = useNavigationHandoff();
@@ -49,27 +59,12 @@ onMounted(() => void applyFollowUpFocus());
 
 <style scoped>
 .task-list-panel {
+  position: relative;
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   background: #fff;
 }
-.task-view-switch {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-bottom: 1px solid #e5e8ec;
-  background: #fff;
-  flex: 0 0 auto;
-}
-.task-view-body {
-  position: relative;
-  min-height: 0;
-  flex: 1;
-}
-.task-view-body > * {
+.task-list-panel > * {
   height: 100%;
 }
 </style>

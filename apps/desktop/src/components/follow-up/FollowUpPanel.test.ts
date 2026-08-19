@@ -59,10 +59,10 @@ const items = [
   followUp(4, "已结束事项", null, "2026-08-17T10:00:00+08:00"),
 ];
 
-async function mountPanel() {
+async function mountPanel(props: Record<string, unknown> = {}) {
   const root = document.createElement("div");
   document.body.append(root);
-  const app = createApp(FollowUpPanel);
+  const app = createApp(FollowUpPanel, props);
   app.use(ElementPlus);
   const panel = app.mount(root) as unknown as { loadItems: () => Promise<void> };
   await nextTick();
@@ -103,6 +103,14 @@ describe("FollowUpPanel", () => {
     bridge.invoke.mockReset();
     eventBridge.listen.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it("reports the unfiltered due count for the task view badge", async () => {
+    const onDueCountChange = vi.fn();
+    const { app } = await mountPanel({ onDueCountChange });
+
+    expect(onDueCountChange).toHaveBeenCalledWith(1);
+    app.unmount();
   });
 
   it("defaults to all items and switches to a review group", async () => {

@@ -1,7 +1,7 @@
 <template>
   <div class="follow-up-panel" v-loading="loading">
     <aside class="follow-up-sidebar">
-      <div class="sidebar-title">关注事项</div>
+      <slot name="view-switch" />
       <button
         v-for="section in sections"
         :key="section.key"
@@ -410,7 +410,10 @@ import {
 } from "../../utils/followUp";
 import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedule";
 
-const emit = defineEmits<{ createTodo: [item: FollowUpItem] }>();
+const emit = defineEmits<{
+  createTodo: [item: FollowUpItem];
+  dueCountChange: [count: number];
+}>();
 type FollowUpSectionKey = "all" | FollowUpGroup;
 let reminderUnlisten: UnlistenFn | null = null;
 let loadSequence = 0;
@@ -532,7 +535,19 @@ async function loadAssignees() {
   );
   assignees.value = result.items;
 }
-async function loadItems() {
+function hasActiveFilters() {
+  return Boolean(
+    filters.keyword || filters.personId || filters.priority || filters.attentionStatus,
+  );
+}
+function emitDueCount(result: FollowUpItem[]) {
+  emit("dueCountChange", groupFollowUpItems(result).due.length);
+}
+async function loadDueCount() {
+  const result = await invokeToolByChannel<FollowUpItem[]>("tool:follow-up:item-list", {});
+  emitDueCount(result);
+}
+async function loadItems(refreshDueCount = false) {
   const sequence = ++loadSequence;
   try {
     const result = await invokeToolByChannel<FollowUpItem[]>("tool:follow-up:item-list", {
@@ -543,6 +558,8 @@ async function loadItems() {
     });
     if (sequence !== loadSequence) return;
     items.value = result;
+    if (!hasActiveFilters()) emitDueCount(result);
+    else if (refreshDueCount) await loadDueCount();
     if (selectedId.value && !result.some((item) => item.id === selectedId.value))
       selectedId.value = null;
   } catch (error) {
@@ -552,7 +569,7 @@ async function loadItems() {
 }
 async function reloadSelected() {
   const id = selectedId.value;
-  await loadItems();
+  await loadItems(true);
   if (id) selectedId.value = id;
 }
 function selectItem(id: number) {
@@ -599,7 +616,7 @@ async function saveItem() {
     const saved = await invokeToolByChannel<FollowUpItem>(channel, { ...draft });
     editVisible.value = false;
     selectedId.value = saved.id;
-    await loadItems();
+    await loadItems(true);
     const current = items.value.find((item) => item.id === saved.id);
     if (current && activeGroup.value !== "all") activeGroup.value = followUpGroup(current);
     ElMessage.success(draft.id ? "关注事项已更新" : "关注事项已创建");
@@ -750,7 +767,7 @@ async function removeItem() {
     );
     await invokeToolByChannel("tool:follow-up:item-delete", { id: selected.value.id });
     selectedId.value = null;
-    await loadItems();
+    await loadItems(true);
     ElMessage.success("关注事项已删除");
   } catch (error) {
     if (error !== "cancel" && error !== "close")
@@ -807,14 +824,14 @@ async function focus(itemId: number | null, dueOnly = false) {
 watch(filters, () => void loadItems(), { deep: true });
 onMounted(async () => {
   try {
-    await Promise.all([loadAssignees(), loadItems()]);
+    await Promise.all([loadAssignees(), loadItems(true)]);
   } catch (error) {
     ElMessage.error((error as Error).message || "加载关注事项失败");
   } finally {
     loading.value = false;
   }
   try {
-    reminderUnlisten = await listen(APP_EVENTS.FOLLOW_UP_REVIEW_DUE, () => void loadItems());
+    reminderUnlisten = await listen(APP_EVENTS.FOLLOW_UP_REVIEW_DUE, () => void loadItems(true));
   } catch (error) {
     reminderUnlisten = null;
     ElMessage.error((error as Error).message || "关注事项提醒监听失败");
@@ -830,7 +847,7 @@ defineExpose({ focus, loadItems });
 <style scoped>
 .follow-up-panel {
   display: grid;
-  grid-template-columns: 180px minmax(300px, 1fr) minmax(320px, 0.9fr);
+  grid-template-columns: 260px minmax(300px, 1fr) minmax(320px, 0.9fr);
   height: 100%;
   min-height: 0;
   background: #f6f7f9;
@@ -848,11 +865,6 @@ defineExpose({ focus, loadItems });
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.sidebar-title {
-  font-size: 15px;
-  font-weight: 700;
-  padding: 0 8px 8px;
 }
 .section-button {
   border: 0;
@@ -1199,13 +1211,18 @@ defineExpose({ focus, loadItems });
 :deep(.danger-item) {
   color: #c23b3b;
 }
+@media (max-width: 1280px) {
+  .follow-up-panel {
+    grid-template-columns: 240px minmax(280px, 1fr) minmax(320px, 0.9fr);
+  }
+}
 @media (max-width: 1050px) {
   .follow-up-panel {
-    grid-template-columns: 160px minmax(280px, 1fr);
+    grid-template-columns: 240px minmax(280px, 1fr);
   }
   .follow-up-detail-pane {
     position: absolute;
-    inset: 0 0 0 160px;
+    inset: 0 0 0 240px;
     z-index: 4;
   }
   .follow-up-detail-pane:has(.el-empty) {
@@ -1214,6 +1231,14 @@ defineExpose({ focus, loadItems });
   .mobile-back {
     display: inline-flex;
     flex: 0 0 auto;
+  }
+}
+@media (max-width: 1024px) {
+  .follow-up-panel {
+    grid-template-columns: 220px minmax(280px, 1fr);
+  }
+  .follow-up-detail-pane {
+    inset-inline-start: 220px;
   }
 }
 @media (max-width: 760px) {
