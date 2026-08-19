@@ -2,41 +2,43 @@
   <div class="follow-up-panel" v-loading="loading">
     <aside class="follow-up-sidebar">
       <slot name="view-switch" />
-      <button
-        v-for="section in sections"
-        :key="section.key"
-        class="section-button"
-        :class="{ active: activeGroup === section.key }"
-        @click="activeGroup = section.key"
-      >
-        <span>{{ section.label }}</span
-        ><span class="section-count">{{ sectionCounts[section.key] }}</span>
-      </button>
-      <div class="sidebar-filter-title">筛选</div>
-      <el-select v-model="filters.personId" clearable placeholder="全部责任人" size="small">
-        <el-option
-          v-for="person in assignees"
-          :key="person.id"
-          :label="person.name"
-          :value="person.id"
-        />
-      </el-select>
-      <el-select v-model="filters.priority" clearable placeholder="全部优先级" size="small">
-        <el-option
-          v-for="priority in priorities"
-          :key="priority"
-          :label="priority"
-          :value="priority"
-        />
-      </el-select>
-      <el-select
-        v-model="filters.attentionStatus"
-        clearable
-        placeholder="全部关注状态"
-        size="small"
-      >
-        <el-option label="关注中" value="active" /><el-option label="已结束" value="ended" />
-      </el-select>
+      <div class="follow-up-sidebar-content">
+        <button
+          v-for="section in sections"
+          :key="section.key"
+          class="section-button"
+          :class="{ active: activeGroup === section.key }"
+          @click="activeGroup = section.key"
+        >
+          <span>{{ section.label }}</span
+          ><span class="section-count">{{ sectionCounts[section.key] }}</span>
+        </button>
+        <div class="sidebar-filter-title">筛选</div>
+        <el-select v-model="filters.personId" clearable placeholder="全部责任人" size="small">
+          <el-option
+            v-for="person in assignees"
+            :key="person.id"
+            :label="person.name"
+            :value="person.id"
+          />
+        </el-select>
+        <el-select v-model="filters.priority" clearable placeholder="全部优先级" size="small">
+          <el-option
+            v-for="priority in priorities"
+            :key="priority"
+            :label="priority"
+            :value="priority"
+          />
+        </el-select>
+        <el-select
+          v-model="filters.attentionStatus"
+          clearable
+          placeholder="全部关注状态"
+          size="small"
+        >
+          <el-option label="关注中" value="active" /><el-option label="已结束" value="ended" />
+        </el-select>
+      </div>
     </aside>
 
     <section class="follow-up-list-pane">
@@ -860,11 +862,16 @@ defineExpose({ focus, loadItems });
   background: #fff;
 }
 .follow-up-sidebar {
-  padding: 18px 12px;
+  padding: 0 4px 0 0;
   border-right: 1px solid #e6e9ee;
   display: flex;
   flex-direction: column;
+}
+.follow-up-sidebar-content {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  padding: 8px 8px 18px 12px;
 }
 .section-button {
   border: 0;
