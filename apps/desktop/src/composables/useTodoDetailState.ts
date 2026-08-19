@@ -248,6 +248,14 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     detailMode.value = "empty";
   }
 
+  async function closeDetail() {
+    if (!(await ensureDetailCanLeave())) return;
+    resetItemDraft();
+    draftBaseline.value = "";
+    selectedItemId.value = null;
+    detailMode.value = "empty";
+  }
+
   function toDraftAssigneeValues(assigneeList: TodoAssignee[]): SelectAssigneeValue[] {
     return assigneeList
       .map((assignee) =>
@@ -415,6 +423,7 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     startCreate,
     createOnDate,
     cancelDetailEdit,
+    closeDetail,
     resetItemDraft,
     enterEditMode,
   };

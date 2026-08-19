@@ -148,9 +148,13 @@ describe("FollowUpPanel", () => {
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("现在复查");
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("预期结果");
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("继续关注");
-    expect(
-      root.querySelector<HTMLButtonElement>('.mobile-back[title="返回关注事项列表"]'),
-    ).not.toBeNull();
+    const backButton = root.querySelector<HTMLButtonElement>(
+      '.task-workspace-detail-backbar button[title="返回列表"]',
+    );
+    expect(backButton).not.toBeNull();
+    backButton?.click();
+    await nextTick();
+    expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("选择一项查看详情");
     app.unmount();
   });
 

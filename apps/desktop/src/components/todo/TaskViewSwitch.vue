@@ -15,8 +15,13 @@
       @click="emit('change', 'follow-up')"
     >
       <span>关注事项</span>
-      <span v-if="dueCount > 0" class="due-count" :aria-label="`${dueCount} 项待复查`">
-        {{ dueCount > 99 ? "99+" : dueCount }}
+      <span
+        class="due-count"
+        :class="{ 'is-empty': dueCount === 0 }"
+        :aria-label="dueCount > 0 ? `${dueCount} 项待复查` : undefined"
+        :aria-hidden="dueCount === 0"
+      >
+        {{ dueCount > 99 ? "99+" : dueCount || "0" }}
       </span>
     </button>
   </nav>
@@ -79,17 +84,19 @@ const emit = defineEmits<{
   outline-offset: 1px;
 }
 .due-count {
-  min-width: 16px;
+  width: 24px;
   height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 4px;
   border-radius: 8px;
   background: var(--lc-danger);
   color: #fff;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+.due-count.is-empty {
+  visibility: hidden;
 }
 </style>

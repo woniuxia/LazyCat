@@ -1,236 +1,241 @@
 <template>
   <div class="follow-up-panel" v-loading="loading">
-    <aside class="follow-up-sidebar">
-      <slot name="view-switch" />
-      <div class="follow-up-sidebar-content">
-        <button
-          v-for="section in sections"
-          :key="section.key"
-          class="section-button"
-          :class="{ active: activeGroup === section.key }"
-          @click="activeGroup = section.key"
-        >
-          <span>{{ section.label }}</span
-          ><span class="section-count">{{ sectionCounts[section.key] }}</span>
-        </button>
-        <div class="sidebar-filter-title">筛选</div>
-        <el-select v-model="filters.personId" clearable placeholder="全部责任人" size="small">
-          <el-option
-            v-for="person in assignees"
-            :key="person.id"
-            :label="person.name"
-            :value="person.id"
-          />
-        </el-select>
-        <el-select v-model="filters.priority" clearable placeholder="全部优先级" size="small">
-          <el-option
-            v-for="priority in priorities"
-            :key="priority"
-            :label="priority"
-            :value="priority"
-          />
-        </el-select>
-        <el-select
-          v-model="filters.attentionStatus"
-          clearable
-          placeholder="全部关注状态"
-          size="small"
-        >
-          <el-option label="关注中" value="active" /><el-option label="已结束" value="ended" />
-        </el-select>
-      </div>
-    </aside>
-
-    <section class="follow-up-list-pane">
-      <header class="follow-up-toolbar">
-        <el-input v-model="filters.keyword" clearable placeholder="搜索标题、责任人、描述或进展" />
-        <el-button :icon="Refresh" title="刷新" @click="loadItems" />
-        <el-button type="primary" :icon="Plus" @click="startCreate">新增关注事项</el-button>
-      </header>
-      <div class="follow-up-scroll">
-        <div class="group-heading">
-          <span>{{ activeGroupLabel }}</span
-          ><span>{{ visibleItems.length }}</span>
+    <TaskWorkspaceLayout
+      namespace="follow-up"
+      :detail-open="selected !== null"
+      @close-detail="selectedId = null"
+    >
+      <template #switch><slot name="view-switch" /></template>
+      <template #sidebar>
+        <div class="follow-up-sidebar-content">
+          <button
+            v-for="section in sections"
+            :key="section.key"
+            class="section-button"
+            :class="{ active: activeGroup === section.key }"
+            @click="activeGroup = section.key"
+          >
+            <span>{{ section.label }}</span
+            ><span class="section-count">{{ sectionCounts[section.key] }}</span>
+          </button>
+          <div class="sidebar-filter-title">筛选</div>
+          <el-select v-model="filters.personId" clearable placeholder="全部责任人" size="small">
+            <el-option
+              v-for="person in assignees"
+              :key="person.id"
+              :label="person.name"
+              :value="person.id"
+            />
+          </el-select>
+          <el-select v-model="filters.priority" clearable placeholder="全部优先级" size="small">
+            <el-option
+              v-for="priority in priorities"
+              :key="priority"
+              :label="priority"
+              :value="priority"
+            />
+          </el-select>
+          <el-select
+            v-model="filters.attentionStatus"
+            clearable
+            placeholder="全部关注状态"
+            size="small"
+          >
+            <el-option label="关注中" value="active" /><el-option label="已结束" value="ended" />
+          </el-select>
         </div>
-        <el-empty v-if="!visibleItems.length" :description="emptyDescription" :image-size="72" />
-        <button
-          v-for="item in visibleItems"
-          :key="item.id"
-          class="follow-up-card"
-          :class="{ selected: selectedId === item.id }"
-          @click="selectItem(item.id)"
-        >
-          <span class="priority-stripe" :class="item.priority.toLowerCase()" aria-hidden="true" />
-          <span class="card-main">
-            <span class="card-title-row">
-              <strong :title="item.title">{{ item.title }}</strong>
-              <el-tag
-                class="priority-tag"
-                :class="item.priority.toLowerCase()"
-                size="small"
-                effect="plain"
-                >{{ item.priority }}</el-tag
-              >
-            </span>
-            <span class="card-meta"
-              ><span><User />{{ item.personName }}</span
-              ><span
-                ><Calendar />{{
-                  item.attentionStatus === "active"
-                    ? formatDateTime(item.reviewAt)
-                    : resultLabel(item)
-                }}</span
-              ></span
-            >
-            <span
-              v-if="item.latestProgress || externalDeadlineReached(item) || item.links.length"
-              class="card-supporting"
-            >
-              <span
-                v-if="item.latestProgress"
-                class="latest-progress"
-                :title="item.latestProgress.content"
-                >{{ item.latestProgress.content }}</span
-              >
-              <span class="card-indicators">
+      </template>
+
+      <template #toolbar>
+        <div class="follow-up-toolbar">
+          <el-input
+            v-model="filters.keyword"
+            clearable
+            placeholder="搜索标题、责任人、描述或进展"
+          />
+          <el-button :icon="Refresh" title="刷新" @click="loadItems" />
+          <el-button type="primary" :icon="Plus" @click="startCreate">新增关注事项</el-button>
+        </div>
+      </template>
+      <template #list>
+        <div class="follow-up-scroll">
+          <div class="group-heading">
+            <span>{{ activeGroupLabel }}</span
+            ><span>{{ visibleItems.length }}</span>
+          </div>
+          <el-empty v-if="!visibleItems.length" :description="emptyDescription" :image-size="72" />
+          <button
+            v-for="item in visibleItems"
+            :key="item.id"
+            class="follow-up-card"
+            :class="{ selected: selectedId === item.id }"
+            @click="selectItem(item.id)"
+          >
+            <span class="priority-stripe" :class="item.priority.toLowerCase()" aria-hidden="true" />
+            <span class="card-main">
+              <span class="card-title-row">
+                <strong :title="item.title">{{ item.title }}</strong>
                 <el-tag
-                  v-if="externalDeadlineReached(item)"
-                  type="danger"
+                  class="priority-tag"
+                  :class="item.priority.toLowerCase()"
                   size="small"
                   effect="plain"
-                  >外部期限已到</el-tag
-                >
-                <span v-if="item.links.length" class="link-summary"
-                  ><Link />{{ item.links.length }} 个相关链接</span
+                  >{{ item.priority }}</el-tag
                 >
               </span>
+              <span class="card-meta"
+                ><span><User />{{ item.personName }}</span
+                ><span
+                  ><Calendar />{{
+                    item.attentionStatus === "active"
+                      ? formatDateTime(item.reviewAt)
+                      : resultLabel(item)
+                  }}</span
+                ></span
+              >
+              <span
+                v-if="item.latestProgress || externalDeadlineReached(item) || item.links.length"
+                class="card-supporting"
+              >
+                <span
+                  v-if="item.latestProgress"
+                  class="latest-progress"
+                  :title="item.latestProgress.content"
+                  >{{ item.latestProgress.content }}</span
+                >
+                <span class="card-indicators">
+                  <el-tag
+                    v-if="externalDeadlineReached(item)"
+                    type="danger"
+                    size="small"
+                    effect="plain"
+                    >外部期限已到</el-tag
+                  >
+                  <span v-if="item.links.length" class="link-summary"
+                    ><Link />{{ item.links.length }} 个相关链接</span
+                  >
+                </span>
+              </span>
             </span>
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <section class="follow-up-detail-pane">
-      <el-empty v-if="!selected" description="选择一项查看详情" :image-size="72" />
-      <template v-else>
-        <header class="detail-header">
-          <el-button
-            class="mobile-back"
-            :icon="Back"
-            circle
-            title="返回关注事项列表"
-            @click="selectedId = null"
-          />
-          <div class="detail-title">
-            <h2>{{ selected.title }}</h2>
-            <p>
-              {{ selected.personName }} ·
-              {{ selected.attentionStatus === "active" ? "关注中" : resultLabel(selected) }}
-            </p>
-          </div>
-          <el-dropdown trigger="click">
-            <el-button :icon="MoreFilled" circle title="更多操作" />
-            <template #dropdown
-              ><el-dropdown-menu>
-                <el-dropdown-item @click="startEdit">编辑</el-dropdown-item>
-                <el-dropdown-item @click="createTodoDraft">创建任务</el-dropdown-item>
-                <el-dropdown-item v-if="selected.attentionStatus === 'active'" @click="snooze"
-                  >稍后提醒</el-dropdown-item
-                >
-                <el-dropdown-item divided class="danger-item" @click="removeItem"
-                  >删除</el-dropdown-item
-                >
-              </el-dropdown-menu></template
-            >
-          </el-dropdown>
-        </header>
-        <div class="detail-scroll">
-          <dl class="detail-grid">
-            <div>
-              <dt>复查时间</dt>
-              <dd>{{ formatDateTime(selected.reviewAt) }}</dd>
-            </div>
-            <div>
-              <dt>预计完成</dt>
-              <dd>{{ formatDateTime(selected.expectedCompletionAt) }}</dd>
-            </div>
-            <div>
-              <dt>优先级</dt>
-              <dd>{{ selected.priority }}</dd>
-            </div>
-            <div>
-              <dt>外部结果</dt>
-              <dd>{{ resultLabel(selected) }}</dd>
-            </div>
-          </dl>
-          <section v-if="selected.expectedOutcome" class="detail-section">
-            <h3>预期结果</h3>
-            <p>{{ selected.expectedOutcome }}</p>
-          </section>
-          <section v-if="selected.description" class="detail-section">
-            <h3>描述</h3>
-            <p class="pre-wrap">{{ selected.description }}</p>
-          </section>
-          <section v-if="selected.links.length" class="detail-section">
-            <h3>相关链接</h3>
-            <button
-              v-for="link in selected.links"
-              :key="link.id ?? link.url"
-              class="text-link"
-              @click="openUrl(link.url)"
-            >
-              <Link />{{ link.title || link.url }}
-            </button>
-          </section>
-          <section class="detail-section timeline-section">
-            <div class="section-title-row">
-              <h3>进展时间线</h3>
-              <el-button
-                v-if="selected.attentionStatus === 'active'"
-                size="small"
-                @click="addProgress"
-                >记录进展</el-button
-              >
-            </div>
-            <el-empty
-              v-if="!selected.progress.length"
-              description="暂无进展记录"
-              :image-size="56"
-            />
-            <div v-for="entry in selected.progress" :key="entry.id" class="timeline-entry">
-              <span class="timeline-dot" />
-              <div>
-                <div class="timeline-meta">
-                  <strong>{{ progressKindLabel(entry.kind) }}</strong
-                  ><span>{{ formatDateTime(entry.occurredAt) }}</span>
-                </div>
-                <p>{{ entry.content }}</p>
-              </div>
-              <el-dropdown v-if="entry.kind === 'progress'" trigger="click"
-                ><button class="icon-plain" title="编辑进展"><MoreFilled /></button
-                ><template #dropdown
-                  ><el-dropdown-menu
-                    ><el-dropdown-item @click="editProgress(entry)">编辑</el-dropdown-item
-                    ><el-dropdown-item class="danger-item" @click="deleteProgress(entry)"
-                      >删除</el-dropdown-item
-                    ></el-dropdown-menu
-                  ></template
-                ></el-dropdown
-              >
-            </div>
-          </section>
+          </button>
         </div>
-        <footer class="lifecycle-actions">
-          <template v-if="selected.attentionStatus === 'active'">
-            <el-button @click="openLifecycle('continue')">继续关注</el-button
-            ><el-button type="success" @click="openLifecycle('completed')">确认完成</el-button
-            ><el-button @click="openLifecycle('canceled')">确认取消</el-button
-            ><el-button type="warning" plain @click="openLifecycle('stop')">结束关注</el-button>
-          </template>
-          <el-button v-else type="primary" @click="openLifecycle('reopen')">重新关注</el-button>
-        </footer>
       </template>
-    </section>
+
+      <template #detail>
+        <el-empty v-if="!selected" description="选择一项查看详情" :image-size="72" />
+        <template v-else>
+          <header class="detail-header">
+            <div class="detail-title">
+              <h2>{{ selected.title }}</h2>
+              <p>
+                {{ selected.personName }} ·
+                {{ selected.attentionStatus === "active" ? "关注中" : resultLabel(selected) }}
+              </p>
+            </div>
+            <el-dropdown trigger="click">
+              <el-button :icon="MoreFilled" circle title="更多操作" />
+              <template #dropdown
+                ><el-dropdown-menu>
+                  <el-dropdown-item @click="startEdit">编辑</el-dropdown-item>
+                  <el-dropdown-item @click="createTodoDraft">创建任务</el-dropdown-item>
+                  <el-dropdown-item v-if="selected.attentionStatus === 'active'" @click="snooze"
+                    >稍后提醒</el-dropdown-item
+                  >
+                  <el-dropdown-item divided class="danger-item" @click="removeItem"
+                    >删除</el-dropdown-item
+                  >
+                </el-dropdown-menu></template
+              >
+            </el-dropdown>
+          </header>
+          <div class="detail-scroll">
+            <dl class="detail-grid">
+              <div>
+                <dt>复查时间</dt>
+                <dd>{{ formatDateTime(selected.reviewAt) }}</dd>
+              </div>
+              <div>
+                <dt>预计完成</dt>
+                <dd>{{ formatDateTime(selected.expectedCompletionAt) }}</dd>
+              </div>
+              <div>
+                <dt>优先级</dt>
+                <dd>{{ selected.priority }}</dd>
+              </div>
+              <div>
+                <dt>外部结果</dt>
+                <dd>{{ resultLabel(selected) }}</dd>
+              </div>
+            </dl>
+            <section v-if="selected.expectedOutcome" class="detail-section">
+              <h3>预期结果</h3>
+              <p>{{ selected.expectedOutcome }}</p>
+            </section>
+            <section v-if="selected.description" class="detail-section">
+              <h3>描述</h3>
+              <p class="pre-wrap">{{ selected.description }}</p>
+            </section>
+            <section v-if="selected.links.length" class="detail-section">
+              <h3>相关链接</h3>
+              <button
+                v-for="link in selected.links"
+                :key="link.id ?? link.url"
+                class="text-link"
+                @click="openUrl(link.url)"
+              >
+                <Link />{{ link.title || link.url }}
+              </button>
+            </section>
+            <section class="detail-section timeline-section">
+              <div class="section-title-row">
+                <h3>进展时间线</h3>
+                <el-button
+                  v-if="selected.attentionStatus === 'active'"
+                  size="small"
+                  @click="addProgress"
+                  >记录进展</el-button
+                >
+              </div>
+              <el-empty
+                v-if="!selected.progress.length"
+                description="暂无进展记录"
+                :image-size="56"
+              />
+              <div v-for="entry in selected.progress" :key="entry.id" class="timeline-entry">
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-meta">
+                    <strong>{{ progressKindLabel(entry.kind) }}</strong
+                    ><span>{{ formatDateTime(entry.occurredAt) }}</span>
+                  </div>
+                  <p>{{ entry.content }}</p>
+                </div>
+                <el-dropdown v-if="entry.kind === 'progress'" trigger="click"
+                  ><button class="icon-plain" title="编辑进展"><MoreFilled /></button
+                  ><template #dropdown
+                    ><el-dropdown-menu
+                      ><el-dropdown-item @click="editProgress(entry)">编辑</el-dropdown-item
+                      ><el-dropdown-item class="danger-item" @click="deleteProgress(entry)"
+                        >删除</el-dropdown-item
+                      ></el-dropdown-menu
+                    ></template
+                  ></el-dropdown
+                >
+              </div>
+            </section>
+          </div>
+          <footer class="lifecycle-actions">
+            <template v-if="selected.attentionStatus === 'active'">
+              <el-button @click="openLifecycle('continue')">继续关注</el-button
+              ><el-button type="success" @click="openLifecycle('completed')">确认完成</el-button
+              ><el-button @click="openLifecycle('canceled')">确认取消</el-button
+              ><el-button type="warning" plain @click="openLifecycle('stop')">结束关注</el-button>
+            </template>
+            <el-button v-else type="primary" @click="openLifecycle('reopen')">重新关注</el-button>
+          </footer>
+        </template>
+      </template>
+    </TaskWorkspaceLayout>
 
     <el-dialog
       v-model="editVisible"
@@ -383,16 +388,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage, ElMessageBox } from "element-plus";
-import {
-  Back,
-  Calendar,
-  Delete,
-  Link,
-  MoreFilled,
-  Plus,
-  Refresh,
-  User,
-} from "@element-plus/icons-vue";
+import { Calendar, Delete, Link, MoreFilled, Plus, Refresh, User } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { APP_EVENTS } from "../../bridge/events";
 import type {
@@ -411,6 +407,7 @@ import {
   quickReviewAt,
 } from "../../utils/followUp";
 import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedule";
+import TaskWorkspaceLayout from "../todo/TaskWorkspaceLayout.vue";
 
 const emit = defineEmits<{
   createTodo: [item: FollowUpItem];
@@ -848,30 +845,14 @@ defineExpose({ focus, loadItems });
 
 <style scoped>
 .follow-up-panel {
-  display: grid;
-  grid-template-columns: 260px minmax(300px, 1fr) minmax(320px, 0.9fr);
   height: 100%;
   min-height: 0;
-  background: #f6f7f9;
-  color: #263238;
-}
-.follow-up-sidebar,
-.follow-up-list-pane,
-.follow-up-detail-pane {
-  min-height: 0;
-  background: #fff;
-}
-.follow-up-sidebar {
-  padding: 0 4px 0 0;
-  border-right: 1px solid #e6e9ee;
-  display: flex;
-  flex-direction: column;
+  color: var(--lc-text);
 }
 .follow-up-sidebar-content {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 8px 18px 12px;
 }
 .section-button {
   border: 0;
@@ -880,46 +861,46 @@ defineExpose({ focus, loadItems });
   justify-content: space-between;
   padding: 9px 10px;
   border-radius: 6px;
-  color: #52606d;
+  color: var(--lc-text-secondary);
   cursor: pointer;
 }
 .section-button:hover,
 .section-button.active {
-  background: #eef5ff;
-  color: #2563a9;
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent);
 }
 .section-count {
   font-variant-numeric: tabular-nums;
 }
 .sidebar-filter-title {
   font-size: 12px;
-  color: #8a94a1;
+  color: var(--lc-text-muted);
   margin: 14px 8px 2px;
 }
-.follow-up-list-pane {
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #e6e9ee;
-}
 .follow-up-toolbar {
+  width: 100%;
   display: grid;
   grid-template-columns: minmax(160px, 1fr) auto auto;
   gap: 8px;
-  padding: 14px;
-  border-bottom: 1px solid #e6e9ee;
 }
 .follow-up-scroll,
 .detail-scroll {
   min-height: 0;
   overflow: auto;
-  padding: 14px;
+}
+.follow-up-scroll {
+  flex: 1;
+  padding-right: 4px;
+}
+.detail-scroll {
+  padding: 16px 20px;
 }
 .group-heading {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
   font-weight: 700;
-  color: #596574;
+  color: var(--lc-text-secondary);
   margin-bottom: 10px;
 }
 .follow-up-card {
@@ -927,8 +908,8 @@ defineExpose({ focus, loadItems });
   width: 100%;
   display: block;
   text-align: left;
-  border: 1px solid #e5e9ef;
-  background: #fff;
+  border: 1px solid var(--lc-border);
+  background: var(--lc-surface-1);
   border-radius: 6px;
   padding: 12px 12px 12px 16px;
   margin-bottom: 8px;
@@ -942,30 +923,30 @@ defineExpose({ focus, loadItems });
 }
 .follow-up-card:hover,
 .follow-up-card.selected {
-  border-color: #8db9e8;
-  background: #f7fbff;
+  border-color: var(--lc-border-active);
+  background: var(--lc-accent-dim);
 }
 .follow-up-card:focus-visible {
-  outline: 2px solid #4185c5;
+  outline: 2px solid var(--lc-accent);
   outline-offset: 2px;
 }
 .priority-stripe {
   position: absolute;
   inset: 0 auto 0 0;
   width: 4px;
-  background: #8d99a6;
+  background: var(--lc-text-muted);
 }
 .priority-stripe.p0 {
-  background: #d64c4c;
+  background: var(--lc-danger);
 }
 .priority-stripe.p1 {
-  background: #e49132;
+  background: var(--lc-warning);
 }
 .priority-stripe.p2 {
-  background: #4185c5;
+  background: var(--lc-accent);
 }
 .priority-stripe.p3 {
-  background: #7a8a99;
+  background: var(--lc-text-muted);
 }
 .card-main {
   min-width: 0;
@@ -995,14 +976,14 @@ defineExpose({ focus, loadItems });
   font-variant-numeric: tabular-nums;
 }
 .priority-tag.p0 {
-  color: #bd3434;
-  border-color: #efb6b6;
-  background: #fff7f7;
+  color: var(--lc-danger);
+  border-color: var(--lc-border-hover);
+  background: var(--lc-surface-2);
 }
 .priority-tag.p1 {
-  color: #a96110;
-  border-color: #edc791;
-  background: #fffaf2;
+  color: var(--lc-warning);
+  border-color: var(--lc-border-hover);
+  background: var(--lc-surface-2);
 }
 .card-meta {
   display: grid;
@@ -1011,7 +992,7 @@ defineExpose({ focus, loadItems });
   gap: 8px 12px;
   min-width: 0;
   font-size: 12px;
-  color: #66717d;
+  color: var(--lc-text-secondary);
 }
 .card-meta span,
 .link-summary,
@@ -1041,13 +1022,13 @@ defineExpose({ focus, loadItems });
   gap: 10px;
   min-width: 0;
   padding-top: 7px;
-  border-top: 1px solid #edf0f3;
+  border-top: 1px solid var(--lc-border-subtle);
 }
 .latest-progress {
   min-width: 0;
   flex: 1;
   font-size: 12px;
-  color: #4d5966;
+  color: var(--lc-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1061,22 +1042,15 @@ defineExpose({ focus, loadItems });
 }
 .link-summary {
   font-size: 11px;
-  color: #7b8794;
+  color: var(--lc-text-muted);
   white-space: nowrap;
-}
-.follow-up-detail-pane {
-  display: flex;
-  flex-direction: column;
 }
 .detail-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   padding: 16px 18px;
-  border-bottom: 1px solid #e6e9ee;
-}
-.mobile-back {
-  display: none;
+  border-bottom: 1px solid var(--lc-border);
 }
 .detail-title {
   min-width: 0;
@@ -1089,7 +1063,7 @@ defineExpose({ focus, loadItems });
 }
 .detail-header p {
   font-size: 12px;
-  color: #788390;
+  color: var(--lc-text-muted);
   margin: 0;
 }
 .detail-grid {
@@ -1099,20 +1073,20 @@ defineExpose({ focus, loadItems });
   margin: 0 0 18px;
 }
 .detail-grid div {
-  background: #f6f8fa;
+  background: var(--lc-surface-2);
   padding: 10px;
   border-radius: 5px;
 }
 .detail-grid dt {
   font-size: 11px;
-  color: #7b8794;
+  color: var(--lc-text-muted);
 }
 .detail-grid dd {
   font-size: 13px;
   margin: 4px 0 0;
 }
 .detail-section {
-  border-top: 1px solid #edf0f3;
+  border-top: 1px solid var(--lc-border-subtle);
   padding: 15px 0;
 }
 .detail-section h3 {
@@ -1131,7 +1105,7 @@ defineExpose({ focus, loadItems });
 .text-link {
   border: 0;
   background: transparent;
-  color: #2563a9;
+  color: var(--lc-accent);
   padding: 3px 0;
   cursor: pointer;
   max-width: 100%;
@@ -1153,13 +1127,13 @@ defineExpose({ focus, loadItems });
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #4185c5;
+  background: var(--lc-accent);
   margin-top: 5px;
 }
 .timeline-meta {
   gap: 8px;
   font-size: 11px;
-  color: #87919c;
+  color: var(--lc-text-muted);
 }
 .timeline-entry p {
   margin: 4px 0 0;
@@ -1169,7 +1143,7 @@ defineExpose({ focus, loadItems });
 .icon-plain {
   border: 0;
   background: transparent;
-  color: #7b8794;
+  color: var(--lc-text-muted);
   cursor: pointer;
 }
 .lifecycle-actions {
@@ -1177,7 +1151,7 @@ defineExpose({ focus, loadItems });
   flex-wrap: wrap;
   gap: 7px;
   padding: 12px 16px;
-  border-top: 1px solid #e6e9ee;
+  border-top: 1px solid var(--lc-border);
 }
 .form-grid {
   display: grid;
@@ -1216,48 +1190,9 @@ defineExpose({ focus, loadItems });
   margin-bottom: 7px;
 }
 :deep(.danger-item) {
-  color: #c23b3b;
+  color: var(--lc-danger);
 }
-@media (max-width: 1280px) {
-  .follow-up-panel {
-    grid-template-columns: 240px minmax(280px, 1fr) minmax(320px, 0.9fr);
-  }
-}
-@media (max-width: 1050px) {
-  .follow-up-panel {
-    grid-template-columns: 240px minmax(280px, 1fr);
-  }
-  .follow-up-detail-pane {
-    position: absolute;
-    inset: 0 0 0 240px;
-    z-index: 4;
-  }
-  .follow-up-detail-pane:has(.el-empty) {
-    display: none;
-  }
-  .mobile-back {
-    display: inline-flex;
-    flex: 0 0 auto;
-  }
-}
-@media (max-width: 1024px) {
-  .follow-up-panel {
-    grid-template-columns: 220px minmax(280px, 1fr);
-  }
-  .follow-up-detail-pane {
-    inset-inline-start: 220px;
-  }
-}
-@media (max-width: 760px) {
-  .follow-up-panel {
-    grid-template-columns: 1fr;
-  }
-  .follow-up-sidebar {
-    display: none;
-  }
-  .follow-up-detail-pane {
-    inset: 0;
-  }
+@container task-workspace (max-width: 640px) {
   .follow-up-toolbar {
     grid-template-columns: 1fr auto;
   }

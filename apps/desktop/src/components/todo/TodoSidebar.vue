@@ -1,6 +1,5 @@
 <template>
-  <aside class="todo-stats todo-sidebar">
-    <slot />
+  <div class="todo-sidebar-content">
     <div class="stats-section">
       <div class="stats-section-header">
         <div class="stats-section-title">概览</div>
@@ -114,7 +113,7 @@
         </div>
       </div>
     </div>
-  </aside>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -189,14 +188,10 @@ function statsBarWidth(count: number, list: { count: number }[]) {
 </script>
 
 <style scoped>
-.todo-stats {
-  width: auto;
-  flex-shrink: 0;
+.todo-sidebar-content {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 .stats-section {
   background: var(--lc-surface-1);

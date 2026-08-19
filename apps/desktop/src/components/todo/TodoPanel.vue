@@ -1,17 +1,25 @@
 <template>
   <div class="todo-panel">
-    <div class="todo-layout" v-loading="initialLoading">
-      <TodoSidebar
-        :active-items="activeItems"
-        :recent-week-items="recentWeekItems"
-        :done-items="doneItems"
-        v-model:filter-type="filterType"
-        v-model:filter-priority="filterPriority"
-        @open-basics="basicsDialogVisible = true"
-      >
+    <TaskWorkspaceLayout
+      v-loading="initialLoading"
+      namespace="todo"
+      :detail-open="detailMode !== 'empty'"
+      @close-detail="closeDetail"
+    >
+      <template #switch>
         <slot name="view-switch" />
-      </TodoSidebar>
-      <section class="todo-list-pane">
+      </template>
+      <template #sidebar>
+        <TodoSidebar
+          :active-items="activeItems"
+          :recent-week-items="recentWeekItems"
+          :done-items="doneItems"
+          v-model:filter-type="filterType"
+          v-model:filter-priority="filterPriority"
+          @open-basics="basicsDialogVisible = true"
+        />
+      </template>
+      <template #toolbar>
         <div class="toolbar">
           <div class="toolbar-left">
             <el-radio-group v-model="viewMode" size="small">
@@ -44,6 +52,8 @@
             <el-button type="primary" @click="startCreate">新增事项</el-button>
           </div>
         </div>
+      </template>
+      <template #list>
         <TodoQuickAddBar
           v-if="viewMode === 'list'"
           class="todo-quick-add-bar"
@@ -350,94 +360,96 @@
             @go-today="calendarMonth = new Date()"
           />
         </div>
-      </section>
+      </template>
 
-      <aside class="todo-detail-pane" :key="detailMode">
-        <template v-if="detailMode === 'create' || detailMode === 'edit'">
-          <TodoDetailEdit
-            ref="todoDetailEditRef"
-            :mode="detailMode === 'create' ? 'create' : 'edit'"
-            :draft="itemDraft"
-            :selected-item="selectedItem"
-            :show-more-fields="showMoreFields"
-            :pm-link-item-id="todoPmLinkItemId"
-            :sorted-types="sortedTypes"
-            :assignees="assignees"
-            :project-options="projectOptions"
-            :pm-candidates="todoPmCandidates"
-            :priority-options="priorityOptions"
-            :reminder-preset-options="reminderPresetOptions"
-            :repeat-preset-options="repeatPresetOptions"
-            :weekday-options="weekdayOptions"
-            :hour-options="hourOptions"
-            :minute-options="minuteOptions"
-            :time-hour="eventHour"
-            :time-minute="eventMinute"
-            :action-definitions="actionDefinitions"
-            :action-targets="actionTargets"
-            @title-enter="onTitleEnter"
-            @toggle-more-fields="showMoreFields = !showMoreFields"
-            @pm-select-change="handlePmSelectChange"
-            @pm-project-change="handlePmProjectChange"
-            @pm-create="handlePmCreate"
-            @pm-search="handlePmSearch"
-            @navigate-to-pm="navigateToPmItem"
-            @event-date-change="
-              (v) => {
-                if (!v) clearEventSchedule();
-                else itemDraft.eventDate = v;
-              }
-            "
-            @event-hour-change="
-              (v) => {
-                const { minute } = splitDraftEventTime(itemDraft.eventTime);
-                itemDraft.eventTime = composeDraftEventTime(v, minute);
-              }
-            "
-            @event-minute-change="
-              (v) => {
-                const { hour } = splitDraftEventTime(itemDraft.eventTime);
-                itemDraft.eventTime = composeDraftEventTime(hour, v);
-              }
-            "
-            @fill-quick-date="fillQuickDate"
-            @fill-default-date-time="fillDefaultDateTime"
-            @clear-event-schedule="clearEventSchedule"
-            @reminder-presets-change="onReminderPresetsChange"
-            @repeat-preset-change="onRepeatPresetChange"
-            @action-type-change="handleActionTypeChange"
-            @navigate-to-tool="navigateToTool"
-            @custom-frequency-change="onCustomFrequencyChange"
-            @toggle-pin="toggleItemPin"
-            @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
-            @delete="deleteItem"
-            @cancel="cancelDetailEdit"
-            @save="saveItem"
+      <template #detail>
+        <div :key="detailMode" class="todo-detail-content">
+          <template v-if="detailMode === 'create' || detailMode === 'edit'">
+            <TodoDetailEdit
+              ref="todoDetailEditRef"
+              :mode="detailMode === 'create' ? 'create' : 'edit'"
+              :draft="itemDraft"
+              :selected-item="selectedItem"
+              :show-more-fields="showMoreFields"
+              :pm-link-item-id="todoPmLinkItemId"
+              :sorted-types="sortedTypes"
+              :assignees="assignees"
+              :project-options="projectOptions"
+              :pm-candidates="todoPmCandidates"
+              :priority-options="priorityOptions"
+              :reminder-preset-options="reminderPresetOptions"
+              :repeat-preset-options="repeatPresetOptions"
+              :weekday-options="weekdayOptions"
+              :hour-options="hourOptions"
+              :minute-options="minuteOptions"
+              :time-hour="eventHour"
+              :time-minute="eventMinute"
+              :action-definitions="actionDefinitions"
+              :action-targets="actionTargets"
+              @title-enter="onTitleEnter"
+              @toggle-more-fields="showMoreFields = !showMoreFields"
+              @pm-select-change="handlePmSelectChange"
+              @pm-project-change="handlePmProjectChange"
+              @pm-create="handlePmCreate"
+              @pm-search="handlePmSearch"
+              @navigate-to-pm="navigateToPmItem"
+              @event-date-change="
+                (v) => {
+                  if (!v) clearEventSchedule();
+                  else itemDraft.eventDate = v;
+                }
+              "
+              @event-hour-change="
+                (v) => {
+                  const { minute } = splitDraftEventTime(itemDraft.eventTime);
+                  itemDraft.eventTime = composeDraftEventTime(v, minute);
+                }
+              "
+              @event-minute-change="
+                (v) => {
+                  const { hour } = splitDraftEventTime(itemDraft.eventTime);
+                  itemDraft.eventTime = composeDraftEventTime(hour, v);
+                }
+              "
+              @fill-quick-date="fillQuickDate"
+              @fill-default-date-time="fillDefaultDateTime"
+              @clear-event-schedule="clearEventSchedule"
+              @reminder-presets-change="onReminderPresetsChange"
+              @repeat-preset-change="onRepeatPresetChange"
+              @action-type-change="handleActionTypeChange"
+              @navigate-to-tool="navigateToTool"
+              @custom-frequency-change="onCustomFrequencyChange"
+              @toggle-pin="toggleItemPin"
+              @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
+              @delete="deleteItem"
+              @cancel="cancelDetailEdit"
+              @save="saveItem"
+            />
+          </template>
+          <template v-else-if="detailMode === 'view' && selectedItem !== null">
+            <TodoDetailView
+              :item="selectedItem"
+              :latest-dispatch="latestDispatch"
+              @edit="enterEditMode"
+              @toggle-pin="toggleItemPin"
+              @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
+              @delete="deleteItem"
+              @copy-title="copyTitle"
+              @open-link="openLink"
+              @navigate-to-pm="navigateToPmItem"
+              @dispatch-action="handleDispatchAction"
+            />
+          </template>
+          <TodoEmptyState
+            v-else
+            :today-due-count="todayDueCount"
+            :overdue-count="overdueCount"
+            @create="startCreate"
+            @refresh="loadItems"
           />
-        </template>
-        <template v-else-if="detailMode === 'view' && selectedItem !== null">
-          <TodoDetailView
-            :item="selectedItem"
-            :latest-dispatch="latestDispatch"
-            @edit="enterEditMode"
-            @toggle-pin="toggleItemPin"
-            @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
-            @delete="deleteItem"
-            @copy-title="copyTitle"
-            @open-link="openLink"
-            @navigate-to-pm="navigateToPmItem"
-            @dispatch-action="handleDispatchAction"
-          />
-        </template>
-        <TodoEmptyState
-          v-else
-          :today-due-count="todayDueCount"
-          :overdue-count="overdueCount"
-          @create="startCreate"
-          @refresh="loadItems"
-        />
-      </aside>
-    </div>
+        </div>
+      </template>
+    </TaskWorkspaceLayout>
 
     <TodoBasicsDialog
       v-model="basicsDialogVisible"
@@ -542,6 +554,7 @@ import type { TodoContextMenuCommand } from "./TodoContextMenu.vue";
 import TodoBasicsDialog from "./TodoBasicsDialog.vue";
 import TodoSidebar from "./TodoSidebar.vue";
 import TodoQuickAddBar from "./TodoQuickAddBar.vue";
+import TaskWorkspaceLayout from "./TaskWorkspaceLayout.vue";
 import TodoEmptyState from "./TodoEmptyState.vue";
 import { getCreateDraftDefaultDateTime } from "../../utils/todoSchedule";
 
@@ -1059,6 +1072,7 @@ const {
   startCreate,
   createOnDate,
   cancelDetailEdit,
+  closeDetail,
   resetItemDraft,
   enterEditMode: enterEditModeBase,
 } = useTodoDetailState({
@@ -1203,11 +1217,11 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 .toolbar {
+  width: 100%;
   display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 .toolbar-right {
@@ -1537,37 +1551,13 @@ onBeforeUnmount(() => {
   transform: rotate(-90deg);
 }
 
-/* --- Layout --- */
-.todo-layout {
-  display: grid;
-  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(300px, 1fr);
-  gap: 16px;
-  height: 100%;
-  min-height: 0;
-}
-.todo-sidebar,
-.todo-list-pane,
-.todo-detail-pane {
-  min-height: 0;
-}
-.todo-list-pane {
+.todo-detail-content {
   display: flex;
   flex-direction: column;
-  min-width: 0;
-}
-.todo-list-scroll {
   flex: 1;
+  min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.todo-detail-pane {
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border);
-  border-radius: var(--lc-radius-md);
 }
 
 /* --- Filter indicator --- */
@@ -1861,52 +1851,7 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Smooth transitions for detail pane */
-.todo-detail-pane {
-  transition: box-shadow 0.3s var(--lc-ease);
-}
-
-.todo-detail-pane:hover {
-  box-shadow: var(--lc-shadow-md);
-}
-
-/* --- Responsive --- */
-@media (max-width: 1280px) {
-  .todo-layout {
-    grid-template-columns: 240px minmax(320px, 1.2fr) minmax(320px, 1fr);
-    gap: 14px;
-  }
-}
-@media (max-width: 1024px) {
-  .todo-layout {
-    grid-template-columns: 220px minmax(300px, 1fr) 300px;
-    gap: 12px;
-  }
-}
-@media (max-width: 900px) {
-  .todo-layout {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "list"
-      "detail"
-      "stats";
-  }
-  .todo-list-pane {
-    grid-area: list;
-  }
-  .todo-detail-pane {
-    grid-area: detail;
-    min-height: 480px;
-    border-radius: var(--lc-radius-lg);
-  }
-  .todo-sidebar {
-    grid-area: stats;
-    width: 100%;
-    overflow: visible;
-    padding-right: 0;
-  }
-}
-@media (max-width: 640px) {
+@container task-workspace (max-width: 640px) {
   .detail-grid {
     grid-template-columns: 1fr;
   }
