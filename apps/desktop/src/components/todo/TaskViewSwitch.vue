@@ -6,7 +6,7 @@
       :aria-pressed="activeView === 'todo'"
       @click="emit('change', 'todo')"
     >
-      我的任务
+      <span class="task-view-switch-label">我的任务</span>
     </button>
     <button
       type="button"
@@ -14,7 +14,7 @@
       :aria-pressed="activeView === 'follow-up'"
       @click="emit('change', 'follow-up')"
     >
-      <span>关注事项</span>
+      <span class="task-view-switch-label">关注事项</span>
       <span
         class="due-count"
         :class="{ 'is-empty': dueCount === 0 }"
@@ -50,6 +50,7 @@ const emit = defineEmits<{
   background: var(--lc-surface-2);
 }
 .task-view-switch button {
+  position: relative;
   min-width: 0;
   height: 30px;
   display: flex;
@@ -71,6 +72,12 @@ const emit = defineEmits<{
     background-color var(--lc-duration) var(--lc-ease),
     box-shadow var(--lc-duration) var(--lc-ease);
 }
+.task-view-switch-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 .task-view-switch button:hover {
   color: var(--lc-text);
 }
@@ -84,6 +91,10 @@ const emit = defineEmits<{
   outline-offset: 1px;
 }
 .due-count {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 24px;
   height: 16px;
   display: inline-flex;

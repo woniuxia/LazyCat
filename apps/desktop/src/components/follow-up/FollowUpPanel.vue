@@ -49,6 +49,7 @@
       <template #toolbar>
         <div class="follow-up-toolbar">
           <el-input
+            class="follow-up-search-input"
             v-model="filters.keyword"
             clearable
             placeholder="搜索标题、责任人、描述或进展"
@@ -881,7 +882,16 @@ defineExpose({ focus, loadItems });
   width: 100%;
   display: grid;
   grid-template-columns: minmax(160px, 1fr) auto auto;
+  align-items: center;
   gap: 8px;
+}
+.follow-up-search-input {
+  height: 40px;
+}
+.follow-up-search-input :deep(.el-input__wrapper) {
+  height: 40px;
+  min-height: 40px;
+  box-sizing: border-box;
 }
 .follow-up-scroll,
 .detail-scroll {
