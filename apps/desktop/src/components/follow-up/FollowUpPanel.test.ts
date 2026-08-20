@@ -130,6 +130,9 @@ describe("FollowUpPanel", () => {
     expect(firstCard?.querySelector(".card-supporting .el-tag--danger")?.textContent).toBe(
       "外部期限已到",
     );
+    expect(firstCard?.querySelector(".card-supporting .el-tag--warning")?.textContent).toBe(
+      "待复查",
+    );
     const later = Array.from(root.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("以后复查"),
     );
@@ -140,6 +143,21 @@ describe("FollowUpPanel", () => {
     app.unmount();
   });
 
+  it("shows the due state even when an item has no secondary metadata", async () => {
+    const dueOnly = followUp(20, "仅待复查", "2026-08-18T09:00:00+08:00");
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "tool:todo:assignee-list")
+        return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
+      if (channel === "tool:follow-up:item-list") return Promise.resolve([dueOnly]);
+      return Promise.resolve({ ok: true });
+    });
+
+    const { app, root } = await mountPanel();
+    const card = root.querySelector(".follow-up-card");
+    expect(card?.querySelector(".card-supporting")?.textContent).toContain("待复查");
+    app.unmount();
+  });
+
   it("opens the selected detail and keeps lifecycle information visible", async () => {
     const { app, root } = await mountPanel();
     const card = root.querySelector<HTMLButtonElement>(".follow-up-card");
@@ -147,7 +165,11 @@ describe("FollowUpPanel", () => {
     await nextTick();
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("现在复查");
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("预期结果");
+    expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("关注状态");
+    expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("外部结果");
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("继续关注");
+    expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("确认结果");
+    expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("记录第一条进展");
     const backButton = root.querySelector<HTMLButtonElement>(
       '.task-workspace-detail-backbar button[title="返回列表"]',
     );
@@ -155,6 +177,38 @@ describe("FollowUpPanel", () => {
     backButton?.click();
     await nextTick();
     expect(root.querySelector(".follow-up-detail-pane")?.textContent).toContain("选择一项查看详情");
+    app.unmount();
+  });
+
+  it("keeps ended attention separate from an unknown external result", async () => {
+    const { app, root } = await mountPanel();
+    const endedCard = Array.from(root.querySelectorAll<HTMLButtonElement>(".follow-up-card")).find(
+      (card) => card.textContent?.includes("已结束事项"),
+    );
+    endedCard?.click();
+    await nextTick();
+
+    const detail = root.querySelector(".follow-up-detail-pane");
+    expect(detail?.textContent).toContain("已结束关注");
+    expect(detail?.textContent).toContain("外部结果");
+    expect(detail?.textContent).toContain("结果未知");
+    expect(detail?.textContent).toContain("不再复查");
+    app.unmount();
+  });
+
+  it("rejects missing required input and keeps the create dialog open", async () => {
+    const { app, root } = await mountPanel();
+    buttonByText(root, "新增关注事项")?.click();
+    await nextTick();
+
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const saveButton = buttonByText(dialog ?? document.body, "保存");
+    if (!saveButton) throw new Error("save button did not render");
+    saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextTick();
+
+    expect(bridge.invoke).not.toHaveBeenCalledWith("tool:follow-up:item-create", expect.anything());
+    expect(document.body.querySelector(".el-dialog")).not.toBeNull();
     app.unmount();
   });
 

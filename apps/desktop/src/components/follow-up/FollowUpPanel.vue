@@ -85,17 +85,21 @@
                 >
               </span>
               <span class="card-meta"
-                ><span><User />{{ item.personName }}</span
-                ><span
-                  ><Calendar />{{
+                ><span class="card-review" :class="{ due: isDue(item) }"
+                  ><Calendar /><span>{{
                     item.attentionStatus === "active"
                       ? formatDateTime(item.reviewAt)
                       : resultLabel(item)
-                  }}</span
-                ></span
+                  }}</span></span
+                ><span class="card-person"><User />{{ item.personName }}</span></span
               >
               <span
-                v-if="item.latestProgress || externalDeadlineReached(item) || item.links.length"
+                v-if="
+                  item.latestProgress ||
+                  isDue(item) ||
+                  externalDeadlineReached(item) ||
+                  item.links.length
+                "
                 class="card-supporting"
               >
                 <span
@@ -111,6 +115,9 @@
                     size="small"
                     effect="plain"
                     >外部期限已到</el-tag
+                  >
+                  <el-tag v-if="isDue(item)" type="warning" size="small" effect="plain"
+                    >待复查</el-tag
                   >
                   <span v-if="item.links.length" class="link-summary"
                     ><Link />{{ item.links.length }} 个相关链接</span
@@ -128,10 +135,15 @@
           <header class="detail-header">
             <div class="detail-title">
               <h2>{{ selected.title }}</h2>
-              <p>
-                {{ selected.personName }} ·
-                {{ selected.attentionStatus === "active" ? "关注中" : resultLabel(selected) }}
-              </p>
+              <div class="detail-status-row">
+                <span>{{ selected.personName }}</span>
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="selected.attentionStatus === 'active' ? 'success' : 'info'"
+                  >{{ selected.attentionStatus === "active" ? "关注中" : "已结束关注" }}</el-tag
+                >
+              </div>
             </div>
             <el-dropdown trigger="click">
               <el-button :icon="MoreFilled" circle title="更多操作" />
@@ -152,8 +164,18 @@
           <div class="detail-scroll">
             <dl class="detail-grid">
               <div>
+                <dt>关注状态</dt>
+                <dd>{{ selected.attentionStatus === "active" ? "关注中" : "已结束关注" }}</dd>
+              </div>
+              <div>
                 <dt>复查时间</dt>
-                <dd>{{ formatDateTime(selected.reviewAt) }}</dd>
+                <dd>
+                  {{
+                    selected.attentionStatus === "active"
+                      ? formatDateTime(selected.reviewAt)
+                      : "不再复查"
+                  }}
+                </dd>
               </div>
               <div>
                 <dt>预计完成</dt>
@@ -165,7 +187,7 @@
               </div>
               <div>
                 <dt>外部结果</dt>
-                <dd>{{ resultLabel(selected) }}</dd>
+                <dd>{{ externalResultLabel(selected) }}</dd>
               </div>
             </dl>
             <section v-if="selected.expectedOutcome" class="detail-section">
@@ -201,7 +223,14 @@
                 v-if="!selected.progress.length"
                 description="暂无进展记录"
                 :image-size="56"
-              />
+              >
+                <el-button
+                  v-if="selected.attentionStatus === 'active'"
+                  size="small"
+                  @click="addProgress"
+                  >记录第一条进展</el-button
+                >
+              </el-empty>
               <div v-for="entry in selected.progress" :key="entry.id" class="timeline-entry">
                 <span class="timeline-dot" />
                 <div>
@@ -227,10 +256,19 @@
           </div>
           <footer class="lifecycle-actions">
             <template v-if="selected.attentionStatus === 'active'">
-              <el-button @click="openLifecycle('continue')">继续关注</el-button
-              ><el-button type="success" @click="openLifecycle('completed')">确认完成</el-button
-              ><el-button @click="openLifecycle('canceled')">确认取消</el-button
-              ><el-button type="warning" plain @click="openLifecycle('stop')">结束关注</el-button>
+              <el-button type="primary" @click="openLifecycle('continue')">继续关注</el-button>
+              <el-dropdown trigger="click">
+                <el-button type="success">确认结果 <ArrowDown /></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="openLifecycle('completed')"
+                      >确认完成</el-dropdown-item
+                    >
+                    <el-dropdown-item @click="openLifecycle('canceled')">确认取消</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button type="warning" plain @click="openLifecycle('stop')">结束关注</el-button>
             </template>
             <el-button v-else type="primary" @click="openLifecycle('reopen')">重新关注</el-button>
           </footer>
@@ -245,11 +283,11 @@
       destroy-on-close
     >
       <el-form label-position="top" @submit.prevent>
-        <el-form-item label="标题" required
+        <el-form-item label="标题" required :error="formErrors.title"
           ><el-input v-model="draft.title" maxlength="120"
         /></el-form-item>
         <div class="form-grid">
-          <el-form-item label="责任人" required
+          <el-form-item label="责任人" required :error="formErrors.personId"
             ><div class="person-field">
               <el-select v-model="draft.personId" filterable placeholder="选择人员名录"
                 ><el-option
@@ -271,7 +309,7 @@
                 :value="priority" /></el-select
           ></el-form-item>
         </div>
-        <el-form-item label="复查时间" :required="!editingEnded"
+        <el-form-item label="复查时间" :required="!editingEnded" :error="formErrors.reviewAt"
           ><div class="date-field">
             <div class="review-date-time">
               <el-date-picker
@@ -341,9 +379,14 @@
           v-if="lifecycleMode !== 'reopen'"
           :label="lifecycleMode === 'stop' ? '结束原因' : '进展或结果'"
           required
+          :error="lifecycleErrors.content"
           ><el-input v-model="lifecycleContent" type="textarea" :rows="4"
         /></el-form-item>
-        <el-form-item v-if="lifecycleNeedsReview" label="新的复查时间" required
+        <el-form-item
+          v-if="lifecycleNeedsReview"
+          label="新的复查时间"
+          required
+          :error="lifecycleErrors.reviewAt"
           ><div class="date-field">
             <div class="review-date-time">
               <el-date-picker
@@ -389,7 +432,16 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Calendar, Delete, Link, MoreFilled, Plus, Refresh, User } from "@element-plus/icons-vue";
+import {
+  ArrowDown,
+  Calendar,
+  Delete,
+  Link,
+  MoreFilled,
+  Plus,
+  Refresh,
+  User,
+} from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { APP_EVENTS } from "../../bridge/events";
 import type {
@@ -432,6 +484,8 @@ const filters = reactive<FollowUpFilters>({
   attentionStatus: null,
 });
 const draft = reactive<FollowUpDraft>(emptyFollowUpDraft());
+const formErrors = reactive({ title: "", personId: "", reviewAt: "" });
+const lifecycleErrors = reactive({ content: "", reviewAt: "" });
 const priorities = ["P0", "P1", "P2", "P3"] as const;
 const shortcuts = [
   { label: "明天", days: 1 },
@@ -578,12 +632,19 @@ function selectItem(id: number) {
 function assignDraft(value: FollowUpDraft) {
   Object.assign(draft, value);
 }
+function clearFormErrors() {
+  formErrors.title = "";
+  formErrors.personId = "";
+  formErrors.reviewAt = "";
+}
 function startCreate() {
   assignDraft(emptyFollowUpDraft());
+  clearFormErrors();
   editVisible.value = true;
 }
 function startEdit() {
   if (!selected.value) return;
+  clearFormErrors();
   assignDraft({
     id: selected.value.id,
     title: selected.value.title,
@@ -598,18 +659,10 @@ function startEdit() {
   editVisible.value = true;
 }
 async function saveItem() {
-  if (!draft.title.trim()) {
-    ElMessage.warning("请输入标题");
-    return;
-  }
-  if (!draft.personId) {
-    ElMessage.warning("请选择责任人");
-    return;
-  }
-  if (!editingEnded.value && !draft.reviewAt) {
-    ElMessage.warning("请选择复查时间");
-    return;
-  }
+  formErrors.title = draft.title.trim() ? "" : "请输入标题";
+  formErrors.personId = draft.personId ? "" : "请选择责任人";
+  formErrors.reviewAt = editingEnded.value || draft.reviewAt ? "" : "请选择复查时间";
+  if (formErrors.title || formErrors.personId || formErrors.reviewAt) return;
   saving.value = true;
   try {
     const channel = draft.id ? "tool:follow-up:item-update" : "tool:follow-up:item-create";
@@ -645,18 +698,17 @@ function openLifecycle(mode: LifecycleMode) {
   lifecycleMode.value = mode;
   lifecycleContent.value = "";
   lifecycleReviewAt.value = quickReviewAt(1);
+  lifecycleErrors.content = "";
+  lifecycleErrors.reviewAt = "";
   lifecycleVisible.value = true;
 }
 async function submitLifecycle() {
   if (!selected.value) return;
-  if (lifecycleMode.value !== "reopen" && !lifecycleContent.value.trim()) {
-    ElMessage.warning("请输入内容");
-    return;
-  }
-  if (lifecycleNeedsReview.value && !lifecycleReviewAt.value) {
-    ElMessage.warning("请选择新的复查时间");
-    return;
-  }
+  lifecycleErrors.content =
+    lifecycleMode.value === "reopen" || lifecycleContent.value.trim() ? "" : "请输入内容";
+  lifecycleErrors.reviewAt =
+    !lifecycleNeedsReview.value || lifecycleReviewAt.value ? "" : "请选择新的复查时间";
+  if (lifecycleErrors.content || lifecycleErrors.reviewAt) return;
   const channels = {
     continue: "tool:follow-up:continue",
     completed: "tool:follow-up:confirm-completed",
@@ -792,9 +844,14 @@ function formatDateTime(value: string | null) {
       }).format(date);
 }
 function resultLabel(item: FollowUpItem) {
+  const externalResult = externalResultLabel(item);
+  if (externalResult !== "结果未知") return externalResult;
+  return item.attentionStatus === "ended" ? "已结束关注" : "结果未知";
+}
+function externalResultLabel(item: FollowUpItem) {
   if (item.externalResult === "completed") return "已完成";
   if (item.externalResult === "canceled") return "已取消";
-  return item.attentionStatus === "ended" ? "已结束关注" : "结果未知";
+  return "结果未知";
 }
 function progressKindLabel(kind: FollowUpProgress["kind"]) {
   return {
@@ -805,6 +862,9 @@ function progressKindLabel(kind: FollowUpProgress["kind"]) {
     stopped_following: "结束关注",
     reopened: "重新关注",
   }[kind];
+}
+function isDue(item: FollowUpItem) {
+  return item.attentionStatus === "active" && followUpGroup(item) === "due";
 }
 async function openUrl(url: string) {
   try {
@@ -822,6 +882,20 @@ async function focus(itemId: number | null, dueOnly = false) {
   }
 }
 watch(filters, () => void loadItems(), { deep: true });
+watch(
+  () => draft.title,
+  () => (formErrors.title = ""),
+);
+watch(
+  () => draft.personId,
+  () => (formErrors.personId = ""),
+);
+watch(
+  () => draft.reviewAt,
+  () => (formErrors.reviewAt = ""),
+);
+watch(lifecycleContent, () => (lifecycleErrors.content = ""));
+watch(lifecycleReviewAt, () => (lifecycleErrors.reviewAt = ""));
 onMounted(async () => {
   try {
     await Promise.all([loadAssignees(), loadItems(true)]);
@@ -997,12 +1071,19 @@ defineExpose({ focus, loadItems });
 }
 .card-meta {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px 12px;
   min-width: 0;
   font-size: 12px;
   color: var(--lc-text-secondary);
+}
+.card-review {
+  font-weight: 600;
+  color: var(--lc-text-secondary);
+}
+.card-review.due {
+  color: var(--lc-warning);
 }
 .card-meta span,
 .link-summary,
@@ -1014,7 +1095,7 @@ defineExpose({ focus, loadItems });
 .card-meta span {
   min-width: 0;
 }
-.card-meta span:first-child {
+.card-person {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1071,10 +1152,12 @@ defineExpose({ focus, loadItems });
   margin: 0 0 5px;
   overflow-wrap: anywhere;
 }
-.detail-header p {
+.detail-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--lc-text-muted);
-  margin: 0;
 }
 .detail-grid {
   display: grid;
@@ -1162,6 +1245,14 @@ defineExpose({ focus, loadItems });
   gap: 7px;
   padding: 12px 16px;
   border-top: 1px solid var(--lc-border);
+}
+.lifecycle-actions .el-dropdown {
+  display: inline-flex;
+}
+.lifecycle-actions .el-button svg {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
 }
 .form-grid {
   display: grid;
