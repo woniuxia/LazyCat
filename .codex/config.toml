@@ -1,8 +1,0 @@
-# LazyCat reuses one long-lived Serena instance across Codex threads.
-[mcp_servers.serena]
-command = "serena"
-args = ["start-mcp-server", "--context=codex", "--project-from-cwd"]
-enabled = false
-
-[mcp_servers.serena_lazycat]
-url = "http://127.0.0.1:9121/mcp"

@@ -5,26 +5,28 @@
       <strong>{{ credentialLabel }}</strong>
     </div>
     <el-form-item label="Vault 主密码" :error="error">
-      <el-input
-        ref="inputRef"
-        :model-value="modelValue"
-        type="password"
-        show-password
-        autocomplete="current-password"
-        placeholder="输入主密码"
-        :disabled="submitting"
-        @update:model-value="$emit('update:modelValue', $event)"
-        @keyup.enter="$emit('submit')"
-      />
+      <div class="vault-inline-unlock__password-row">
+        <el-input
+          ref="inputRef"
+          :model-value="modelValue"
+          type="password"
+          show-password
+          autocomplete="current-password"
+          placeholder="输入主密码"
+          :disabled="submitting"
+          @update:model-value="$emit('update:modelValue', $event)"
+          @keyup.enter="$emit('submit')"
+        />
+        <el-button
+          type="primary"
+          :loading="submitting"
+          :disabled="submitting || !modelValue"
+          @click="$emit('submit')"
+        >
+          解锁并继续
+        </el-button>
+      </div>
     </el-form-item>
-    <el-button
-      type="primary"
-      :loading="submitting"
-      :disabled="submitting || !modelValue"
-      @click="$emit('submit')"
-    >
-      解锁并继续
-    </el-button>
   </section>
 </template>
 
@@ -92,7 +94,18 @@ watch(
   margin-bottom: 0;
 }
 
-.vault-inline-unlock > :deep(.el-button) {
-  justify-self: start;
+.vault-inline-unlock__password-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+}
+
+.vault-inline-unlock__password-row :deep(.el-input) {
+  min-width: 0;
+}
+
+.vault-inline-unlock__password-row :deep(.el-button) {
+  flex: 0 0 auto;
 }
 </style>

@@ -892,15 +892,39 @@
 
     <el-dialog
       v-model="confirmVisible"
-      :title="retryMode ? '重试上传' : isUploadStart ? '确认上传' : '确认本地归档'"
+      :title="
+        prepareLoading
+          ? '准备上线包'
+          : retryMode
+            ? '重试上传'
+            : isUploadStart
+              ? '确认上传'
+              : '确认本地归档'
+      "
       width="min(640px, calc(100vw - 32px))"
       :close-on-click-modal="false"
-      :close-on-press-escape="!starting"
-      :show-close="!starting"
+      :close-on-press-escape="!starting && !prepareLoading"
+      :show-close="!starting && !prepareLoading"
       :before-close="beforeCloseStartDialog"
       @closed="resetStartDialog"
     >
-      <el-form label-position="top">
+      <div v-if="prepareLoading" class="release-package-prepare-loading" role="status" aria-live="polite">
+        <span class="release-package-prepare-loading__spinner" aria-hidden="true"></span>
+        <div>
+          <strong>
+            {{ environmentDraft.packageType === "server_upload" ? "正在准备上传" : "正在准备归档" }}
+          </strong>
+          <p>
+            {{
+              environmentDraft.packageType === "server_upload"
+                ? "正在读取上线包配置并检测远程目标，请稍候..."
+                : "正在读取上线包配置，请稍候..."
+            }}
+          </p>
+        </div>
+      </div>
+      <template v-else>
+        <el-form label-position="top">
         <el-form-item v-if="isLocalArchiveStart" label="归档目录名" required>
           <el-input
             v-model="folderName"
@@ -931,11 +955,11 @@
           }}</strong>
           <p>密码由密码库提供，仅在已信任主机后由本地 Rust 进程读取。</p>
         </div>
-      </el-form>
-      <p v-if="isLocalArchiveStart" class="archive-preview">
-        完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}
-      </p>
-      <div v-if="!retryMode" class="package-targets">
+        </el-form>
+        <p v-if="isLocalArchiveStart" class="archive-preview">
+          完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}
+        </p>
+        <div v-if="!retryMode" class="package-targets">
         <span class="package-targets-label">本次打包内容（默认全选）</span>
         <el-checkbox-group
           v-model="selectedTargets"
@@ -945,8 +969,8 @@
           <el-checkbox label="前端包" value="frontend" />
           <el-checkbox label="后端包" value="backend" />
         </el-checkbox-group>
-      </div>
-      <section
+        </div>
+        <section
         v-if="selectedEnvironmentKind === 'production'"
         class="production-confirmation-summary"
       >
@@ -996,8 +1020,8 @@
             </el-tag>
           </div>
         </div>
-      </section>
-      <div v-if="isUploadStart && uploadPreflight.probeResult.value" class="preflight-summary">
+        </section>
+        <div v-if="isUploadStart && uploadPreflight.probeResult.value" class="preflight-summary">
         <div class="preflight-host">
           <span>主机指纹</span>
           <code>{{ uploadPreflight.probeResult.value.fingerprintSha256 }}</code>
@@ -1015,8 +1039,8 @@
             </el-tag>
           </div>
         </div>
-      </div>
-      <VaultInlineUnlock
+        </div>
+        <VaultInlineUnlock
         v-model="vaultInlineUnlock.masterPassword.value"
         :visible="vaultUnlockContext === 'start' && vaultInlineUnlock.visible.value"
         :credential-label="vaultInlineUnlock.credentialLabel.value"
@@ -1024,15 +1048,16 @@
         :submitting="vaultInlineUnlock.submitting.value"
         :focus-nonce="vaultInlineUnlock.focusNonce.value"
         @submit="vaultInlineUnlock.submit"
-      />
-      <div
+        />
+        <div
         v-if="vaultConfigurationErrorContext === 'start'"
         class="vault-configuration-error"
         role="alert"
       >
         <span>{{ vaultConfigurationError }}</span>
         <el-button type="primary" link @click="openVault">打开密码管理</el-button>
-      </div>
+        </div>
+      </template>
       <template #footer>
         <el-button
           v-if="starting"
@@ -1052,7 +1077,7 @@
           "
           type="danger"
           :loading="branchChecking"
-          :disabled="starting || branchChecking"
+          :disabled="starting || branchChecking || prepareLoading"
           @click="confirmProductionStart"
         >
           {{ retryMode ? "确认生产发布" : "检查分支并确认" }}
@@ -1060,7 +1085,8 @@
         <el-button
           v-else-if="
             (selectedEnvironmentKind !== 'production' || productionConfirmed) &&
-            vaultUnlockContext !== 'start'
+            vaultUnlockContext !== 'start' &&
+            !prepareLoading
           "
           type="primary"
           :loading="starting"
@@ -1297,6 +1323,7 @@ const starting = ref(false);
 const cancelPendingStart = ref(false);
 let resolveStartCancellation: (() => void) | null = null;
 const confirmVisible = ref(false);
+const prepareLoading = ref(false);
 const productionConfirmed = ref(false);
 const branchChecking = ref(false);
 const branchCheckResult = ref<ReleasePackageBranchCheckResult | null>(null);
@@ -1980,6 +2007,7 @@ async function clearSensitiveStartState(): Promise<void> {
 }
 
 async function resetStartDialog(): Promise<void> {
+  prepareLoading.value = false;
   retryMode.value = false;
   resetProductionBranchCheck();
   await clearSensitiveStartState();
@@ -2051,6 +2079,7 @@ async function stopPendingActionDispatch(
 }
 
 async function closeStartDialog(): Promise<void> {
+  if (prepareLoading.value) return;
   await stopPendingActionDispatch("cancelled");
   resetProductionBranchCheck();
   confirmVisible.value = false;
@@ -2058,7 +2087,7 @@ async function closeStartDialog(): Promise<void> {
 }
 
 async function beforeCloseStartDialog(done: () => void): Promise<void> {
-  if (starting.value) return;
+  if (starting.value || prepareLoading.value) return;
   try {
     await stopPendingActionDispatch("cancelled");
     resetProductionBranchCheck();
@@ -2078,6 +2107,8 @@ async function prepareStart(): Promise<Error | null> {
   selectedTargets.value = createDefaultReleasePackageTargets();
   try {
     await resetStartDialog();
+    prepareLoading.value = true;
+    confirmVisible.value = true;
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
       environmentId: selectedEnvironment.value.id,
     })) as ReleasePackagePrepareResult;
@@ -2085,11 +2116,13 @@ async function prepareStart(): Promise<Error | null> {
       prepareResult.value.packageType === "local_archive"
         ? prepareResult.value.defaultFolderName
         : "";
-    confirmVisible.value = true;
     return null;
   } catch (error) {
+    confirmVisible.value = false;
     showError(error);
     return error instanceof Error ? error : new Error(String(error));
+  } finally {
+    prepareLoading.value = false;
   }
 }
 
@@ -3566,6 +3599,38 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+}
+.release-package-prepare-loading {
+  display: flex;
+  min-height: 132px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #606266;
+}
+.release-package-prepare-loading__spinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 2px solid #d9ecff;
+  border-top-color: #409eff;
+  border-radius: 50%;
+  animation: release-package-prepare-spin 0.8s linear infinite;
+}
+@keyframes release-package-prepare-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.release-package-prepare-loading strong {
+  display: block;
+  color: #303133;
+  font-size: 14px;
+}
+.release-package-prepare-loading p {
+  margin: 6px 0 0;
+  color: #909399;
+  font-size: 12px;
 }
 .vault-configuration-error {
   display: flex;
