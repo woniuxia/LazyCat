@@ -5,30 +5,24 @@
       <el-button link type="primary" :icon="Plus" @click="emit('add')">添加</el-button>
     </div>
     <div class="quick-inputs__list">
-      <el-dropdown
-        v-for="item in items"
-        :key="item.id"
-        split-button
-        size="small"
-        :title="item.text"
-        @click="emit('use', item)"
-      >
-        {{ item.text }}
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item @click="emit('edit', item)">编辑</el-dropdown-item>
-            <el-dropdown-item class="danger-item" @click="emit('delete', item)">
-              删除
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+      <div v-for="item in items" :key="item.id" class="quick-inputs__item">
+        <el-button
+          class="quick-inputs__use"
+          size="small"
+          :title="item.text"
+          @click="emit('use', item)"
+        >
+          {{ item.text }}
+        </el-button>
+        <el-button text circle :icon="Edit" title="编辑快速输入" @click="emit('edit', item)" />
+        <el-button text circle :icon="Delete" title="删除快速输入" @click="emit('delete', item)" />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Plus } from "@element-plus/icons-vue";
+import { Delete, Edit, Plus } from "@element-plus/icons-vue";
 import type { FollowUpQuickInput } from "../../utils/followUpQuickInputs";
 
 defineProps<{ items: FollowUpQuickInput[] }>();
@@ -57,18 +51,23 @@ const emit = defineEmits<{
   flex-wrap: wrap;
   gap: 7px;
 }
-.quick-inputs__list :deep(.el-dropdown),
-.quick-inputs__list :deep(.el-button-group) {
-  max-width: 100%;
-}
-.quick-inputs__list :deep(.el-button-group > .el-button:first-child) {
+.quick-inputs__item {
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
-  max-width: min(320px, calc(100vw - 120px));
+}
+.quick-inputs__use {
+  min-width: 0;
+  max-width: min(320px, calc(100vw - 150px));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-:global(.follow-up-quick-input-menu .danger-item) {
-  color: var(--lc-danger);
+.quick-inputs__item > .el-button + .el-button {
+  margin-left: 1px;
+}
+.quick-inputs__item > .el-button.is-circle {
+  width: 24px;
+  height: 24px;
 }
 </style>

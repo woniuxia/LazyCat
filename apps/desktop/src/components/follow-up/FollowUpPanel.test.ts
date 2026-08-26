@@ -326,11 +326,12 @@ describe("FollowUpPanel", () => {
     );
     app.unmount();
   });
-  it("adds a custom quick input and persists it", async () => {
-    vi.spyOn(ElMessageBox, "prompt").mockResolvedValue({
-      value: "自定义内容",
-      action: "confirm",
-    } as never);
+  it("adds, edits and deletes a custom quick input with confirmation", async () => {
+    const prompt = vi
+      .spyOn(ElMessageBox, "prompt")
+      .mockResolvedValueOnce({ value: "自定义内容", action: "confirm" } as never)
+      .mockResolvedValueOnce({ value: "已修改内容", action: "confirm" } as never);
+    const confirm = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
     bridge.invoke.mockImplementation((channel: string) => {
       if (channel === "tool:todo:assignee-list")
         return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
@@ -348,10 +349,32 @@ describe("FollowUpPanel", () => {
     await vi.waitFor(() =>
       expect(buttonByText(dialog ?? document.body, "自定义内容")).toBeDefined(),
     );
-    expect(bridge.invoke).toHaveBeenCalledWith(
-      "tool:settings:set",
-      expect.objectContaining({ value: expect.stringContaining("自定义内容") }),
+
+    let item = Array.from(dialog?.querySelectorAll<HTMLElement>(".quick-inputs__item") ?? []).find(
+      (candidate) => candidate.textContent?.includes("自定义内容"),
     );
+    item?.querySelector<HTMLButtonElement>('button[title="编辑快速输入"]')?.click();
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(buttonByText(dialog ?? document.body, "已修改内容")).toBeDefined(),
+    );
+
+    item = Array.from(dialog?.querySelectorAll<HTMLElement>(".quick-inputs__item") ?? []).find(
+      (candidate) => candidate.textContent?.includes("已修改内容"),
+    );
+    item?.querySelector<HTMLButtonElement>('button[title="删除快速输入"]')?.click();
+    await vi.waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith("确定删除这条快速输入吗？", "删除快速输入", {
+        type: "warning",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(buttonByText(dialog ?? document.body, "已修改内容")).toBeUndefined(),
+    );
+    const settingWrites = bridge.invoke.mock.calls.filter(
+      ([channel]) => channel === "tool:settings:set",
+    );
+    expect(settingWrites.at(-1)?.[1]).toMatchObject({ value: "[]" });
     app.unmount();
   });
   it("serializes rapid usage updates without losing counts", async () => {
