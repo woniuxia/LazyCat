@@ -6,6 +6,7 @@ export type SpotlightProviderId =
   | "vault"
   | "hosts"
   | "todo"
+  | "follow-up"
   | "pm"
   | "data-dictionary"
   | "browser-profiles"

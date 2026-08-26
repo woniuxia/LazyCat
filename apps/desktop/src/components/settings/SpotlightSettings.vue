@@ -112,6 +112,7 @@ import "../../spotlight/providers/tool";
 import "../../spotlight/providers/vault";
 import "../../spotlight/providers/hosts";
 import "../../spotlight/providers/todo";
+import "../../spotlight/providers/follow-up";
 import "../../spotlight/providers/pm";
 import "../../spotlight/providers/data-dictionary";
 import "../../spotlight/providers/browser-profiles";

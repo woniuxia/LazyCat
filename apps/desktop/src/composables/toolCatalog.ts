@@ -26,6 +26,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" },
         { id: "browser-profiles", name: "浏览器身份", desc: "一键启动 Edge / Chrome 用户身份窗口" },
         { id: "todo", name: "任务清单", desc: "任务与周期事件管理" },
+        { id: "follow-up", name: "关注事项", desc: "外部进展与复查计划" },
         { id: "pomodoro", name: "番茄钟", desc: "工作日自动启动的专注计时" },
         { id: "pm", name: "项目管理", desc: "项目工作项跟踪与看板" },
         { id: "weekly-work", name: "本周工作", desc: "按本周时间范围汇总工作项" },

@@ -123,7 +123,7 @@ function parsePositiveId(value: string | undefined): number | null {
 }
 
 function resolveFocusTarget(payload: HotkeyNavigatePayload): HotkeyFocusTarget | undefined {
-  if (payload.target === "todo" && payload.view?.startsWith("follow-up")) {
+  if ((payload.target === "todo" && payload.view?.startsWith("follow-up")) || payload.target === "follow-up") {
     return {
       kind: "follow-up",
       itemId: parsePositiveId(payload.itemId),
@@ -150,6 +150,7 @@ function resolveFocusTarget(payload: HotkeyNavigatePayload): HotkeyFocusTarget |
     return { kind: "pm", itemId, projectId, view: payload.view };
   }
   if (payload.target === "todo") return { kind: "todo", itemId };
+  if (payload.target === "follow-up") return { kind: "follow-up", itemId, dueOnly: false };
   if (payload.target === "data-dictionary") {
     return { kind: "data-dictionary", itemId };
   }

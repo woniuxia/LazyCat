@@ -333,7 +333,7 @@ async function handleHotkeyNavigate(intent: HotkeyNavigationIntent): Promise<voi
     useDataDictionaryNavigation().requestFocus(intent.focus.itemId);
   }
 
-  onSelect(intent.targetToolId);
+  onSelect(intent.focus?.kind === "follow-up" ? "follow-up" : intent.targetToolId);
 }
 
 async function ensureInboxCaptureConsent() {

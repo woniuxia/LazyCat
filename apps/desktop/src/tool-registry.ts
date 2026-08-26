@@ -54,6 +54,7 @@ const toolRegistry: Record<string, Component> = {
   launcher: defineAsyncComponent(() => import("./components/LauncherPanel.vue")),
   "browser-profiles": defineAsyncComponent(() => import("./components/BrowserProfilesPanel.vue")),
   todo: defineAsyncComponent(() => import("./components/todo/TaskListPanel.vue")),
+  "follow-up": defineAsyncComponent(() => import("./components/follow-up/FollowUpToolPanel.vue")),
   pomodoro: defineAsyncComponent(() => import("./components/PomodoroPanel.vue")),
   pm: defineAsyncComponent(() => import("./components/pm/PmPanel.vue")),
   "weekly-work": defineAsyncComponent(() => import("./components/WeeklyWorkPanel.vue")),
