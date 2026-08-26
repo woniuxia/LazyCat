@@ -1560,6 +1560,13 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.todo-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 /* --- Filter indicator --- */
 .filter-indicator {
   display: flex;

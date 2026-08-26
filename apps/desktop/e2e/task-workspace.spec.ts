@@ -36,6 +36,7 @@ async function installTaskBridge(page: Page) {
       createdAt: "2026-08-19T00:00:00Z",
       updatedAt: "2026-08-19T00:00:00Z",
     };
+    let todoItems = [todoItem];
     const followUpItem = {
       id: 1,
       title: "确认外部接口交付",
@@ -67,7 +68,7 @@ async function installTaskBridge(page: Page) {
       if (key === "todo:type_list") return { items: [] };
       if (key === "todo:assignee_list")
         return { items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] };
-      if (key === "todo:item_list") return { items: [todoItem] };
+      if (key === "todo:item_list") return { items: todoItems };
       if (key === "follow_up:item_list") return followUpItems;
       if (key === "pm:project_list") return [];
       if (key === "action_center:definition_list") return { definitions: [] };
@@ -109,6 +110,14 @@ async function installTaskBridge(page: Page) {
           ...followUpItem,
           id: index + 1,
           title: `${followUpItem.title} ${index + 1}`,
+        }));
+      },
+      __setTaskWorkspaceTodoCount: (count: number) => {
+        todoItems = Array.from({ length: count }, (_, index) => ({
+          ...todoItem,
+          id: index + 1,
+          rootId: index + 1,
+          title: `${todoItem.title} ${index + 1}`,
         }));
       },
     });
@@ -183,6 +192,31 @@ test("reserves the review badge slot while the follow-up list grows", async ({ p
   const emptyLabel = await label.boundingBox();
   expect(emptyLabel).not.toBeNull();
   expectNear(emptyLabel!.x, initialLabel!.x);
+});
+
+test("keeps the todo list independently scrollable while items grow", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 760 });
+  await openTaskWorkspace(page);
+  await page.evaluate(() => {
+    (
+      window as typeof window & { __setTaskWorkspaceTodoCount: (count: number) => void }
+    ).__setTaskWorkspaceTodoCount(80);
+  });
+  await page.locator(".todo-list-pane .toolbar-right > .el-button").first().click();
+
+  const listScroll = page.locator(".todo-list-scroll");
+  await expect(listScroll.locator(".todo-card")).toHaveCount(80);
+  const metrics = await listScroll.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.overflowY).toBe("auto");
+
+  await listScroll.hover();
+  await page.mouse.wheel(0, 500);
+  await expect.poll(() => listScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });
 
 async function dismissFirstRunPrompt(page: Page) {
