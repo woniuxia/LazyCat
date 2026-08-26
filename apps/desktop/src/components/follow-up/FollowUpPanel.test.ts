@@ -261,15 +261,12 @@ describe("FollowUpPanel", () => {
     app.unmount();
   });
 
-  it("reopens failed progress input with the user's content intact", async () => {
-    const prompt = vi
-      .spyOn(ElMessageBox, "prompt")
-      .mockResolvedValueOnce({ value: "尚待对方确认", action: "confirm" } as never)
-      .mockRejectedValueOnce("cancel");
+  it("keeps progress input open after a failed save", async () => {
     bridge.invoke.mockImplementation((channel: string) => {
       if (channel === "tool:todo:assignee-list")
         return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
       if (channel === "tool:follow-up:item-list") return Promise.resolve(items);
+      if (channel === "tool:settings:get") return Promise.resolve({ value: null });
       if (channel === "tool:follow-up:progress-add") return Promise.reject(new Error("写入失败"));
       return Promise.resolve({ ok: true });
     });
@@ -277,12 +274,58 @@ describe("FollowUpPanel", () => {
     root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();
     await nextTick();
     buttonByText(root, "记录进展")?.click();
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
-
-    expect(prompt.mock.calls[1]?.[2]).toMatchObject({ inputValue: "尚待对方确认" });
+    await nextTick();
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const textarea = dialog?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!dialog || !textarea) throw new Error("progress dialog did not open");
+    textarea.value = "尚待对方确认";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    buttonByText(dialog, "保存")?.click();
+    await vi.waitFor(() =>
+      expect(bridge.invoke).toHaveBeenCalledWith("tool:follow-up:progress-add", {
+        id: 1,
+        content: "尚待对方确认",
+      }),
+    );
+    expect(textarea.value).toBe("尚待对方确认");
     app.unmount();
   });
 
+  it("appends shared quick inputs in progress and lifecycle dialogs", async () => {
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "tool:todo:assignee-list")
+        return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
+      if (channel === "tool:follow-up:item-list") return Promise.resolve(items);
+      if (channel === "tool:settings:get") return Promise.resolve({ value: null });
+      return Promise.resolve({ ok: true });
+    });
+    const { app, root } = await mountPanel();
+    root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();
+    await nextTick();
+    buttonByText(root, "记录进展")?.click();
+    await nextTick();
+    let dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    buttonByText(dialog ?? document.body, "等待对方反馈")?.click();
+    await nextTick();
+    expect(dialog?.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("等待对方反馈");
+    buttonByText(dialog ?? document.body, "取消")?.click();
+    await nextTick();
+    buttonByText(root, "继续关注")?.click();
+    await nextTick();
+    dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const textarea = dialog?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) throw new Error("lifecycle input did not render");
+    textarea.value = "已有内容";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    buttonByText(dialog ?? document.body, "等待对方反馈")?.click();
+    await nextTick();
+    expect(textarea.value).toBe("已有内容\n等待对方反馈");
+    expect(bridge.invoke).toHaveBeenCalledWith(
+      "tool:settings:set",
+      expect.objectContaining({ key: "follow-up.quick-inputs" }),
+    );
+    app.unmount();
+  });
   it("submits lifecycle actions through the confirmed domain channel", async () => {
     const { app, root } = await mountPanel();
     root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();

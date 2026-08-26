@@ -373,6 +373,29 @@
       >
     </el-dialog>
 
+    <el-dialog
+      v-model="progressVisible"
+      :title="progressEditingId ? '编辑进展' : '记录进展'"
+      width="500px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="进展" required>
+          <el-input v-model="progressDraft" type="textarea" :rows="4" />
+        </el-form-item>
+        <FollowUpQuickInputs
+          :items="sortedQuickInputs"
+          @add="addQuickInput"
+          @use="useQuickInput($event, 'progress')"
+          @edit="editQuickInput"
+          @delete="deleteQuickInput"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="progressVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveProgress">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="lifecycleVisible" :title="lifecycleTitle" width="500px">
       <el-form label-position="top">
         <el-form-item
@@ -382,6 +405,14 @@
           :error="lifecycleErrors.content"
           ><el-input v-model="lifecycleContent" type="textarea" :rows="4"
         /></el-form-item>
+        <FollowUpQuickInputs
+          v-if="lifecycleMode !== 'reopen'"
+          :items="sortedQuickInputs"
+          @add="addQuickInput"
+          @use="useQuickInput($event, 'lifecycle')"
+          @edit="editQuickInput"
+          @delete="deleteQuickInput"
+        />
         <el-form-item
           v-if="lifecycleNeedsReview"
           label="新的复查时间"
@@ -460,7 +491,17 @@ import {
   quickReviewAt,
 } from "../../utils/followUp";
 import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedule";
+import {
+  appendFollowUpQuickInput,
+  createDefaultFollowUpQuickInputs,
+  FOLLOW_UP_QUICK_INPUT_MAX_LENGTH,
+  FOLLOW_UP_QUICK_INPUTS_SETTING_KEY,
+  parseFollowUpQuickInputs,
+  sortFollowUpQuickInputs,
+  type FollowUpQuickInput,
+} from "../../utils/followUpQuickInputs";
 import TaskWorkspaceLayout from "../todo/TaskWorkspaceLayout.vue";
+import FollowUpQuickInputs from "./FollowUpQuickInputs.vue";
 
 const emit = defineEmits<{
   createTodo: [item: FollowUpItem];
@@ -476,6 +517,7 @@ const loading = ref(true),
   selectedId = ref<number | null>(null),
   activeGroup = ref<FollowUpSectionKey>("all"),
   editVisible = ref(false),
+  progressVisible = ref(false),
   lifecycleVisible = ref(false);
 const filters = reactive<FollowUpFilters>({
   keyword: "",
@@ -534,6 +576,10 @@ type LifecycleMode = "continue" | "completed" | "canceled" | "stop" | "reopen";
 const lifecycleMode = ref<LifecycleMode>("continue"),
   lifecycleContent = ref(""),
   lifecycleReviewAt = ref("");
+const progressDraft = ref("");
+const progressEditingId = ref<number | null>(null);
+const quickInputs = ref<FollowUpQuickInput[]>([]);
+const sortedQuickInputs = computed(() => sortFollowUpQuickInputs(quickInputs.value));
 function reviewPart(value: string, part: "date" | "time") {
   return splitDateTimeParts(value)[part];
 }
@@ -734,60 +780,138 @@ async function submitLifecycle() {
     saving.value = false;
   }
 }
-async function promptProgress(
-  message: string,
-  title: string,
-  initialValue: string,
-  persist: (content: string) => Promise<unknown>,
-  failureMessage: string,
-) {
-  let inputValue = initialValue;
-  while (true) {
-    let value: string;
-    try {
-      ({ value } = await ElMessageBox.prompt(message, title, {
-        inputValue,
-        inputType: "textarea",
-        inputValidator: (candidate) => Boolean(candidate.trim()) || "进展内容不能为空",
-      }));
-    } catch (error) {
-      if (error !== "cancel" && error !== "close")
-        ElMessage.error((error as Error).message || failureMessage);
-      return;
+function openProgress(entry?: FollowUpProgress) {
+  progressEditingId.value = entry?.id ?? null;
+  progressDraft.value = entry?.content ?? "";
+  progressVisible.value = true;
+}
+function addProgress() {
+  openProgress();
+}
+function editProgress(entry: FollowUpProgress) {
+  openProgress(entry);
+}
+async function saveProgress() {
+  const itemId = selected.value?.id;
+  const content = progressDraft.value.trim();
+  if (!itemId || !content) {
+    ElMessage.warning("请输入进展内容");
+    return;
+  }
+  saving.value = true;
+  try {
+    if (progressEditingId.value) {
+      await invokeToolByChannel("tool:follow-up:progress-update", {
+        progressId: progressEditingId.value,
+        content,
+      });
+    } else {
+      await invokeToolByChannel("tool:follow-up:progress-add", { id: itemId, content });
     }
-    try {
-      await persist(value);
-      await reloadSelected();
-      return;
-    } catch (error) {
-      inputValue = value;
-      ElMessage.error((error as Error).message || failureMessage);
-    }
+    progressVisible.value = false;
+    await reloadSelected();
+  } catch (error) {
+    ElMessage.error((error as Error).message || "保存进展失败");
+  } finally {
+    saving.value = false;
   }
 }
-async function addProgress() {
-  const itemId = selected.value?.id;
-  if (!itemId) return;
-  await promptProgress(
-    "记录责任人反馈或当前进展",
-    "记录进展",
-    "",
-    (content) => invokeToolByChannel("tool:follow-up:progress-add", { id: itemId, content }),
-    "记录进展失败",
-  );
+function quickInputValidation(value: string, editingId?: string) {
+  const text = value.trim();
+  if (!text) return "内容不能为空";
+  if (text.length > FOLLOW_UP_QUICK_INPUT_MAX_LENGTH)
+    return `最多 ${FOLLOW_UP_QUICK_INPUT_MAX_LENGTH} 个字符`;
+  if (quickInputs.value.some((item) => item.id !== editingId && item.text === text))
+    return "内容不能重复";
+  return true;
 }
-async function editProgress(entry: FollowUpProgress) {
-  await promptProgress(
-    "修改进展内容",
-    "编辑进展",
-    entry.content,
-    (content) =>
-      invokeToolByChannel("tool:follow-up:progress-update", {
-        progressId: entry.id,
-        content,
-      }),
-    "编辑进展失败",
-  );
+async function persistQuickInputs(items: FollowUpQuickInput[]) {
+  await invokeToolByChannel("tool:settings:set", {
+    key: FOLLOW_UP_QUICK_INPUTS_SETTING_KEY,
+    value: JSON.stringify(items),
+  });
+  quickInputs.value = items;
+}
+async function loadQuickInputs() {
+  try {
+    const stored = await invokeToolByChannel("tool:settings:get", {
+      key: FOLLOW_UP_QUICK_INPUTS_SETTING_KEY,
+    });
+    const parsed = parseFollowUpQuickInputs(stored);
+    if (parsed !== null) {
+      quickInputs.value = parsed;
+      return;
+    }
+    await persistQuickInputs(createDefaultFollowUpQuickInputs(Date.now()));
+  } catch (error) {
+    ElMessage.error((error as Error).message || "加载快速输入失败");
+  }
+}
+async function addQuickInput() {
+  try {
+    const { value } = await ElMessageBox.prompt("输入快速内容", "添加快速输入", {
+      inputType: "textarea",
+      inputValidator: (candidate) => quickInputValidation(candidate),
+    });
+    await persistQuickInputs([
+      ...quickInputs.value,
+      {
+        id: crypto.randomUUID(),
+        text: value.trim(),
+        usageCount: 0,
+        lastUsedAt: null,
+        createdAt: Date.now(),
+      },
+    ]);
+  } catch (error) {
+    if (error !== "cancel" && error !== "close")
+      ElMessage.error((error as Error).message || "添加快速输入失败");
+  }
+}
+async function editQuickInput(item: FollowUpQuickInput) {
+  try {
+    const { value } = await ElMessageBox.prompt("修改快速内容", "编辑快速输入", {
+      inputType: "textarea",
+      inputValue: item.text,
+      inputValidator: (candidate) => quickInputValidation(candidate, item.id),
+    });
+    await persistQuickInputs(
+      quickInputs.value.map((candidate) =>
+        candidate.id === item.id ? { ...candidate, text: value.trim() } : candidate,
+      ),
+    );
+  } catch (error) {
+    if (error !== "cancel" && error !== "close")
+      ElMessage.error((error as Error).message || "编辑快速输入失败");
+  }
+}
+async function deleteQuickInput(item: FollowUpQuickInput) {
+  try {
+    await ElMessageBox.confirm("确定删除这条快速输入吗？", "删除快速输入", {
+      type: "warning",
+    });
+    await persistQuickInputs(quickInputs.value.filter((candidate) => candidate.id !== item.id));
+  } catch (error) {
+    if (error !== "cancel" && error !== "close")
+      ElMessage.error((error as Error).message || "删除快速输入失败");
+  }
+}
+async function useQuickInput(item: FollowUpQuickInput, target: "progress" | "lifecycle") {
+  if (target === "progress")
+    progressDraft.value = appendFollowUpQuickInput(progressDraft.value, item.text);
+  else lifecycleContent.value = appendFollowUpQuickInput(lifecycleContent.value, item.text);
+  const usedAt = Date.now();
+  try {
+    await persistQuickInputs(
+      quickInputs.value.map((candidate) =>
+        candidate.id === item.id
+          ? { ...candidate, usageCount: candidate.usageCount + 1, lastUsedAt: usedAt }
+          : candidate,
+      ),
+    );
+  } catch (error) {
+    ElMessage.error((error as Error).message || "保存快速输入使用记录失败");
+  }
 }
 async function deleteProgress(entry: FollowUpProgress) {
   try {
@@ -898,7 +1022,7 @@ watch(lifecycleContent, () => (lifecycleErrors.content = ""));
 watch(lifecycleReviewAt, () => (lifecycleErrors.reviewAt = ""));
 onMounted(async () => {
   try {
-    await Promise.all([loadAssignees(), loadItems(true)]);
+    await Promise.all([loadAssignees(), loadItems(true), loadQuickInputs()]);
   } catch (error) {
     ElMessage.error((error as Error).message || "加载关注事项失败");
   } finally {
