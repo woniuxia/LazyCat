@@ -91,6 +91,7 @@ declare module 'vue' {
     ExceptionStackPanel: typeof import('./src/components/ExceptionStackPanel.vue')['default']
     FileLockPanel: typeof import('./src/components/FileLockPanel.vue')['default']
     FollowUpPanel: typeof import('./src/components/follow-up/FollowUpPanel.vue')['default']
+    FollowUpQuickInputs: typeof import('./src/components/follow-up/FollowUpQuickInputs.vue')['default']
     FormatterPanel: typeof import('./src/components/FormatterPanel.vue')['default']
     GlobalNotificationPopup: typeof import('./src/components/GlobalNotificationPopup.vue')['default']
     HomePanel: typeof import('./src/components/HomePanel.vue')['default']
