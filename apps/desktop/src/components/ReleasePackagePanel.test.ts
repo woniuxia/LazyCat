@@ -1370,6 +1370,26 @@ describe("ReleasePackagePanel", () => {
         environmentId: 41,
         projectId: mountedProject.id,
         environment: "test",
+        status: "running",
+        phase: "overall",
+        persistenceWarning: {
+          action: "append lane",
+          path: "D:\\logs\\upload-start.log",
+          cause: "Access denied",
+        },
+      },
+    });
+    await nextTick();
+    expect(nodeText(root)).toContain("日志保存失败");
+    expect(nodeText(root)).toContain("append lane");
+    expect(nodeText(root)).toContain("D:\\logs\\upload-start.log");
+    expect(nodeText(root)).toContain("Access denied");
+    statusListener?.({
+      payload: {
+        runId: "upload-run",
+        environmentId: 41,
+        projectId: mountedProject.id,
+        environment: "test",
         status: "package_succeeded_upload_failed",
         phase: "overall",
         retryToken: "upload-retry",

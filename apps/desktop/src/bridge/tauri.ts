@@ -200,6 +200,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   },
   "tool:release-package:project-create": { domain: "release_package", action: "project_create" },
   "tool:release-package:project-update": { domain: "release_package", action: "project_update" },
+  "tool:release-package:project-delete-scope": {
+    domain: "release_package",
+    action: "project_delete_scope",
+  },
   "tool:release-package:project-delete": { domain: "release_package", action: "project_delete" },
   "tool:release-package:prepare": { domain: "release_package", action: "prepare" },
   "tool:release-package:branch-check": { domain: "release_package", action: "branch_check" },

@@ -180,6 +180,17 @@ export interface ReleasePackageLogEvent {
   line: string;
 }
 
+export interface ReleasePackagePersistenceWarning {
+  action: string;
+  path: string;
+  cause: string;
+}
+
+export interface ReleasePackageProjectLogScope {
+  runCount: number;
+  sizeBytes: number;
+}
+
 export interface ReleasePackageStatusEvent {
   runId: string;
   environmentId: number;
@@ -196,4 +207,5 @@ export interface ReleasePackageStatusEvent {
   totalBytes?: number;
   currentPath?: string;
   retryToken?: string;
+  persistenceWarning?: ReleasePackagePersistenceWarning;
 }

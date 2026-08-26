@@ -523,6 +523,7 @@ const ACTIONS: &[&str] = &[
     "project_record_open",
     "project_create",
     "project_update",
+    "project_delete_scope",
     "project_delete",
     "prepare",
     "branch_check",
@@ -1647,29 +1648,84 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     Ok(json!({ "id": id, "environmentId": environment_id }))
 }
 
-fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+fn project_delete_scope_with_conn(
+    conn: &Connection,
+    payload: &Value,
+    log_root: &std::path::Path,
+) -> Result<Value, String> {
     let id = required_positive_id(payload, "id")?;
-    let transaction = conn
-        .unchecked_transaction()
-        .map_err(|error| format!("begin release package project delete failed: {error}"))?;
-    let changed = transaction
-        .execute("DELETE FROM release_package_projects WHERE id=?1", [id])
-        .map_err(|e| format!("delete release package project failed: {e}"))?;
-    if changed == 0 {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("inspect release package project failed: {error}"))?;
+    if !exists {
         return Err("release package project not found".into());
     }
-    usage::delete_resource(
-        &transaction,
-        UsageKey {
-            resource_type: RESOURCE_RELEASE_PACKAGE_PROJECT,
-            scope_id: "",
-            resource_id: &id.to_string(),
-        },
-    )?;
-    transaction
-        .commit()
-        .map_err(|error| format!("commit release package project delete failed: {error}"))?;
+    serde_json::to_value(
+        super::release_package_log::project_scope(log_root, id)
+            .map_err(|error| format!("inspect release package project logs failed: {error}"))?,
+    )
+    .map_err(|error| format!("serialize release package project log scope failed: {error}"))
+}
+
+fn project_delete_with_conn_at(
+    conn: &Connection,
+    payload: &Value,
+    log_root: Option<&std::path::Path>,
+) -> Result<Value, String> {
+    let id = required_positive_id(payload, "id")?;
+    let tombstone = match log_root {
+        Some(root) => Some(
+            super::release_package_log::begin_project_delete(root, id).map_err(|error| {
+                format!("prepare release package project log delete failed: {error}")
+            })?,
+        ),
+        None => None,
+    };
+    let database_result = (|| {
+        let transaction = conn
+            .unchecked_transaction()
+            .map_err(|error| format!("begin release package project delete failed: {error}"))?;
+        let changed = transaction
+            .execute("DELETE FROM release_package_projects WHERE id=?1", [id])
+            .map_err(|e| format!("delete release package project failed: {e}"))?;
+        if changed == 0 {
+            return Err("release package project not found".into());
+        }
+        usage::delete_resource(
+            &transaction,
+            UsageKey {
+                resource_type: RESOURCE_RELEASE_PACKAGE_PROJECT,
+                scope_id: "",
+                resource_id: &id.to_string(),
+            },
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit release package project delete failed: {error}"))
+    })();
+    if let Err(database_error) = database_result {
+        if let Some(tombstone) = tombstone {
+            tombstone.restore().map_err(|restore_error| {
+                format!("{database_error}; restore release package project logs failed: {restore_error}")
+            })?;
+        }
+        return Err(database_error);
+    }
+    if let Some(tombstone) = tombstone {
+        tombstone.purge().map_err(|error| {
+            format!("release package project deleted but log cleanup failed: {error}")
+        })?;
+    }
     Ok(json!({ "ok": true }))
+}
+
+#[cfg(test)]
+fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    project_delete_with_conn_at(conn, payload, None)
 }
 
 fn validate_run_inputs(
@@ -2148,7 +2204,14 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "project_record_open" => project_record_open_with_conn(&conn, payload),
         "project_create" => project_create_with_conn(&conn, payload),
         "project_update" => project_update_with_conn(&conn, payload),
-        "project_delete" => project_delete_with_conn(&conn, payload),
+        "project_delete_scope" => {
+            let root = super::helpers::get_data_dir()?.join("release-package-logs");
+            project_delete_scope_with_conn(&conn, payload, &root)
+        }
+        "project_delete" => {
+            let root = super::helpers::get_data_dir()?.join("release-package-logs");
+            project_delete_with_conn_at(&conn, payload, Some(&root))
+        }
         "prepare" => {
             let id = required_positive_id(payload, "environmentId")?;
             prepare_with_conn(&conn, id, Local::now().date_naive())
@@ -2958,6 +3021,44 @@ mod tests {
             .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn project_delete_restores_log_tombstone_when_database_delete_fails() {
+        let conn = test_conn();
+        let root = tempfile::tempdir().unwrap();
+        let started_at = chrono::DateTime::parse_from_rfc3339("2026-08-26T10:00:00+08:00").unwrap();
+        let writer = super::super::release_package_log::RunLogWriter::create(
+            root.path(),
+            super::super::release_package_log::RunLogDescriptor::new(
+                "orphan-run",
+                999,
+                41,
+                "Missing project",
+                "test",
+                "local_archive",
+                None,
+                None,
+                started_at,
+            ),
+        )
+        .unwrap();
+        writer.finalize("succeeded").unwrap();
+
+        let error = project_delete_with_conn_at(&conn, &json!({ "id": 999 }), Some(root.path()))
+            .unwrap_err();
+        assert_eq!(error, "release package project not found");
+        assert!(root
+            .path()
+            .join("projects/999/runs/orphan-run/manifest.json")
+            .is_file());
+        assert!(root
+            .path()
+            .join(".tombstones")
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]

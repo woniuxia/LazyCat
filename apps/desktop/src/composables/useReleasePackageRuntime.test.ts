@@ -294,4 +294,40 @@ describe("release package runtime state", () => {
     emit("release-package://status", status("run-1", 41, "cancelled"));
     expect(runtime.getEnvironmentRuntime(41).cancelRequested).toBe(false);
   });
+
+  it("keeps persistence warnings separate from delivery results and clears them for a new run", async () => {
+    listenMock.mockImplementation(
+      async (name: string, handler: (event: { payload: unknown }) => void) => {
+        listeners.set(name, handler);
+        return vi.fn();
+      },
+    );
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+    runtime.beginStart(41);
+    runtime.bindStartedRun("run-1", 41);
+    emit("release-package://status", {
+      ...status("run-1", 41, "running"),
+      persistenceWarning: {
+        action: "append lane",
+        path: "D:\\logs\\frontend-start.log",
+        cause: "Access denied",
+      },
+    });
+    emit("release-package://status", {
+      ...status("run-1", 41, "succeeded"),
+      archivePath: "D:\\release\\portal",
+    });
+
+    const completed = runtime.getEnvironmentRuntime(41);
+    expect(completed.status).toBe("succeeded");
+    expect(completed.persistenceWarning).toEqual({
+      action: "append lane",
+      path: "D:\\logs\\frontend-start.log",
+      cause: "Access denied",
+    });
+
+    runtime.beginStart(41);
+    expect(runtime.getEnvironmentRuntime(41).persistenceWarning).toBeNull();
+  });
 });

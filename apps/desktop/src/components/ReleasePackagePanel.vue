@@ -713,6 +713,12 @@
               {{ overallError }}
             </div>
           </header>
+          <div v-if="persistenceWarning" class="log-persistence-warning" role="alert">
+            <strong>日志保存失败</strong>
+            <span>{{ persistenceWarning.action }}</span>
+            <code>{{ persistenceWarning.path }}</code>
+            <span>{{ persistenceWarning.cause }}</span>
+          </div>
           <div
             class="release-package-log-columns"
             :class="{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }"
@@ -1246,6 +1252,7 @@ import type {
   ReleasePackageEnvironmentKind,
   ReleasePackagePrepareResult,
   ReleasePackageProject,
+  ReleasePackageProjectLogScope,
   ReleasePackageProjectDraft,
   ReleasePackageRemoteProbeResult,
   ReleasePackageRunStatus,
@@ -1457,6 +1464,9 @@ const uploadProgress = computed(
 const retryToken = computed(() => currentProjectRuntime.value?.retryToken ?? "");
 const commandRetryToken = computed(() => currentProjectRuntime.value?.commandRetryToken ?? "");
 const overallError = computed(() => currentProjectRuntime.value?.error ?? "");
+const persistenceWarning = computed(
+  () => currentProjectRuntime.value?.persistenceWarning ?? null,
+);
 const frontendError = computed(() => currentProjectRuntime.value?.targetErrors.frontend ?? "");
 const backendError = computed(() => currentProjectRuntime.value?.targetErrors.backend ?? "");
 const frontendCommandStatus = computed<ReleasePackageCommandStatus>(
@@ -1905,8 +1915,11 @@ async function deleteProject(): Promise<void> {
   const project = selectedProject.value;
   if (!project) return;
   try {
+    const logScope = (await invokeToolByChannel("tool:release-package:project-delete-scope", {
+      id: project.id,
+    })) as ReleasePackageProjectLogScope;
     await ElMessageBox.confirm(
-      `确定删除「${project.name}」的配置吗？只删除配置，不删除工程或归档文件。`,
+      `确定删除「${project.name}」的配置吗？将同时删除 ${logScope.runCount} 条运行日志（${formatUploadBytes(logScope.sizeBytes)}）；不会删除工程或归档文件。`,
       "删除项目配置",
       { type: "warning" },
     );
@@ -3330,6 +3343,22 @@ onBeforeUnmount(() => {
   border-left-color: #d97706;
   color: #8a4b08;
   background: #fff7ed;
+}
+.log-persistence-warning {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 5px 10px;
+  padding: 10px 14px;
+  border-top: 1px solid #f5dab1;
+  color: #8a4b08;
+  background: #fff7ed;
+  font-size: 12px;
+}
+.log-persistence-warning strong {
+  grid-row: span 2;
+}
+.log-persistence-warning code {
+  overflow-wrap: anywhere;
 }
 .log-overall-error {
   flex: 1 0 100%;

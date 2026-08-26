@@ -213,6 +213,8 @@ export type {
   ReleasePackageStartResult,
   ReleasePackageCancelResult,
   ReleasePackageLogEvent,
+  ReleasePackagePersistenceWarning,
+  ReleasePackageProjectLogScope,
   ReleasePackageStatusEvent,
 } from "./release-package";
 export type {

@@ -182,6 +182,28 @@ fn main() {
             }
         })
         .setup(|app| {
+            match tools::helpers::get_data_dir() {
+                Ok(data_dir) => {
+                    let connection = tools::helpers::db_conn();
+                    let mut project_exists = |project_id| match &connection {
+                        Ok(connection) => connection
+                            .query_row(
+                                "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
+                                [project_id],
+                                |row| row.get::<_, bool>(0),
+                            )
+                            .map_err(|error| error.to_string()),
+                        Err(error) => Err(error.clone()),
+                    };
+                    for warning in tools::release_package_log::initialize_with_project_check(
+                        &data_dir.join("release-package-logs"),
+                        &mut project_exists,
+                    ) {
+                        eprintln!("release package log startup reconciliation failed: {warning}");
+                    }
+                }
+                Err(error) => eprintln!("release package log data directory failed: {error}"),
+            }
             tools::request_forward::initialize_manager().map_err(std::io::Error::other)?;
             std::thread::spawn(
                 || match tools::request_forward::restore_auto_start_rules() {

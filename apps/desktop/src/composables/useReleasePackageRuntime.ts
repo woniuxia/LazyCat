@@ -13,6 +13,7 @@ import type {
   ReleasePackageTargetStatus,
   ReleasePackageCommandStatus,
   ReleasePackageUploadProgress,
+  ReleasePackagePersistenceWarning,
 } from "../types/release-package";
 import { acceptReleasePackageEvent, appendReleasePackageLog } from "../utils/releasePackage";
 
@@ -44,6 +45,7 @@ export interface ReleasePackageEnvironmentRuntime {
   uploadLogs: ReleasePackageLogEvent[];
   uploadProgress: ReleasePackageUploadProgress;
   retryToken: string;
+  persistenceWarning: ReleasePackagePersistenceWarning | null;
 }
 
 type MutableReleasePackageEnvironmentRuntime = {
@@ -66,6 +68,7 @@ export function reduceReleasePackageStatus(
   state: ReleasePackageRuntimeState,
   event: ReleasePackageStatusEvent,
 ): void {
+  if (event.persistenceWarning) return;
   if (!state.activeRunId && state.pendingEnvironmentId === event.environmentId) {
     state.activeRunId = event.runId;
     state.activeEnvironmentId = event.environmentId;
@@ -125,6 +128,7 @@ function createEnvironmentRuntime(
     cancelRequested: false,
     retryToken: "",
     commandRetryToken: "",
+    persistenceWarning: null,
   };
 }
 
@@ -148,6 +152,10 @@ function applyEnvironmentStatus(event: ReleasePackageStatusEvent): void {
   runtime.runId = event.runId;
   runtime.projectId = event.projectId;
   runtime.environment = event.environment;
+  if (event.persistenceWarning) {
+    runtime.persistenceWarning = event.persistenceWarning;
+    return;
+  }
   if (event.phase === "frontend" || event.phase === "backend") {
     if (
       event.status !== "partially_succeeded" &&

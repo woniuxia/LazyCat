@@ -1,6 +1,7 @@
+use chrono::Local;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -19,6 +20,7 @@ use super::release_package_deploy::{
     deploy_parallel, DeployError, DeployEvent, DeploymentPlan, DeploymentRequest,
     DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
+use super::release_package_log::{LogLane, PersistenceWarning, RunLogDescriptor, RunLogWriter};
 #[cfg(test)]
 use super::release_package_model::ReleasePackageType;
 use super::release_package_model::{
@@ -306,6 +308,18 @@ fn active_run() -> &'static Mutex<Option<ActiveRun>> {
     ACTIVE_RUN.get_or_init(|| Mutex::new(None))
 }
 
+struct ActiveRunGuard(String);
+
+impl Drop for ActiveRunGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = active_run().lock() {
+            if active.as_ref().map(|run| run.run_id.as_str()) == Some(self.0.as_str()) {
+                *active = None;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct RunIdentity {
     run_id: String,
@@ -366,6 +380,8 @@ struct StatusEvent {
     command_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    persistence_warning: Option<PersistenceWarning>,
 }
 
 trait EventSink: Send + Sync {
@@ -390,6 +406,184 @@ impl EventSink for TauriEventSink {
     fn notification(&self, event: GlobalNotification) {
         crate::global_notification::show_notifications(&self.app, vec![event]);
     }
+}
+
+struct PersistentEventSink {
+    live: Arc<dyn EventSink>,
+    identity: RunIdentity,
+    writer: Option<RunLogWriter>,
+    warned: Mutex<HashSet<(String, String)>>,
+}
+
+impl PersistentEventSink {
+    fn new(
+        live: Arc<dyn EventSink>,
+        identity: RunIdentity,
+        operation: &str,
+        source_run_id: Option<String>,
+        retry_kind: Option<String>,
+    ) -> Self {
+        let root =
+            crate::tools::helpers::get_data_dir().map(|path| path.join("release-package-logs"));
+        match root {
+            Ok(root) => Self::new_at(live, identity, &root, operation, source_run_id, retry_kind),
+            Err(cause) => {
+                emit_persistence_warning(
+                    live.as_ref(),
+                    &identity,
+                    PersistenceWarning {
+                        action: "resolve data directory".into(),
+                        path: "release-package-logs".into(),
+                        cause,
+                    },
+                );
+                Self {
+                    live,
+                    identity,
+                    writer: None,
+                    warned: Mutex::new(HashSet::new()),
+                }
+            }
+        }
+    }
+
+    fn new_at(
+        live: Arc<dyn EventSink>,
+        identity: RunIdentity,
+        root: &Path,
+        operation: &str,
+        source_run_id: Option<String>,
+        retry_kind: Option<String>,
+    ) -> Self {
+        let descriptor = RunLogDescriptor::new(
+            &identity.run_id,
+            identity.project_id,
+            identity.environment_id,
+            &identity.project_name,
+            identity.environment.as_str(),
+            operation,
+            source_run_id,
+            retry_kind,
+            Local::now().fixed_offset(),
+        );
+        let writer = match RunLogWriter::create(root, descriptor) {
+            Ok(writer) => {
+                writer.start_flush_timer();
+                Some(writer)
+            }
+            Err(failure) => {
+                emit_persistence_warning(live.as_ref(), &identity, failure);
+                None
+            }
+        };
+        Self {
+            live,
+            identity,
+            writer,
+            warned: Mutex::new(HashSet::new()),
+        }
+    }
+
+    fn persistence_failed(&self, failure: PersistenceWarning) {
+        let manifest_failure = self
+            .writer
+            .as_ref()
+            .and_then(|writer| writer.record_failure(failure.clone()));
+        let key = (failure.action.clone(), failure.path.clone());
+        if self.warned.lock().unwrap().insert(key) {
+            emit_persistence_warning(self.live.as_ref(), &self.identity, failure);
+        }
+        if let Some(manifest_failure) = manifest_failure {
+            let key = (
+                manifest_failure.action.clone(),
+                manifest_failure.path.clone(),
+            );
+            if self.warned.lock().unwrap().insert(key) {
+                emit_persistence_warning(self.live.as_ref(), &self.identity, manifest_failure);
+            }
+        }
+    }
+
+    fn report_timer_failures(&self) {
+        if let Some(writer) = &self.writer {
+            for failure in writer.take_timer_failures() {
+                self.persistence_failed(failure);
+            }
+        }
+    }
+}
+
+impl EventSink for PersistentEventSink {
+    fn log(&self, event: LogEvent) {
+        self.report_timer_failures();
+        if let (Some(writer), Some(lane)) = (&self.writer, LogLane::from_phase(&event.phase)) {
+            if let Err(failure) = writer.append(lane, &event.stream, &event.line) {
+                self.persistence_failed(failure);
+            }
+        }
+        self.live.log(event);
+    }
+
+    fn status(&self, event: StatusEvent) {
+        self.report_timer_failures();
+        let terminal = event.phase == "overall" && is_terminal_status(&event.status);
+        let lifecycle = event.status.clone();
+        self.live.status(event);
+        if terminal {
+            if let Some(writer) = &self.writer {
+                if let Err(failure) = writer.finalize(&lifecycle) {
+                    self.persistence_failed(failure);
+                }
+                self.report_timer_failures();
+                for failure in writer.reconcile_retention() {
+                    self.persistence_failed(failure);
+                }
+            }
+        }
+    }
+
+    fn notification(&self, event: GlobalNotification) {
+        self.live.notification(event);
+    }
+}
+
+impl Drop for PersistentEventSink {
+    fn drop(&mut self) {
+        if let Some(writer) = &self.writer {
+            if let Err(failure) = writer.finalize("incomplete") {
+                eprintln!("release package log panic cleanup failed: {failure}");
+            }
+        }
+    }
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    !matches!(status, "running" | "uploading" | "prechecking")
+}
+
+fn emit_persistence_warning(
+    sink: &dyn EventSink,
+    identity: &RunIdentity,
+    warning: PersistenceWarning,
+) {
+    sink.status(StatusEvent {
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
+        status: "running".into(),
+        phase: "overall".into(),
+        archive_path: None,
+        error: None,
+        uploaded_bytes: None,
+        total_bytes: None,
+        current_path: None,
+        retry_token: None,
+        command_retry_token: None,
+        command_target: None,
+        command_status: None,
+        persistence_warning: Some(warning),
+    });
 }
 
 #[derive(Debug)]
@@ -422,6 +616,7 @@ fn emit_status(
         command_retry_token: None,
         command_target: None,
         command_status: None,
+        persistence_warning: None,
     });
 }
 
@@ -448,6 +643,7 @@ fn emit_upload_status(
         command_retry_token: None,
         command_target: None,
         command_status: None,
+        persistence_warning: None,
     });
 }
 
@@ -478,6 +674,7 @@ fn emit_command_status(
         command_retry_token: None,
         command_target: Some(command_target.into()),
         command_status: Some(command_status.into()),
+        persistence_warning: None,
     });
 }
 #[derive(Default)]
@@ -599,7 +796,7 @@ fn emit_terminal_result(
         }
     }
     let retry_token = match retry_descriptor {
-        Some(descriptor) => match issue_retry(project.id, descriptor) {
+        Some(descriptor) => match issue_retry(project.id, &identity.run_id, descriptor) {
             Ok(token) => Some(token),
             Err(retry_error) => {
                 let message = format!("创建上传重试任务失败：{retry_error}");
@@ -633,6 +830,7 @@ fn emit_terminal_result(
         command_retry_token,
         command_target: None,
         command_status: None,
+        persistence_warning: None,
     });
     if let Some(notification) = build_release_package_notification(
         &identity.run_id,
@@ -867,6 +1065,7 @@ struct RetryDescriptor {
 #[derive(Clone, Debug)]
 struct RetryJob {
     environment_id: i64,
+    source_run_id: String,
     descriptor: RetryDescriptor,
 }
 
@@ -875,6 +1074,7 @@ impl RetryJob {
     fn from_manifests(environment_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
         Self {
             environment_id,
+            source_run_id: "test-source".into(),
             descriptor: RetryDescriptor {
                 manifests,
                 commands: Vec::new(),
@@ -908,6 +1108,7 @@ impl CommandAuthBinding {
 #[derive(Clone, Debug)]
 struct CommandRetryJob {
     environment_id: i64,
+    source_run_id: String,
     binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 }
@@ -917,6 +1118,7 @@ pub(crate) struct PreparedCommandRetry {
     pub(crate) targets: Vec<ReleaseTarget>,
     pub(crate) binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
+    source_run_id: String,
 }
 
 static COMMAND_RETRIES: OnceLock<Mutex<HashMap<String, CommandRetryJob>>> = OnceLock::new();
@@ -979,6 +1181,7 @@ fn validate_failed_commands(commands: &[CommandSnapshot]) -> Result<(), String> 
 
 fn issue_command_retry(
     environment_id: i64,
+    source_run_id: &str,
     binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 ) -> Result<String, String> {
@@ -997,6 +1200,7 @@ fn issue_command_retry(
             token.clone(),
             CommandRetryJob {
                 environment_id,
+                source_run_id: source_run_id.into(),
                 binding,
                 failed_commands,
             },
@@ -1025,6 +1229,7 @@ pub(crate) fn prepare_command_retry(
             .collect(),
         binding: retry.binding.clone(),
         failed_commands: retry.failed_commands.clone(),
+        source_run_id: retry.source_run_id.clone(),
     })
 }
 
@@ -1045,9 +1250,15 @@ fn consume_command_retry(token: &str, environment_id: i64) -> Result<CommandRetr
 
 fn finish_command_retry(
     job: CommandRetryJob,
+    source_run_id: &str,
     failed_commands: Vec<CommandSnapshot>,
 ) -> Result<String, String> {
-    issue_command_retry(job.environment_id, job.binding, failed_commands)
+    issue_command_retry(
+        job.environment_id,
+        source_run_id,
+        job.binding,
+        failed_commands,
+    )
 }
 
 static RETRY_JOBS: OnceLock<Mutex<HashMap<String, RetryJob>>> = OnceLock::new();
@@ -1056,7 +1267,11 @@ fn retry_jobs() -> &'static Mutex<HashMap<String, RetryJob>> {
     RETRY_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn issue_retry(environment_id: i64, descriptor: RetryDescriptor) -> Result<String, String> {
+fn issue_retry(
+    environment_id: i64,
+    source_run_id: &str,
+    descriptor: RetryDescriptor,
+) -> Result<String, String> {
     let token = uuid::Uuid::new_v4().to_string();
     retry_jobs()
         .lock()
@@ -1065,6 +1280,7 @@ fn issue_retry(environment_id: i64, descriptor: RetryDescriptor) -> Result<Strin
             token.clone(),
             RetryJob {
                 environment_id,
+                source_run_id: source_run_id.into(),
                 descriptor,
             },
         );
@@ -1423,6 +1639,15 @@ fn probe_health_check(url: &str) -> Result<u16, String> {
     }
 }
 
+fn sanitized_health_check_url(value: &str) -> String {
+    let Ok(mut url) = url::Url::parse(value) else {
+        return value.split(['?', '#']).next().unwrap_or(value).to_string();
+    };
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
+}
+
 fn run_health_check_with<P, W>(
     identity: &RunIdentity,
     mut summary: PipelineSummary,
@@ -1443,11 +1668,12 @@ where
 
     let attempts = max_retries.saturating_add(1);
     emit_status(sink, identity, "running", "upload", None, None);
+    let display_url = sanitized_health_check_url(url);
     emit_system_log(
         sink,
         identity,
         "upload",
-        &format!("[健康检查] 开始检测 {url}"),
+        &format!("[健康检查] 开始检测 {display_url}"),
     );
     let mut last_error = String::new();
     for attempt in 1..=attempts {
@@ -1797,6 +2023,7 @@ fn execute_deployment_request(
     if summary.status == "upload_succeeded_command_failed" && !cancelled.load(Ordering::Acquire) {
         if let Err(error) = issue_command_retry(
             binding.environment_id,
+            &identity.run_id,
             CommandAuthBinding::from_preflight(binding.as_ref(), expected_fingerprint.as_ref()),
             summary.failed_commands.clone(),
         )
@@ -2390,8 +2617,17 @@ pub fn start(
     let thread_identity = identity.clone();
     let terminal_project = project.clone();
     let emit_package_logs = matches!(&request, RuntimeStartRequest::LocalArchive { .. });
-    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    let live: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    let operation = if emit_package_logs {
+        "local_archive"
+    } else {
+        "server_upload"
+    };
+    let sink: Arc<dyn EventSink> = Arc::new(PersistentEventSink::new(
+        live, identity, operation, None, None,
+    ));
     thread::spawn(move || {
+        let _active_guard = ActiveRunGuard(thread_identity.run_id.clone());
         emit_status(
             sink.as_ref(),
             &thread_identity,
@@ -2506,8 +2742,17 @@ pub fn upload_retry(
 
     let identity = RunIdentity::new(&run_id, &project);
     let thread_identity = identity.clone();
-    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    let source_run_id = retry.source_run_id.clone();
+    let live: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    let sink: Arc<dyn EventSink> = Arc::new(PersistentEventSink::new(
+        live,
+        identity,
+        "upload_retry",
+        Some(source_run_id),
+        Some("upload".into()),
+    ));
     thread::spawn(move || {
+        let _active_guard = ActiveRunGuard(thread_identity.run_id.clone());
         emit_status(
             sink.as_ref(),
             &thread_identity,
@@ -2581,11 +2826,12 @@ pub fn command_retry(
     }
 
     let (start_tx, start_rx) =
-        std::sync::mpsc::sync_channel::<(ConsumedPreflight, CommandRetryJob)>(1);
+        std::sync::mpsc::sync_channel::<(ConsumedPreflight, CommandRetryJob, Arc<dyn EventSink>)>(
+            1,
+        );
     let identity = RunIdentity::new(&run_id, &project);
     let thread_identity = identity.clone();
     let thread_project = project.clone();
-    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     let worker_ssh_sockets = ssh_sockets.clone();
     let worker_cancelled = cancelled.clone();
     let worker_finished = finished.clone();
@@ -2594,7 +2840,8 @@ pub fn command_retry(
     thread::Builder::new()
         .name("release-package-command-retry".into())
         .spawn(move || {
-            let Ok((authorization, retry)) = start_rx.recv() else {
+            let _active_guard = ActiveRunGuard(thread_identity.run_id.clone());
+            let Ok((authorization, retry, sink)) = start_rx.recv() else {
                 return;
             };
             emit_status(
@@ -2670,8 +2917,12 @@ pub fn command_retry(
                 sink.as_ref(),
             );
             if summary.status == "upload_succeeded_command_failed" {
-                if let Err(error) = finish_command_retry(retry, summary.failed_commands.clone())
-                    .and_then(|token| remember_command_retry_token(&thread_identity.run_id, token))
+                if let Err(error) = finish_command_retry(
+                    retry,
+                    &thread_identity.run_id,
+                    summary.failed_commands.clone(),
+                )
+                .and_then(|token| remember_command_retry_token(&thread_identity.run_id, token))
                 {
                     append_pipeline_error(&mut summary, format!("创建命令重试任务失败：{error}"));
                 }
@@ -2717,8 +2968,24 @@ pub fn command_retry(
         finished,
         claim_lock,
     });
-    if start_tx.send((authorization, retry)).is_err() {
+    let live: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    let sink: Arc<dyn EventSink> = Arc::new(PersistentEventSink::new(
+        live,
+        identity,
+        "command_retry",
+        Some(prepared.source_run_id.clone()),
+        Some("command".into()),
+    ));
+    if start_tx.send((authorization, retry, sink.clone())).is_err() {
         *active = None;
+        emit_status(
+            sink.as_ref(),
+            &RunIdentity::new(&run_id, &project),
+            "failed",
+            "overall",
+            None,
+            Some("命令重试线程未能接收启动数据".into()),
+        );
         return Err("命令重试线程未能接收启动数据".into());
     }
     Ok(json!({ "runId": run_id }))
@@ -2735,10 +3002,26 @@ pub fn cancel(run_id: &str) -> Result<Value, String> {
 
 pub fn on_app_exit() {
     SHUTTING_DOWN.store(true, Ordering::Release);
-    if let Ok(active) = active_run().lock() {
-        if let Some(active) = active.as_ref() {
+    let active_id = active_run().lock().ok().and_then(|active| {
+        active.as_ref().map(|active| {
             request_cancel(active);
+            active.run_id.clone()
+        })
+    });
+    if let Some(active_id) = active_id {
+        let released = wait_for_release_with(Duration::from_secs(5), || {
+            active_run()
+                .lock()
+                .ok()
+                .and_then(|active| active.as_ref().map(|run| run.run_id == active_id))
+                .unwrap_or(false)
+        });
+        if !released {
+            eprintln!("release package runtime did not stop before application exit: {active_id}");
         }
+    }
+    for warning in super::release_package_log::seal_active_for_shutdown() {
+        eprintln!("release package log shutdown flush failed: {warning}");
     }
     super::release_package_remote::clear_temporary_stores();
     if let Some(retries) = RETRY_JOBS.get() {
@@ -2756,6 +3039,17 @@ pub fn on_app_exit() {
             tokens.clear();
         }
     }
+}
+
+fn wait_for_release_with(timeout: Duration, mut is_active: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    while is_active() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    true
 }
 #[cfg(all(test, windows))]
 mod tests {
@@ -3157,6 +3451,64 @@ mod pipeline_tests {
         assert_eq!(summary.status, "succeeded");
         assert_eq!(attempts, 3);
         assert_eq!(waits, 2);
+    }
+
+    #[test]
+    fn health_check_log_url_removes_query_and_fragment() {
+        assert_eq!(
+            sanitized_health_check_url("https://example.com/health?token=secret#details"),
+            "https://example.com/health"
+        );
+        assert_eq!(
+            sanitized_health_check_url("not-a-url?token=secret#details"),
+            "not-a-url"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persistent_event_sink_routes_real_events_to_files_and_terminal_manifest() {
+        let root = TestDir::new();
+        let identity = run_identity("event-backed-run");
+        let live = Arc::new(CollectingSink::default());
+        let sink = PersistentEventSink::new_at(
+            live.clone(),
+            identity.clone(),
+            &root.0,
+            "local_archive",
+            None,
+            None,
+        );
+
+        emit_status(&sink, &identity, "running", "overall", None, None);
+        emit_system_log(&sink, &identity, "frontend", "built from event sink");
+        emit_status(&sink, &identity, "succeeded", "overall", None, None);
+
+        let run_dir = root.0.join("projects/7/runs/event-backed-run");
+        let log = fs::read_to_string(run_dir.join("frontend-start.log")).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(run_dir.join("manifest.json")).unwrap()).unwrap();
+        assert!(log.contains("[system] built from event sink"));
+        assert_eq!(manifest["lifecycle"], "succeeded");
+        assert_eq!(
+            live.statuses.lock().unwrap().last().unwrap().status,
+            "succeeded"
+        );
+    }
+
+    #[test]
+    fn application_exit_waits_for_the_active_owner_and_has_a_bounded_timeout() {
+        let active = Arc::new(AtomicBool::new(true));
+        let worker_active = active.clone();
+        let worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            worker_active.store(false, Ordering::Release);
+        });
+        assert!(wait_for_release_with(Duration::from_secs(1), || {
+            active.load(Ordering::Acquire)
+        }));
+        worker.join().unwrap();
+        assert!(!wait_for_release_with(Duration::ZERO, || true));
     }
 
     #[test]
@@ -4578,6 +4930,7 @@ mod pipeline_tests {
         fs::write(&source, "changed-size").unwrap();
         let retry = RetryJob {
             environment_id: 7,
+            source_run_id: "source-run".into(),
             descriptor: RetryDescriptor {
                 manifests: vec![manifest],
                 commands: vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")],
@@ -4611,7 +4964,7 @@ mod pipeline_tests {
             manifests: Vec::new(),
             commands: Vec::new(),
         };
-        let token = issue_retry(7, descriptor).unwrap();
+        let token = issue_retry(7, "source-run", descriptor).unwrap();
 
         assert!(consume_retry(&token, 8).is_err());
         let retry = consume_retry(&token, 7).unwrap();
@@ -4634,7 +4987,7 @@ mod pipeline_tests {
             fingerprint_sha256: "SHA256:trusted".into(),
         };
         let failed = vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")];
-        let first = issue_command_retry(7, binding.clone(), failed.clone()).unwrap();
+        let first = issue_command_retry(7, "source-run", binding.clone(), failed.clone()).unwrap();
 
         let prepared = prepare_command_retry(&first, 7).unwrap();
         assert_eq!(prepared.targets, vec![ReleaseTarget::Frontend]);
@@ -4647,6 +5000,7 @@ mod pipeline_tests {
 
         let second = finish_command_retry(
             job,
+            "retry-run",
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
         )
         .unwrap();
@@ -4657,6 +5011,7 @@ mod pipeline_tests {
     fn command_retry_token_requires_its_binding_environment() {
         let error = issue_command_retry(
             8,
+            "source-run",
             CommandAuthBinding {
                 environment_id: 7,
                 endpoint: RemoteEndpoint {
@@ -4680,6 +5035,7 @@ mod pipeline_tests {
     fn command_retry_rejects_a_different_project_without_consuming_the_job() {
         let token = issue_command_retry(
             7,
+            "source-run",
             CommandAuthBinding {
                 environment_id: 7,
                 endpoint: RemoteEndpoint {

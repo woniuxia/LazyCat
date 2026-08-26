@@ -42,6 +42,7 @@ pub mod release_package;
 pub mod release_package_archive;
 pub mod release_package_artifact;
 pub mod release_package_deploy;
+pub mod release_package_log;
 pub mod release_package_model;
 pub mod release_package_remote;
 pub mod release_package_runtime;
