@@ -381,7 +381,7 @@
           required
           :error="lifecycleErrors.content"
           ><el-input v-model="lifecycleContent" type="textarea" :rows="4"
-        /></el-form-item>
+        /></el-form-item><div v-if="lifecycleMode !== 'reopen'" class="quick-inputs"><div><span>快速输入</span><el-button link type="primary" @click="addQuickInput">添加</el-button></div><el-button v-for="item in sortedQuickInputs" :key="item.id" size="small" @click="useQuickInput(item)">{{ item.text }}</el-button><el-button link size="small" @click="manageQuickInputs">管理</el-button></div>
         <el-form-item
           v-if="lifecycleNeedsReview"
           label="新的复查时间"
@@ -531,6 +531,10 @@ const editingEnded = computed(() =>
   Boolean(draft.id && selected.value?.attentionStatus === "ended"),
 );
 type LifecycleMode = "continue" | "completed" | "canceled" | "stop" | "reopen";
+type QuickInput = { id: string; text: string; uses: number; lastUsedAt: number | null; createdAt: number };
+const QUICK_INPUTS_KEY = "follow-up.quick-inputs";
+const quickInputs = ref<QuickInput[]>([]);
+const sortedQuickInputs = computed(() => [...quickInputs.value].sort((a,b) => b.uses-a.uses || (b.lastUsedAt??0)-(a.lastUsedAt??0) || a.createdAt-b.createdAt));
 const lifecycleMode = ref<LifecycleMode>("continue"),
   lifecycleContent = ref(""),
   lifecycleReviewAt = ref("");
@@ -694,7 +698,25 @@ async function quickAddPerson() {
       ElMessage.error((error as Error).message || "新增人员失败");
   }
 }
-function openLifecycle(mode: LifecycleMode) {
+async function useQuickInput(item: QuickInput) { lifecycleContent.value = lifecycleContent.value.trim() ? `${lifecycleContent.value}\
+${item.text}` : item.text; item.uses += 1; item.lastUsedAt = Date.now(); await invokeToolByChannel("tool:settings:set", { key: QUICK_INPUTS_KEY, value: JSON.stringify(quickInputs.value) }); }
+async function addQuickInput() {
+  try {
+    const { value } = await ElMessageBox.prompt("输入快速内容", "添加快速输入", { inputType: "textarea", inputValidator: (v) => { const text=v.trim(); return !text ? "内容不能为空" : text.length>2000 ? "最多 2000 个字符" : quickInputs.value.some(i=>i.text===text) ? "内容不能重复" : true; } });
+    quickInputs.value.push({ id: crypto.randomUUID(), text: value.trim(), uses: 0, lastUsedAt: null, createdAt: Date.now() });
+    await invokeToolByChannel("tool:settings:set", { key: QUICK_INPUTS_KEY, value: JSON.stringify(quickInputs.value) });
+  } catch (error) { if (error !== "cancel" && error !== "close") ElMessage.error((error as Error).message || "添加快速输入失败"); }
+}
+async function manageQuickInputs() {
+  if (!quickInputs.value.length) return;
+  try {
+    const item = sortedQuickInputs.value[0];
+    const { value } = await ElMessageBox.prompt("修改快速内容", "编辑快速输入", { inputType: "textarea", inputValue: item.text });
+    if (!value.trim() || value.trim().length > 2000) return;
+    item.text = value.trim();
+    await invokeToolByChannel("tool:settings:set", { key: QUICK_INPUTS_KEY, value: JSON.stringify(quickInputs.value) });
+  } catch (error) { if (error !== "cancel" && error !== "close") ElMessage.error((error as Error).message || "编辑快速输入失败"); }
+}function openLifecycle(mode: LifecycleMode) {
   lifecycleMode.value = mode;
   lifecycleContent.value = "";
   lifecycleReviewAt.value = quickReviewAt(1);
@@ -897,6 +919,7 @@ watch(
 watch(lifecycleContent, () => (lifecycleErrors.content = ""));
 watch(lifecycleReviewAt, () => (lifecycleErrors.reviewAt = ""));
 onMounted(async () => {
+  try { const result = await invokeToolByChannel<{ value?: string }>("tool:settings:get", { key: QUICK_INPUTS_KEY }); if (result.value) quickInputs.value = JSON.parse(result.value); } catch (error) { ElMessage.error((error as Error).message || "加载快速输入失败"); }
   try {
     await Promise.all([loadAssignees(), loadItems(true)]);
   } catch (error) {
