@@ -64,6 +64,31 @@ export function sortFollowUpQuickInputs(items: FollowUpQuickInput[]): FollowUpQu
   );
 }
 
+export function editFollowUpQuickInput(
+  items: FollowUpQuickInput[],
+  id: string,
+  text: string,
+): FollowUpQuickInput[] {
+  return items.map((item) => (item.id === id ? { ...item, text } : item));
+}
+
+export function deleteFollowUpQuickInput(
+  items: FollowUpQuickInput[],
+  id: string,
+): FollowUpQuickInput[] {
+  return items.filter((item) => item.id !== id);
+}
+
+export function recordFollowUpQuickInputUsage(
+  items: FollowUpQuickInput[],
+  id: string,
+  usedAt: number,
+): FollowUpQuickInput[] {
+  return items.map((item) =>
+    item.id === id ? { ...item, usageCount: item.usageCount + 1, lastUsedAt: usedAt } : item,
+  );
+}
+
 export function appendFollowUpQuickInput(current: string, text: string): string {
   return current.length ? `${current}\n${text}` : text;
 }

@@ -326,6 +326,86 @@ describe("FollowUpPanel", () => {
     );
     app.unmount();
   });
+  it("adds a custom quick input and persists it", async () => {
+    vi.spyOn(ElMessageBox, "prompt").mockResolvedValue({
+      value: "自定义内容",
+      action: "confirm",
+    } as never);
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "tool:todo:assignee-list")
+        return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
+      if (channel === "tool:follow-up:item-list") return Promise.resolve(items);
+      if (channel === "tool:settings:get") return Promise.resolve({ value: "[]" });
+      return Promise.resolve({ ok: true });
+    });
+    const { app, root } = await mountPanel();
+    root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();
+    await nextTick();
+    buttonByText(root, "记录进展")?.click();
+    await nextTick();
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    buttonByText(dialog ?? document.body, "添加")?.click();
+    await vi.waitFor(() =>
+      expect(buttonByText(dialog ?? document.body, "自定义内容")).toBeDefined(),
+    );
+    expect(bridge.invoke).toHaveBeenCalledWith(
+      "tool:settings:set",
+      expect.objectContaining({ value: expect.stringContaining("自定义内容") }),
+    );
+    app.unmount();
+  });
+  it("serializes rapid usage updates without losing counts", async () => {
+    const firstSave = deferred<unknown>();
+    let settingWrites = 0;
+    bridge.invoke.mockImplementation((channel: string, payload: { value?: string }) => {
+      if (channel === "tool:todo:assignee-list")
+        return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
+      if (channel === "tool:follow-up:item-list") return Promise.resolve(items);
+      if (channel === "tool:settings:get")
+        return Promise.resolve({
+          value: JSON.stringify([
+            { id: "quick-1", text: "常用内容", usageCount: 0, lastUsedAt: null, createdAt: 1 },
+          ]),
+        });
+      if (channel === "tool:settings:set") {
+        settingWrites += 1;
+        return settingWrites === 1 ? firstSave.promise : Promise.resolve(payload);
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const { app, root } = await mountPanel();
+    root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();
+    await nextTick();
+    buttonByText(root, "记录进展")?.click();
+    await nextTick();
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const quickButton = buttonByText(dialog ?? document.body, "常用内容");
+    quickButton?.click();
+    quickButton?.click();
+    await nextTick();
+
+    const writes = () =>
+      bridge.invoke.mock.calls.filter(([channel]) => channel === "tool:settings:set");
+    expect(writes()).toHaveLength(1);
+    expect(JSON.parse(writes()[0]![1].value)[0].usageCount).toBe(1);
+    firstSave.resolve({ ok: true });
+    await vi.waitFor(() => expect(writes()).toHaveLength(2));
+    expect(JSON.parse(writes()[1]![1].value)[0].usageCount).toBe(2);
+    app.unmount();
+  });
+
+  it("does not offer result quick inputs when stopping attention", async () => {
+    const { app, root } = await mountPanel();
+    root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();
+    await nextTick();
+    buttonByText(root, "结束关注")?.click();
+    await nextTick();
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    expect(dialog?.textContent).toContain("结束原因");
+    expect(dialog?.querySelector(".quick-inputs")).toBeNull();
+    app.unmount();
+  });
+
   it("submits lifecycle actions through the confirmed domain channel", async () => {
     const { app, root } = await mountPanel();
     root.querySelector<HTMLButtonElement>(".follow-up-card")?.click();

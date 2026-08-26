@@ -68,7 +68,7 @@ const emit = defineEmits<{
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-:deep(.danger-item) {
+:global(.follow-up-quick-input-menu .danger-item) {
   color: var(--lc-danger);
 }
 </style>

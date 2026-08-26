@@ -406,7 +406,7 @@
           ><el-input v-model="lifecycleContent" type="textarea" :rows="4"
         /></el-form-item>
         <FollowUpQuickInputs
-          v-if="lifecycleMode !== 'reopen'"
+          v-if="lifecycleSupportsQuickInput"
           :items="sortedQuickInputs"
           @add="addQuickInput"
           @use="useQuickInput($event, 'lifecycle')"
@@ -494,9 +494,12 @@ import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedu
 import {
   appendFollowUpQuickInput,
   createDefaultFollowUpQuickInputs,
+  deleteFollowUpQuickInput,
+  editFollowUpQuickInput,
   FOLLOW_UP_QUICK_INPUT_MAX_LENGTH,
   FOLLOW_UP_QUICK_INPUTS_SETTING_KEY,
   parseFollowUpQuickInputs,
+  recordFollowUpQuickInputUsage,
   sortFollowUpQuickInputs,
   type FollowUpQuickInput,
 } from "../../utils/followUpQuickInputs";
@@ -510,6 +513,7 @@ const emit = defineEmits<{
 type FollowUpSectionKey = "all" | FollowUpGroup;
 let reminderUnlisten: UnlistenFn | null = null;
 let loadSequence = 0;
+let quickInputMutationQueue = Promise.resolve();
 const loading = ref(true),
   saving = ref(false),
   items = ref<FollowUpItem[]>([]),
@@ -614,6 +618,9 @@ const lifecycleReviewTime = computed({
     lifecycleReviewAt.value = updateReviewPart(lifecycleReviewAt.value, "time", value);
   },
 });
+const lifecycleSupportsQuickInput = computed(() =>
+  ["continue", "completed", "canceled"].includes(lifecycleMode.value),
+);
 const lifecycleNeedsReview = computed(
   () => lifecycleMode.value === "continue" || lifecycleMode.value === "reopen",
 );
@@ -832,6 +839,16 @@ async function persistQuickInputs(items: FollowUpQuickInput[]) {
   });
   quickInputs.value = items;
 }
+function mutateQuickInputs(
+  mutation: (current: FollowUpQuickInput[]) => FollowUpQuickInput[],
+): Promise<void> {
+  const operation = quickInputMutationQueue.then(async () => {
+    const next = mutation(quickInputs.value);
+    await persistQuickInputs(next);
+  });
+  quickInputMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
 async function loadQuickInputs() {
   try {
     const stored = await invokeToolByChannel("tool:settings:get", {
@@ -853,8 +870,8 @@ async function addQuickInput() {
       inputType: "textarea",
       inputValidator: (candidate) => quickInputValidation(candidate),
     });
-    await persistQuickInputs([
-      ...quickInputs.value,
+    await mutateQuickInputs((current) => [
+      ...current,
       {
         id: crypto.randomUUID(),
         text: value.trim(),
@@ -875,11 +892,7 @@ async function editQuickInput(item: FollowUpQuickInput) {
       inputValue: item.text,
       inputValidator: (candidate) => quickInputValidation(candidate, item.id),
     });
-    await persistQuickInputs(
-      quickInputs.value.map((candidate) =>
-        candidate.id === item.id ? { ...candidate, text: value.trim() } : candidate,
-      ),
-    );
+    await mutateQuickInputs((current) => editFollowUpQuickInput(current, item.id, value.trim()));
   } catch (error) {
     if (error !== "cancel" && error !== "close")
       ElMessage.error((error as Error).message || "编辑快速输入失败");
@@ -890,7 +903,7 @@ async function deleteQuickInput(item: FollowUpQuickInput) {
     await ElMessageBox.confirm("确定删除这条快速输入吗？", "删除快速输入", {
       type: "warning",
     });
-    await persistQuickInputs(quickInputs.value.filter((candidate) => candidate.id !== item.id));
+    await mutateQuickInputs((current) => deleteFollowUpQuickInput(current, item.id));
   } catch (error) {
     if (error !== "cancel" && error !== "close")
       ElMessage.error((error as Error).message || "删除快速输入失败");
@@ -902,13 +915,7 @@ async function useQuickInput(item: FollowUpQuickInput, target: "progress" | "lif
   else lifecycleContent.value = appendFollowUpQuickInput(lifecycleContent.value, item.text);
   const usedAt = Date.now();
   try {
-    await persistQuickInputs(
-      quickInputs.value.map((candidate) =>
-        candidate.id === item.id
-          ? { ...candidate, usageCount: candidate.usageCount + 1, lastUsedAt: usedAt }
-          : candidate,
-      ),
-    );
+    await mutateQuickInputs((current) => recordFollowUpQuickInputUsage(current, item.id, usedAt));
   } catch (error) {
     ElMessage.error((error as Error).message || "保存快速输入使用记录失败");
   }
