@@ -54,7 +54,7 @@
             clearable
             placeholder="搜索标题、责任人、描述或进展"
           />
-          <el-button :icon="Refresh" title="刷新" @click="loadItems" />
+          <el-button :icon="Refresh" title="刷新" @click="refreshList" />
           <el-button type="primary" :icon="Plus" @click="startCreate">新增关注事项</el-button>
         </div>
       </template>
@@ -62,20 +62,28 @@
         <div class="follow-up-scroll">
           <div class="group-heading">
             <span>{{ activeGroupLabel }}</span
-            ><span>{{ visibleItems.length }}</span>
+            ><span>{{ sectionCounts[activeGroup] }}</span>
           </div>
           <el-empty v-if="!visibleItems.length" :description="emptyDescription" :image-size="72" />
           <button
             v-for="item in visibleItems"
             :key="item.id"
             class="follow-up-card"
-            :class="{ selected: selectedId === item.id }"
+            :class="{ selected: selectedId === item.id, processed: processedLabel(item) !== null }"
             @click="selectItem(item.id)"
           >
             <span class="priority-stripe" :class="item.priority.toLowerCase()" aria-hidden="true" />
             <span class="card-main">
               <span class="card-title-row">
                 <strong :title="item.title">{{ item.title }}</strong>
+                <el-tag
+                  v-if="processedLabel(item)"
+                  class="processed-tag"
+                  type="info"
+                  size="small"
+                  effect="plain"
+                  >{{ processedLabel(item) }}</el-tag
+                >
                 <el-tag
                   class="priority-tag"
                   :class="item.priority.toLowerCase()"
@@ -487,8 +495,11 @@ import {
   emptyFollowUpDraft,
   externalDeadlineReached,
   followUpGroup,
+  followUpProcessedLabel,
   groupFollowUpItems,
+  mergeProcessedFollowUpItems,
   quickReviewAt,
+  type FollowUpProcessedMark,
 } from "../../utils/followUp";
 import { combineDateTimeParts, splitDateTimeParts } from "../../utils/todoSchedule";
 import {
@@ -520,6 +531,7 @@ const loading = ref(true),
   assignees = ref<TodoAssignee[]>([]),
   selectedId = ref<number | null>(null),
   activeGroup = ref<FollowUpSectionKey>("all"),
+  processedMarks = ref(new Map<number, FollowUpProcessedMark>()),
   editVisible = ref(false),
   progressVisible = ref(false),
   lifecycleVisible = ref(false);
@@ -560,7 +572,13 @@ const sectionCounts = computed<Record<FollowUpSectionKey, number>>(() => ({
   ended: groups.value.ended.length,
 }));
 const visibleItems = computed(() =>
-  activeGroup.value === "all" ? allItems.value : groups.value[activeGroup.value],
+  activeGroup.value === "all"
+    ? allItems.value
+    : mergeProcessedFollowUpItems(
+        groups.value[activeGroup.value],
+        items.value,
+        processedMarks.value,
+      ),
 );
 const selected = computed(() => items.value.find((item) => item.id === selectedId.value) ?? null);
 const activeGroupLabel = computed(
@@ -654,7 +672,7 @@ async function loadDueCount() {
   const result = await invokeToolByChannel<FollowUpItem[]>("tool:follow-up:item-list", {});
   emitDueCount(result);
 }
-async function loadItems(refreshDueCount = false) {
+async function loadItems(refreshDueCount = false, keepProcessed = false) {
   const sequence = ++loadSequence;
   try {
     const result = await invokeToolByChannel<FollowUpItem[]>("tool:follow-up:item-list", {
@@ -665,6 +683,7 @@ async function loadItems(refreshDueCount = false) {
     });
     if (sequence !== loadSequence) return;
     items.value = result;
+    if (!keepProcessed) processedMarks.value.clear();
     if (!hasActiveFilters()) emitDueCount(result);
     else if (refreshDueCount) await loadDueCount();
     if (selectedId.value && !result.some((item) => item.id === selectedId.value))
@@ -674,9 +693,12 @@ async function loadItems(refreshDueCount = false) {
     ElMessage.error((error as Error).message || "加载关注事项失败");
   }
 }
+function refreshList() {
+  void loadItems(true);
+}
 async function reloadSelected() {
   const id = selectedId.value;
-  await loadItems(true);
+  await loadItems(true, true);
   if (id) selectedId.value = id;
 }
 function selectItem(id: number) {
@@ -722,9 +744,8 @@ async function saveItem() {
     const saved = await invokeToolByChannel<FollowUpItem>(channel, { ...draft });
     editVisible.value = false;
     selectedId.value = saved.id;
-    await loadItems(true);
-    const current = items.value.find((item) => item.id === saved.id);
-    if (current && activeGroup.value !== "all") activeGroup.value = followUpGroup(current);
+    await loadItems(true, true);
+    if (draft.id) markProcessedAfterSave(draft.id, "updated");
     ElMessage.success(draft.id ? "关注事项已更新" : "关注事项已创建");
   } catch (error) {
     ElMessage.error((error as Error).message || "保存失败");
@@ -771,21 +792,41 @@ async function submitLifecycle() {
   } as const;
   saving.value = true;
   try {
+    const itemId = selected.value.id;
     await invokeToolByChannel(channels[lifecycleMode.value], {
-      id: selected.value.id,
+      id: itemId,
       content: lifecycleContent.value,
       reviewAt: lifecycleReviewAt.value,
     });
     lifecycleVisible.value = false;
     await reloadSelected();
-    if (selected.value && activeGroup.value !== "all")
-      activeGroup.value = followUpGroup(selected.value);
+    markProcessedAfterSave(itemId, lifecycleProcessedMark(lifecycleMode.value));
     ElMessage.success("状态已更新");
   } catch (error) {
     ElMessage.error((error as Error).message || "状态更新失败");
   } finally {
     saving.value = false;
   }
+}
+
+/**
+ * 就地已处理：保存后事项若离开当前分组，不切换视图，改为就地淡化标记；
+ * 若保存后仍留在（或回到）当前分组，则清除标记按真实分组呈现。
+ */
+function markProcessedAfterSave(itemId: number, mark: FollowUpProcessedMark) {
+  const current = items.value.find((item) => item.id === itemId);
+  if (current && activeGroup.value !== "all" && followUpGroup(current) !== activeGroup.value)
+    processedMarks.value.set(itemId, mark);
+  else processedMarks.value.delete(itemId);
+}
+function lifecycleProcessedMark(mode: LifecycleMode): FollowUpProcessedMark {
+  if (mode === "continue") return "continued";
+  if (mode === "reopen") return "reopened";
+  return "ended";
+}
+function processedLabel(item: FollowUpItem): string | null {
+  const mark = processedMarks.value.get(item.id);
+  return mark ? followUpProcessedLabel(mark) : null;
 }
 function openProgress(entry?: FollowUpProgress) {
   progressEditingId.value = entry?.id ?? null;
@@ -1012,7 +1053,8 @@ async function focus(itemId: number | null, dueOnly = false) {
     if (!dueOnly && selected.value) activeGroup.value = followUpGroup(selected.value);
   }
 }
-watch(filters, () => void loadItems(), { deep: true });
+watch(filters, () => void loadItems(false, true), { deep: true });
+watch(activeGroup, () => processedMarks.value.clear());
 watch(
   () => draft.title,
   () => (formErrors.title = ""),
@@ -1141,6 +1183,13 @@ defineExpose({ focus, loadItems });
   border-color: var(--lc-border-active);
   background: var(--lc-accent-dim);
 }
+.follow-up-card.processed {
+  opacity: 0.55;
+}
+.follow-up-card.processed:hover,
+.follow-up-card.processed.selected {
+  opacity: 0.85;
+}
 .follow-up-card:focus-visible {
   outline: 2px solid var(--lc-accent);
   outline-offset: 2px;
@@ -1171,7 +1220,7 @@ defineExpose({ focus, loadItems });
 }
 .card-title-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -1189,6 +1238,9 @@ defineExpose({ focus, loadItems });
   min-width: 34px;
   justify-content: center;
   font-variant-numeric: tabular-nums;
+}
+.processed-tag {
+  flex: 0 0 auto;
 }
 .priority-tag.p0 {
   color: var(--lc-danger);

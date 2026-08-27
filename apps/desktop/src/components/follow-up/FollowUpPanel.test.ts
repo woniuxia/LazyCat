@@ -4,6 +4,7 @@ import ElementPlus from "element-plus";
 import { ElMessageBox } from "element-plus";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FollowUpItem } from "../../types/follow-up";
+import { APP_EVENTS } from "../../bridge/events";
 
 const bridge = vi.hoisted(() => ({ invoke: vi.fn() }));
 const eventBridge = vi.hoisted(() => ({ listen: vi.fn() }));
@@ -83,6 +84,74 @@ function buttonByText(container: ParentNode, text: string) {
   return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
     (button) => button.textContent?.trim() === text,
   );
+}
+
+function buttonIncluding(container: ParentNode, text: string) {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+    button.textContent?.includes(text),
+  );
+}
+
+function sectionButton(root: HTMLElement, label: string) {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>(".section-button")).find((button) =>
+    button.textContent?.includes(label),
+  );
+}
+
+function cardIncluding(root: HTMLElement, text: string) {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>(".follow-up-card")).find((card) =>
+    card.textContent?.includes(text),
+  );
+}
+
+function mockUpdatingList(apply: (channel: string, list: FollowUpItem[]) => FollowUpItem[]) {
+  let list = [...items];
+  bridge.invoke.mockImplementation((channel: string) => {
+    if (channel === "tool:todo:assignee-list")
+      return Promise.resolve({ items: [{ id: 1, name: "张三", createdAt: "", updatedAt: "" }] });
+    if (channel === "tool:follow-up:item-list") return Promise.resolve(list);
+    if (channel === "tool:settings:get") return Promise.resolve({ value: null });
+    if (channel.startsWith("tool:follow-up:")) {
+      list = apply(channel, list);
+      return Promise.resolve(list.find((entry) => entry.id === 1) ?? { ok: true });
+    }
+    return Promise.resolve({ ok: true });
+  });
+}
+
+async function switchToDueGroup(root: HTMLElement) {
+  sectionButton(root, "待复查")?.click();
+  await nextTick();
+}
+
+async function selectDueItem(root: HTMLElement) {
+  cardIncluding(root, "现在复查")?.click();
+  await nextTick();
+}
+
+async function submitLifecycleDialog(root: ParentNode, triggerText: string, content: string) {
+  buttonByText(root, triggerText)?.click();
+  await nextTick();
+  const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+  const textarea = dialog?.querySelector<HTMLTextAreaElement>("textarea");
+  if (!dialog || !textarea) throw new Error("lifecycle dialog did not open");
+  textarea.value = content;
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  buttonByText(dialog, "确认")?.click();
+  await nextTick();
+}
+
+async function clickDetailDropdownItem(root: HTMLElement, trigger: string, label: string) {
+  const triggerButton =
+    root.querySelector<HTMLButtonElement>(`button[title="${trigger}"]`) ??
+    buttonIncluding(root, trigger);
+  triggerButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await nextTick();
+  const item = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+    .find((option) => option.textContent?.trim() === label);
+  if (!item) throw new Error(`dropdown item ${label} did not render`);
+  item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await nextTick();
 }
 
 describe("FollowUpPanel", () => {
@@ -447,6 +516,141 @@ describe("FollowUpPanel", () => {
         expect.objectContaining({ id: 1, content: "继续等待验收" }),
       ),
     );
+    app.unmount();
+  });
+
+  it("keeps the due group open and fades the continued item in place", async () => {
+    mockUpdatingList((channel, list) =>
+      channel === "tool:follow-up:continue"
+        ? list.map((entry) =>
+            entry.id === 1 ? followUp(1, "现在复查", "2026-08-20T10:00:00+08:00") : entry,
+          )
+        : list,
+    );
+    const { app, root } = await mountPanel();
+    await switchToDueGroup(root);
+    await selectDueItem(root);
+    await submitLifecycleDialog(root, "继续关注", "对方已推进");
+
+    await vi.waitFor(() => {
+      const faded = root.querySelector<HTMLButtonElement>(".follow-up-card.processed");
+      expect(faded?.textContent).toContain("现在复查");
+    });
+    expect(sectionButton(root, "待复查")?.classList.contains("active")).toBe(true);
+    expect(root.querySelector(".follow-up-card.processed .processed-tag")?.textContent).toBe(
+      "已复查",
+    );
+    expect(root.querySelector(".group-heading")?.textContent).toContain("0");
+    app.unmount();
+  });
+
+  it("marks a confirmed result as ended without leaving the due group", async () => {
+    mockUpdatingList((channel, list) =>
+      channel === "tool:follow-up:confirm-completed"
+        ? list.map((entry) =>
+            entry.id === 1 ? followUp(1, "现在复查", null, "2026-08-18T10:30:00+08:00") : entry,
+          )
+        : list,
+    );
+    const { app, root } = await mountPanel();
+    await switchToDueGroup(root);
+    await selectDueItem(root);
+    await clickDetailDropdownItem(root, "确认结果", "确认完成");
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    const textarea = dialog?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!dialog || !textarea) throw new Error("result dialog did not open");
+    textarea.value = "验收通过";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    buttonByText(dialog, "确认")?.click();
+    await nextTick();
+
+    await vi.waitFor(() =>
+      expect(root.querySelector(".follow-up-card.processed .processed-tag")?.textContent).toBe(
+        "已结束",
+      ),
+    );
+    expect(sectionButton(root, "待复查")?.classList.contains("active")).toBe(true);
+    expect(root.querySelector(".follow-up-scroll")?.textContent).toContain("现在复查");
+    app.unmount();
+  });
+
+  it("restores the real grouping after switching away and back", async () => {
+    mockUpdatingList((channel, list) =>
+      channel === "tool:follow-up:continue"
+        ? list.map((entry) =>
+            entry.id === 1 ? followUp(1, "现在复查", "2026-08-20T10:00:00+08:00") : entry,
+          )
+        : list,
+    );
+    const { app, root } = await mountPanel();
+    await switchToDueGroup(root);
+    await selectDueItem(root);
+    await submitLifecycleDialog(root, "继续关注", "对方已推进");
+    await vi.waitFor(() =>
+      expect(root.querySelector(".follow-up-card.processed")).not.toBeNull(),
+    );
+
+    sectionButton(root, "全部")?.click();
+    await nextTick();
+    await switchToDueGroup(root);
+
+    expect(root.querySelector(".follow-up-scroll")?.textContent).not.toContain("现在复查");
+    expect(root.querySelector(".follow-up-scroll")?.textContent).toContain("暂无关注事项");
+    app.unmount();
+  });
+
+  it("clears processed marks when a background refresh reloads items", async () => {
+    mockUpdatingList((channel, list) =>
+      channel === "tool:follow-up:continue"
+        ? list.map((entry) =>
+            entry.id === 1 ? followUp(1, "现在复查", "2026-08-20T10:00:00+08:00") : entry,
+          )
+        : list,
+    );
+    const { app, root } = await mountPanel();
+    await switchToDueGroup(root);
+    await selectDueItem(root);
+    await submitLifecycleDialog(root, "继续关注", "对方已推进");
+    await vi.waitFor(() =>
+      expect(root.querySelector(".follow-up-card.processed")).not.toBeNull(),
+    );
+
+    const listener = eventBridge.listen.mock.calls.find(
+      ([name]) => name === APP_EVENTS.FOLLOW_UP_REVIEW_DUE,
+    )?.[1] as () => void;
+    listener?.();
+    await vi.waitFor(() =>
+      expect(root.querySelector(".follow-up-card.processed")).toBeNull(),
+    );
+    app.unmount();
+  });
+
+  it("fades an edited item that leaves the current group", async () => {
+    mockUpdatingList((channel, list) =>
+      channel === "tool:follow-up:item-update"
+        ? list.map((entry) =>
+            entry.id === 1 ? followUp(1, "现在复查", "2026-08-25T09:00:00+08:00") : entry,
+          )
+        : list,
+    );
+    const { app, root } = await mountPanel();
+    await switchToDueGroup(root);
+    await selectDueItem(root);
+    await clickDetailDropdownItem(root, "更多操作", "编辑");
+    const dialog = document.body.querySelector<HTMLElement>(".el-dialog");
+    if (!dialog) throw new Error("edit dialog did not open");
+    buttonByText(dialog, "1 周后")?.click();
+    await nextTick();
+    buttonByText(dialog, "保存")?.click();
+    await nextTick();
+
+    await vi.waitFor(() =>
+      expect(root.querySelector(".follow-up-card.processed .processed-tag")?.textContent).toBe(
+        "已更新",
+      ),
+    );
+    expect(sectionButton(root, "待复查")?.classList.contains("active")).toBe(true);
+    expect(root.querySelector(".group-heading")?.textContent).toContain("0");
     app.unmount();
   });
 });

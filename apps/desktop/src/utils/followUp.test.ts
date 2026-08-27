@@ -4,8 +4,11 @@ import {
   buildFollowUpTodoInput,
   emptyFollowUpDraft,
   externalDeadlineReached,
+  followUpProcessedLabel,
   groupFollowUpItems,
+  mergeProcessedFollowUpItems,
   quickReviewAt,
+  type FollowUpProcessedMark,
 } from "./followUp";
 
 function item(id: number, reviewAt: string | null, endedAt: string | null = null): FollowUpItem {
@@ -83,5 +86,51 @@ describe("follow-up grouping", () => {
     expect(input.todoDraft?.description).toContain("预期结果：通过验收");
     expect(input.todoDraft?.description).toContain("最近进展：等待复测");
     expect(input.meta).toBeUndefined();
+  });
+});
+
+describe("就地已处理合并", () => {
+  it("appends processed items that left the group in processing order", () => {
+    const dueItems = [item(1, "2026-08-18T09:00:00+08:00")];
+    const candidates = [
+      ...dueItems,
+      item(2, "2026-08-20T10:00:00+08:00"),
+      item(3, "2026-08-27T10:00:00+08:00"),
+    ];
+    const marks = new Map<number, FollowUpProcessedMark>([
+      [2, "continued"],
+      [3, "updated"],
+    ]);
+
+    const merged = mergeProcessedFollowUpItems(dueItems, candidates, marks);
+
+    expect(merged.map((value) => value.id)).toEqual([1, 2, 3]);
+    expect(followUpProcessedLabel("continued")).toBe("已复查");
+    expect(followUpProcessedLabel("ended")).toBe("已结束");
+    expect(followUpProcessedLabel("reopened")).toBe("已重新关注");
+    expect(followUpProcessedLabel("updated")).toBe("已更新");
+  });
+
+  it("does not duplicate items that returned to the group", () => {
+    const dueItems = [item(1, "2026-08-18T09:00:00+08:00"), item(2, "2026-08-18T09:30:00+08:00")];
+    const candidates = [...dueItems, item(3, "2026-08-27T10:00:00+08:00")];
+    const marks = new Map<number, FollowUpProcessedMark>([
+      [2, "continued"],
+      [3, "ended"],
+    ]);
+
+    const merged = mergeProcessedFollowUpItems(dueItems, candidates, marks);
+
+    expect(merged.map((value) => value.id)).toEqual([1, 2, 3]);
+  });
+
+  it("skips marks whose item is missing from the loaded candidates", () => {
+    const merged = mergeProcessedFollowUpItems(
+      [],
+      [item(1, "2026-08-18T09:00:00+08:00")],
+      new Map<number, FollowUpProcessedMark>([[9, "continued"]]),
+    );
+
+    expect(merged).toEqual([]);
   });
 });

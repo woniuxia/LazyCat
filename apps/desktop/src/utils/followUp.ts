@@ -56,6 +56,30 @@ export function externalDeadlineReached(item: FollowUpItem, now = new Date()): b
   );
 }
 
+export type FollowUpProcessedMark = "continued" | "ended" | "reopened" | "updated";
+
+export function followUpProcessedLabel(mark: FollowUpProcessedMark): string {
+  return { continued: "已复查", ended: "已结束", reopened: "已重新关注", updated: "已更新" }[mark];
+}
+
+/**
+ * 就地已处理：把本轮已处理、已离开当前分组的事项按处理先后沉底合并进分组列表。
+ * 回到当前分组的事项由分组列表本身呈现，不重复追加；不在当前数据集里的标记跳过。
+ */
+export function mergeProcessedFollowUpItems(
+  groupItems: readonly FollowUpItem[],
+  candidates: readonly FollowUpItem[],
+  marks: ReadonlyMap<number, FollowUpProcessedMark>,
+): FollowUpItem[] {
+  const faded: FollowUpItem[] = [];
+  for (const id of marks.keys()) {
+    if (groupItems.some((item) => item.id === id)) continue;
+    const item = candidates.find((candidate) => candidate.id === id);
+    if (item) faded.push(item);
+  }
+  return [...groupItems, ...faded];
+}
+
 export function buildFollowUpTodoInput(item: FollowUpItem): PendingToolInput {
   const context = [
     item.expectedOutcome && `预期结果：${item.expectedOutcome}`,
