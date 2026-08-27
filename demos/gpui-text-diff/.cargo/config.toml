@@ -1,0 +1,9 @@
+# Demo 只在本机运行，代理指向本机 clash/v2ray；无代理环境请删除或改成实际代理。
+[http]
+proxy = "http://127.0.0.1:10808"
+multiplexing = false
+
+[net]
+# gpui 依赖来自 zed 仓库的 git 依赖，交给本机 git CLI 处理（配合全局 git 配置最稳）
+git-fetch-with-cli = true
+retry = 3

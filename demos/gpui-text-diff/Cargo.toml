@@ -1,0 +1,15 @@
+[package]
+name = "gpui-text-diff"
+version = "0.1.0"
+edition = "2024"
+description = "gpui/gpui-component 文本对比 demo"
+
+[dependencies]
+# 版本需与 gpui-component 内部使用的 gpui 保持一致（其 workspace 锁定 gpui = "0.2.x"）
+gpui = "0.2.2"
+gpui-component = "0.5.1"
+gpui-component-assets = "0.5.1"
+anyhow = "1"
+
+[profile.dev]
+debug = "line-tables-only"
