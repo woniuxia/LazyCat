@@ -1,32 +1,22 @@
 //! 文本对比 demo —— gpui + gpui-component
 //!
-//! 左右两栏输入文本，点击「对比」后按行展示差异：
-//! 红色 = 删除行（仅左侧有），绿色 = 新增行（仅右侧有）。
+//! 左右两栏输入文本，点击「对比」后以双栏并排视图展示差异：
+//! 左栏 = 文本 A（红色 = 删除行），右栏 = 文本 B（绿色 = 新增行），
+//! 修改行左右对齐显示；单侧独有的行在另一侧显示灰色占位。
 
 mod diff;
 
-use diff::{DiffRow, DiffStats, RowKind, compute_rows, summarize};
+use diff::{DiffStats, HalfLine, PairRow, RowKind, compute_rows, pair_rows, summarize};
 
 use gpui::*;
 use gpui_component::{
+    ActiveTheme, Root, Theme, ThemeMode,
     button::{Button, ButtonVariants},
+    h_flex,
     input::{Input, InputState},
-    *,
+    v_flex,
 };
 use gpui_component_assets::Assets;
-
-// ---------- 配色（浅色主题专用） ----------
-
-const FG: u32 = 0x1f_29_37;
-const FG_MUTED: u32 = 0x6b_72_80;
-const FG_FAINT: u32 = 0x9c_a3_af;
-const BORDER: u32 = 0xe5_e7_eb;
-const PANEL_BG: u32 = 0xf9_fa_fb;
-const INS_BG: u32 = 0xec_fd_f3;
-const DEL_BG: u32 = 0xfe_f2_f2;
-const INS_ACCENT: u32 = 0x16_a3_4a;
-const DEL_ACCENT: u32 = 0xdc_26_26;
-const WARN: u32 = 0xb4_53_09;
 
 // ---------- 示例文本 ----------
 
@@ -57,12 +47,43 @@ LazyCat 工具箱
 平台支持：Windows、macOS
 许可证：MIT";
 
-// ---------- 结果与快照 ----------
+// ---------- 主题调色板快照 ----------
 
-struct DiffResult {
-    rows: Vec<DiffRow>,
-    stats: DiffStats,
-    fast_mode: bool,
+/// 渲染前从全局主题一次性取出的语义色。
+/// 说明：唯一保留的固定像素是「等宽行号列宽度」与「1px 分隔线」，
+/// 属于对齐网格的物理边界例外；其余颜色一律来自 cx.theme()。
+struct Palette {
+    fg: Hsla,
+    muted: Hsla,
+    border: Hsla,
+    panel_bg: Hsla,
+    ins_tint: Hsla,
+    del_tint: Hsla,
+    ins_accent: Hsla,
+    del_accent: Hsla,
+    warning: Hsla,
+}
+
+fn with_alpha(c: Hsla, a: f32) -> Hsla {
+    Hsla { a, ..c }
+}
+
+impl Palette {
+    fn from_theme(cx: &App) -> Self {
+        let t = cx.theme();
+        Self {
+            fg: t.foreground,
+            muted: t.muted_foreground,
+            border: t.border,
+            panel_bg: t.secondary,
+            // 新增/删除底色：对应语义色的低透明度版本
+            ins_tint: with_alpha(t.success, 0.14),
+            del_tint: with_alpha(t.danger, 0.12),
+            ins_accent: t.success,
+            del_accent: t.danger,
+            warning: t.warning,
+        }
+    }
 }
 
 /// 渲染前把需要的状态复制出来，避免构造元素时与 cx 相互借用。
@@ -70,24 +91,14 @@ struct Snapshot {
     left_lines: usize,
     right_lines: usize,
     stats_line: String,
+    palette: Palette,
 }
 
-struct RenderRow {
-    kind: RowKind,
-    a_no: Option<usize>,
-    b_no: Option<usize>,
-    text: String,
-}
-
-impl RenderRow {
-    fn from_ref(r: &DiffRow) -> Self {
-        Self {
-            kind: r.kind,
-            a_no: r.a_no,
-            b_no: r.b_no,
-            text: r.text.clone(),
-        }
-    }
+/// 渲染用结果数据
+struct DiffResult {
+    pairs: Vec<PairRow>,
+    stats: DiffStats,
+    fast_mode: bool,
 }
 
 // ---------- 视图 ----------
@@ -136,18 +147,18 @@ impl DiffDemo {
             left_lines: left_text.lines().count(),
             right_lines: right_text.lines().count(),
             stats_line,
+            palette: Palette::from_theme(cx),
         }
     }
-}
 
-impl DiffDemo {
     fn do_compare(&mut self, cx: &mut Context<Self>) {
         let a = self.left.read(cx).value().to_string();
         let b = self.right.read(cx).value().to_string();
         let (rows, fast_mode) = compute_rows(&a, &b);
         let stats = summarize(&rows);
+        let pairs = pair_rows(&rows);
         self.result = Some(DiffResult {
-            rows,
+            pairs,
             stats,
             fast_mode,
         });
@@ -178,21 +189,22 @@ impl DiffDemo {
 impl Render for DiffDemo {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let snap = self.snapshot(cx);
-        let rendered_rows: Vec<RenderRow> = match &self.result {
-            Some(r) => r.rows.iter().map(RenderRow::from_ref).collect(),
-            None => Vec::new(),
-        };
+        let rendered_pairs: Vec<PairRow> = self
+            .result
+            .as_ref()
+            .map(|r| r.pairs.clone())
+            .unwrap_or_default();
         let fast_mode = self.result.as_ref().map_or(false, |r| r.fast_mode);
         let has_result = self.result.is_some();
         let identical = has_result && !self.result.as_ref().map_or(true, |r| r.stats.has_changes());
-        let empty_diff = has_result && rendered_rows.is_empty();
+        let empty_diff = has_result && rendered_pairs.is_empty();
 
         v_flex()
             .id("page")
             .size_full()
             .overflow_y_scroll()
-            .bg(rgb(0xff_ff_ff))
-            .text_color(rgb(FG))
+            .bg(snap.palette.panel_bg)
+            .text_color(snap.palette.fg)
             .p_4()
             .gap_3()
             // 工具栏
@@ -217,8 +229,8 @@ impl Render for DiffDemo {
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_size(px(12.))
-                            .text_color(rgb(FG_MUTED))
+                            .text_xs()
+                            .text_color(snap.palette.muted)
                             .child(snap.stats_line),
                     ),
             )
@@ -228,8 +240,18 @@ impl Render for DiffDemo {
                     .w_full()
                     .gap_3()
                     .items_start()
-                    .child(render_input_column("文本 A", &self.left, snap.left_lines))
-                    .child(render_input_column("文本 B", &self.right, snap.right_lines)),
+                    .child(render_input_column(
+                        "文本 A",
+                        &self.left,
+                        snap.left_lines,
+                        &snap.palette,
+                    ))
+                    .child(render_input_column(
+                        "文本 B",
+                        &self.right,
+                        snap.right_lines,
+                        &snap.palette,
+                    )),
             )
             // 结果区
             .child(render_result(
@@ -237,14 +259,20 @@ impl Render for DiffDemo {
                 identical,
                 empty_diff,
                 fast_mode,
-                &rendered_rows,
+                &rendered_pairs,
+                &snap.palette,
             ))
     }
 }
 
 // ---------- 元素构建 ----------
 
-fn render_input_column(title: &str, state: &Entity<InputState>, lines: usize) -> Div {
+fn render_input_column(
+    title: &str,
+    state: &Entity<InputState>,
+    lines: usize,
+    pal: &Palette,
+) -> Div {
     v_flex()
         .flex_1()
         .gap_1p5()
@@ -254,83 +282,97 @@ fn render_input_column(title: &str, state: &Entity<InputState>, lines: usize) ->
                 .items_baseline()
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(format!("{title}")),
+                        .child(title.to_string()),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
-                        .text_color(rgb(FG_FAINT))
+                        .text_xs()
+                        .text_color(pal.muted)
                         .child(format!("{lines} 行")),
                 ),
         )
         .child(Input::new(state))
 }
 
-fn render_row(row: &RenderRow) -> Div {
-    let (bg, accent) = match row.kind {
-        RowKind::Equal => (None, rgb(FG)),
-        RowKind::Insert => (Some(rgb(INS_BG)), rgb(INS_ACCENT)),
-        RowKind::Delete => (Some(rgb(DEL_BG)), rgb(DEL_ACCENT)),
+/// 并排一行：左半 | 分隔线 | 右半
+fn render_pair(row: &PairRow, pal: &Palette) -> Div {
+    h_flex()
+        .w_full()
+        .overflow_hidden()
+        .font_family("Consolas")
+        .text_sm()
+        .child(half_cell(row.left.as_ref(), pal))
+        .child(
+            // 物理分隔线：0.5 级别的细线属于对齐网格例外
+            div().w(px(1.)).bg(pal.border),
+        )
+        .child(half_cell(row.right.as_ref(), pal))
+}
+
+/// 半行：None 表示空白占位（对面是删除/新增行）
+fn half_cell(half: Option<&HalfLine>, pal: &Palette) -> Div {
+    let base = h_flex().flex_1().overflow_hidden();
+
+    let Some(h) = half else {
+        return base.bg(pal.panel_bg);
     };
-    let sign = match row.kind {
+
+    let cell = match h.kind {
+        RowKind::Equal => base,
+        RowKind::Insert => base.bg(pal.ins_tint),
+        RowKind::Delete => base.bg(pal.del_tint),
+    };
+    let accent = match h.kind {
+        RowKind::Equal => pal.muted,
+        RowKind::Insert => pal.ins_accent,
+        RowKind::Delete => pal.del_accent,
+    };
+    let sign = match h.kind {
         RowKind::Equal => " ",
         RowKind::Insert => "+",
         RowKind::Delete => "-",
     };
 
-    let base = h_flex()
-        .w_full()
-        .font_family("Consolas")
-        .text_size(px(12.5));
-    let base = match bg {
-        Some(bg) => base.bg(bg),
-        None => base,
-    };
-
-    base.child(num_cell(row.a_no))
-        .child(num_cell(row.b_no))
-        .child(div().w(px(14.)).text_color(accent).child(sign.to_string()))
+    cell.child(line_no(h.no, pal))
+        .child(div().w(px(12.)).text_color(accent).child(sign.to_string()))
         .child(
             div()
                 .flex_1()
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .text_color(match row.kind {
-                    RowKind::Equal => rgb(FG_MUTED),
-                    _ => rgb(FG),
+                .text_color(match h.kind {
+                    RowKind::Equal => pal.muted,
+                    _ => pal.fg,
                 })
-                .child(if row.text.is_empty() {
+                .child(if h.text.is_empty() {
                     "·".to_string()
                 } else {
-                    row.text.clone()
+                    h.text.clone()
                 }),
         )
 }
 
-fn num_cell(no: Option<usize>) -> Div {
-    let label = match no {
-        Some(n) => format!("{n:>4} "),
-        None => "     ".to_string(),
-    };
+/// 等宽行号列：固定宽度是对齐网格的物理边界例外
+fn line_no(no: usize, pal: &Palette) -> Div {
     div()
-        .w(px(34.))
+        .w(px(32.))
         .text_align(TextAlign::Right)
-        .text_size(px(11.5))
-        .text_color(rgb(FG_FAINT))
-        .child(label)
+        .text_xs()
+        .text_color(pal.muted)
+        .child(format!("{no:>3} "))
 }
 
-fn pill(text: &str, color: u32) -> Div {
+fn pill(text: &str, color: Hsla) -> Div {
     div()
         .px_2()
         .py_1()
         .rounded_md()
         .border_1()
-        .border_color(rgb(color))
-        .text_size(px(11.))
-        .text_color(rgb(color))
+        .border_color(color)
+        .text_xs()
+        .text_color(color)
         .child(text.to_string())
 }
 
@@ -340,10 +382,20 @@ fn render_result(
     identical: bool,
     empty_diff: bool,
     fast_mode: bool,
-    rows: &[RenderRow],
+    pairs: &[PairRow],
+    pal: &Palette,
 ) -> Div {
     if !has_result {
-        return placeholder_box("尚未对比 —— 点击上方「对比」按钮查看差异");
+        return placeholder_box("尚未对比 —— 点击上方「对比」按钮查看差异", pal);
+    }
+
+    // 先收集徽标，再一次性构建头部，避免可变重绑定
+    let mut badges: Vec<Div> = Vec::new();
+    if identical {
+        badges.push(pill("内容一致", pal.ins_accent));
+    } else {
+        badges.push(pill("+ 新增", pal.ins_accent));
+        badges.push(pill("- 删除", pal.del_accent));
     }
 
     let mut header = h_flex()
@@ -352,25 +404,14 @@ fn render_result(
         .items_center()
         .px_3()
         .py_2()
-        .bg(rgb(PANEL_BG))
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(rgb(FG_MUTED))
-                .child("差异"),
-        );
-    if identical {
-        header = header.child(pill("内容一致", INS_ACCENT));
-    } else {
-        header = header
-            .child(pill("+ 新增", INS_ACCENT))
-            .child(pill("- 删除", DEL_ACCENT));
-    }
+        .bg(pal.panel_bg)
+        .child(div().text_xs().text_color(pal.muted).child("差异"))
+        .children(badges);
     if fast_mode {
         header = header.child(
             div()
-                .text_size(px(11.))
-                .text_color(rgb(WARN))
+                .text_xs()
+                .text_color(pal.warning)
                 .child("文本过长，已使用快速对齐模式"),
         );
     }
@@ -378,44 +419,45 @@ fn render_result(
     let container = v_flex()
         .w_full()
         .border_1()
-        .border_color(rgb(BORDER))
+        .border_color(pal.border)
         .rounded_lg()
         .overflow_hidden()
+        .bg(pal.border) // 用边框色垫底，让两侧半行的间隙呈现分隔效果
         .child(header);
 
     if empty_diff {
-        return container.child(empty_hint("两段文本均为空"));
+        return container.child(empty_hint("两段文本均为空", pal));
     }
 
     let list = v_flex()
         .w_full()
         .py_1()
-        .children(rows.iter().map(render_row));
+        .children(pairs.iter().map(|p| render_pair(p, pal)));
     container.child(list)
 }
 
-fn placeholder_box(text: &str) -> Div {
+fn placeholder_box(text: &str, pal: &Palette) -> Div {
     h_flex()
         .w_full()
         .h(px(72.))
         .border_1()
-        .border_color(rgb(BORDER))
+        .border_color(pal.border)
         .rounded_lg()
         .items_center()
         .justify_center()
-        .text_size(px(13.))
-        .text_color(rgb(FG_FAINT))
+        .text_sm()
+        .text_color(pal.muted)
         .child(text.to_string())
 }
 
-fn empty_hint(text: &str) -> Div {
+fn empty_hint(text: &str, pal: &Palette) -> Div {
     h_flex()
         .w_full()
         .h(px(48.))
         .items_center()
         .justify_center()
-        .text_size(px(13.))
-        .text_color(rgb(FG_MUTED))
+        .text_sm()
+        .text_color(pal.muted)
         .child(text.to_string())
 }
 

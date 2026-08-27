@@ -204,6 +204,66 @@ pub fn summarize(rows: &[DiffRow]) -> DiffStats {
     s
 }
 
+// ---------- 并排（双栏）视图 ----------
+
+/// 并排对比中的半行：一侧的具体内容。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HalfLine {
+    pub kind: RowKind,
+    /// 行号（从 1 开始）
+    pub no: usize,
+    pub text: String,
+}
+
+/// 并排对比的一行：左（A）右（B）各一个半行，
+/// `None` 表示该侧为空白占位（对面的行是删除/新增）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairRow {
+    pub left: Option<HalfLine>,
+    pub right: Option<HalfLine>,
+}
+
+fn half_from(row: &DiffRow) -> HalfLine {
+    HalfLine {
+        kind: row.kind,
+        no: row.a_no.or(row.b_no).unwrap_or_default(),
+        text: row.text.clone(),
+    }
+}
+
+/// 把线性 op 序列折叠成并排对齐的行：
+/// 连续的非 Equal 段视为一个修改块，块内删除与插入按出现顺序一一配对，
+/// 多出的一侧落空为占位半行。
+pub fn pair_rows(rows: &[DiffRow]) -> Vec<PairRow> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < rows.len() {
+        if rows[i].kind == RowKind::Equal {
+            out.push(PairRow {
+                left: Some(half_from(&rows[i])),
+                right: Some(half_from(&rows[i])),
+            });
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < rows.len() && rows[i].kind != RowKind::Equal {
+            i += 1;
+        }
+        let block = &rows[start..i];
+        let dels: Vec<&DiffRow> = block.iter().filter(|r| r.kind == RowKind::Delete).collect();
+        let inss: Vec<&DiffRow> = block.iter().filter(|r| r.kind == RowKind::Insert).collect();
+        let n = dels.len().max(inss.len());
+        for k in 0..n {
+            out.push(PairRow {
+                left: dels.get(k).map(|r| half_from(r)),
+                right: inss.get(k).map(|r| half_from(r)),
+            });
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +358,50 @@ mod tests {
         let last = rows.last().unwrap();
         assert_eq!(last.a_no, last.b_no);
         assert_eq!(last.kind, RowKind::Equal);
+    }
+
+    #[test]
+    fn pair_modify_aligns_delete_with_insert() {
+        let (rows, _) = compute_rows("x\nold\nz", "x\nnew\nz");
+        let p = pair_rows(&rows);
+        assert_eq!(p.len(), 3);
+        // 中间一行：左删右增
+        let mid_left = p[1].left.as_ref().unwrap();
+        assert_eq!(mid_left.kind, RowKind::Delete);
+        assert_eq!(mid_left.no, 2);
+        assert_eq!(mid_left.text, "old");
+        let mid_right = p[1].right.as_ref().unwrap();
+        assert_eq!(mid_right.kind, RowKind::Insert);
+        assert_eq!(mid_right.text, "new");
+        // 首尾等号行两侧一致
+        assert_eq!(p[0].left, p[0].right);
+        assert_eq!(p[2].left, p[2].right);
+    }
+
+    #[test]
+    fn pair_two_deletes_one_insert_placeholders() {
+        // ops 序列固定为 [Del a, Del b, Ins x, Eq c]
+        let (rows, _) = compute_rows("a\nb\nc", "x\nc");
+        let p = pair_rows(&rows);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0].left.as_ref().unwrap().text, "a");
+        assert_eq!(p[0].right.as_ref().unwrap().text, "x");
+        assert_eq!(p[1].left.as_ref().unwrap().text, "b");
+        assert!(p[1].right.is_none());
+        assert_eq!(p[2].left.as_ref().unwrap().text, "c");
+        assert_eq!(p[2].left, p[2].right);
+    }
+
+    #[test]
+    fn pair_pure_insert_block_left_placeholder() {
+        let (rows, _) = compute_rows("a\nb", "a\nm1\nm2\nb");
+        let p = pair_rows(&rows);
+        // [Eq a | Ins m1 | Ins m2 | Eq b] -> (a,a)(None,m1)(None,m2)(b,b)
+        assert_eq!(p.len(), 4);
+        assert!(p[1].left.is_none());
+        assert_eq!(p[1].right.as_ref().unwrap().text, "m1");
+        assert!(p[2].left.is_none());
+        assert_eq!(p[2].right.as_ref().unwrap().text, "m2");
+        assert_eq!(p[3].left, p[3].right);
     }
 }
