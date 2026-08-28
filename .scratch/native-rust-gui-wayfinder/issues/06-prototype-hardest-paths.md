@@ -12,14 +12,14 @@ Slint 最小原型应实现哪些共同场景，才能验证 LazyCat 的真实�
 ## Comments
 
 - 2026-08-28：已认领并建立隔离原型
-  [`demos/slint-native-risk-prototype`](../../../demos/slint-native-risk-prototype/README.md)。
-  [动态工具标签页 E3 阶段 1 证据与 HITL 步骤](../../../demos/slint-native-risk-prototype/evidence/e3-stage-1-dynamic-tabs.md)
+  [`Slint 归档原型`](../../../docs/archive/native-rust-gui/slint-2026-08-28/README.md)。
+  [动态工具标签页 E3 阶段 1 证据与 HITL 步骤](../../../docs/archive/native-rust-gui/slint-2026-08-28/evidence/e3-stage-1-dynamic-tabs.md)
   已记录自动运行时部分；票据保持 claimed，等待用户完成可见状态连续性验收。
 - 2026-08-28：用户首次实机启动命中 Slint `Recursion detected`，旧的“可运行”结论立即失效。已用
   `--startup-smoke` 稳定复现并定位为 Slint 1.17.1 `ListView` 嵌入实验性
   `ComponentContainer` 时的循环布局求值；改用保留 2,000 行场景的 `ScrollView`
   后，真实窗口依次切换 12 个 factory 并正常退出。该组合风险和失去虚拟列表的成本保留在
-  [E3 证据](../../../demos/slint-native-risk-prototype/evidence/e3-stage-1-dynamic-tabs.md)中，仍需用户重新执行 HITL。
+  [E3 证据](../../../docs/archive/native-rust-gui/slint-2026-08-28/evidence/e3-stage-1-dynamic-tabs.md)中，仍需用户重新执行 HITL。
 
 ## Answer
 
@@ -34,5 +34,5 @@ Slint 1.17.1 在 Windows 实机上命中已确认的一票否决项，停止该�
 非虚拟化 `ScrollView`。
 
 因此，Slint 无法同时满足“切换保留、关闭销毁”、完整焦点路径和可维护稳定接口三项硬门槛。
-[完整 E3 失败证据](../../../demos/slint-native-risk-prototype/evidence/e3-stage-1-dynamic-tabs.md)
+[完整 E3 失败证据](../../../docs/archive/native-rust-gui/slint-2026-08-28/evidence/e3-stage-1-dynamic-tabs.md)
 保留为决策资产；不再继续 Slint 的 IME、混合 DPI、Shell、异步、视觉或发布验证。

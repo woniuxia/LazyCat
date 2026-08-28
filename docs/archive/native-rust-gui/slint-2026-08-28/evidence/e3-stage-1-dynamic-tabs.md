@@ -59,7 +59,7 @@ The retained command below returns non-zero because restored state cannot be
 observed in the recreated component:
 
 ```powershell
-& .\demos\slint-native-risk-prototype\target\debug\slint-native-risk-prototype.exe --state-smoke
+& .\docs\archive\native-rust-gui\slint-2026-08-28\target\debug\slint-native-risk-prototype.exe --state-smoke
 ```
 
 ### Long-list interaction

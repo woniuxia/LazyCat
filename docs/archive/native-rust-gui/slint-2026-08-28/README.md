@@ -1,4 +1,8 @@
-# Slint native GUI risk prototype (failed gate)
+# Slint native GUI risk prototype (archived failed gate)
+
+Archived on 2026-08-28. This directory is frozen decision evidence for the
+[resolved Wayfinder ticket](../../../../.scratch/native-rust-gui-wayfinder/issues/06-prototype-hardest-paths.md),
+not an active implementation area.
 
 This is a disposable, isolated decision prototype for the LazyCat native GUI
 Wayfinder. It is not a product rewrite and does not read or write LazyCat user
@@ -18,13 +22,14 @@ into product code. The retained prototype documents two failed approaches:
 The reproducible evidence and HITL checklist are in
 [`evidence/e3-stage-1-dynamic-tabs.md`](evidence/e3-stage-1-dynamic-tabs.md).
 
-Do not treat a successful build as E3 runtime evidence. Follow the ticket's
-manual checklist on the target Windows machine before resolving the prototype.
+Do not treat a successful build as E3 runtime evidence. The failed runtime
+record remains authoritative; use the retained checklist only when auditing the
+decision.
 
 ## Run
 
 ```powershell
-cd demos/slint-native-risk-prototype
+cd docs/archive/native-rust-gui/slint-2026-08-28
 cargo run
 ```
 
