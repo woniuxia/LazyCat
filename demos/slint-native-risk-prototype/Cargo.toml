@@ -1,0 +1,16 @@
+[package]
+name = "slint-native-risk-prototype"
+version = "0.1.0"
+edition = "2024"
+description = "Isolated Slint prototype for LazyCat native GUI risk validation"
+publish = false
+
+[dependencies]
+anyhow = "1"
+slint = { version = "=1.17.1", features = ["backend-winit", "renderer-femtovg"] }
+
+[build-dependencies]
+slint-build = "=1.17.1"
+
+[profile.dev]
+debug = "line-tables-only"

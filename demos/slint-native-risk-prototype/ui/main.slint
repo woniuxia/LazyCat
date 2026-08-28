@@ -1,0 +1,282 @@
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    LineEdit,
+    ScrollView,
+    SpinBox,
+    TextEdit,
+    VerticalBox,
+    HorizontalBox
+} from "std-widgets.slint";
+
+export struct ToolInfo {
+    index: int,
+    title: string,
+    kind: string,
+}
+
+export struct TabInfo {
+    index: int,
+    title: string,
+    active: bool,
+}
+
+export global PageState {
+    in-out property <string> draft;
+    in-out property <int> selection-index;
+    in-out property <length> outer-scroll-y;
+    in-out property <length> inner-scroll-y;
+    in-out property <int> focus-request;
+}
+
+component PageFrame inherits Rectangle {
+    in property <string> title;
+    in-out property <string> local-context: "Context A";
+    background: #ffffff;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Text { text: root.title; font-size: 20px; font-weight: 600; color: #202124; }
+        @children
+    }
+}
+
+export component TextTool inherits Window {
+    in property <string> tool-title: "JSON workbench";
+    in-out property <string> draft <=> PageState.draft;
+    in-out property <int> selection-index <=> PageState.selection-index;
+    in-out property <length> outer-scroll-y <=> PageState.outer-scroll-y;
+    in-out property <length> inner-scroll-y <=> PageState.inner-scroll-y;
+    in-out property <int> focus-request <=> PageState.focus-request;
+    changed focus-request => { editor.focus(); }
+
+    PageFrame {
+        title: root.tool-title;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Local operation context"; color: #5f6368; }
+            context := ComboBox {
+                model: ["Context A", "Context B", "Context C"];
+                current-index <=> root.selection-index;
+            }
+        }
+        outer := ScrollView {
+            viewport-y <=> root.outer-scroll-y;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                editor := TextEdit {
+                    text <=> root.draft;
+                    height: 520px;
+                }
+                inner := ScrollView {
+                    viewport-y <=> root.inner-scroll-y;
+                    height: 360px;
+                    VerticalLayout {
+                        for row in 80: Text {
+                            text: "Nested text row " + (row + 1);
+                            height: 24px;
+                            color: Math.mod(row, 2) == 0 ? #3c4043 : #5f6368;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component FormTool inherits Window {
+    in property <string> tool-title: "Request form";
+    in-out property <string> draft <=> PageState.draft;
+    in-out property <int> selection-index <=> PageState.selection-index;
+    in-out property <length> outer-scroll-y <=> PageState.outer-scroll-y;
+    in-out property <length> inner-scroll-y <=> PageState.inner-scroll-y;
+    in-out property <int> focus-request <=> PageState.focus-request;
+    changed focus-request => { editor.focus(); }
+
+    PageFrame {
+        title: root.tool-title;
+        editor := LineEdit { text <=> root.draft; }
+        outer := ScrollView {
+            viewport-y <=> root.outer-scroll-y;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 8px;
+                for field in 18: HorizontalLayout {
+                    height: 38px;
+                    Text { text: "Field " + (field + 1); width: 120px; vertical-alignment: center; }
+                    LineEdit { text <=> root.draft; }
+                }
+                HorizontalLayout {
+                    CheckBox { text: "Enabled"; checked: true; }
+                    SpinBox { value: 30; minimum: 1; maximum: 300; }
+                    ComboBox {
+                        model: ["Development", "Test", "Production"];
+                        current-index <=> root.selection-index;
+                    }
+                }
+                inner := ScrollView {
+                    viewport-y <=> root.inner-scroll-y;
+                    height: 180px;
+                    VerticalLayout {
+                        for row in 40: Text { text: "Validation result " + (row + 1); height: 24px; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ListTool inherits Window {
+    in property <string> tool-title: "Log viewer";
+    in-out property <string> draft <=> PageState.draft;
+    in-out property <int> selection-index <=> PageState.selection-index;
+    in-out property <length> outer-scroll-y <=> PageState.outer-scroll-y;
+    in-out property <length> inner-scroll-y <=> PageState.inner-scroll-y;
+    in-out property <int> focus-request <=> PageState.focus-request;
+    changed focus-request => { filter.focus(); }
+
+    PageFrame {
+        title: root.tool-title;
+        filter := LineEdit { text <=> root.draft; placeholder-text: "Filter 2,000 rows"; }
+        HorizontalLayout {
+            Text { text: "Selected row: " + (root.selection-index + 1); color: #5f6368; }
+            Button { text: "Next"; clicked => { root.selection-index = Math.mod(root.selection-index + 1, 2000); } }
+        }
+        list := ScrollView {
+            viewport-y <=> root.outer-scroll-y;
+            vertical-stretch: 1;
+            for row in 2000: Rectangle {
+                height: 28px;
+                background: row == root.selection-index ? #dce8ff : Math.mod(row, 2) == 0 ? #ffffff : #f7f8fa;
+                TouchArea { clicked => { root.selection-index = row; } }
+                Text { text: "Result row " + (row + 1) + " - deterministic prototype data"; vertical-alignment: center; x: 8px; }
+            }
+        }
+        inner := ScrollView {
+            viewport-y <=> root.inner-scroll-y;
+            height: 120px;
+            Text { text: "Nested detail\n" + root.draft + "\nScroll this detail independently.\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9"; }
+        }
+    }
+}
+
+export component TextDiffTool inherits TextTool {
+    tool-title: "Text diff";
+}
+
+export component CronTool inherits FormTool {
+    tool-title: "Cron builder";
+}
+
+export component TaskListTool inherits ListTool {
+    tool-title: "Task list";
+}
+
+export component Base64Tool inherits TextTool {
+    tool-title: "Base64 editor";
+}
+
+export component HeaderFormTool inherits FormTool {
+    tool-title: "HTTP headers";
+}
+
+export component SnippetListTool inherits ListTool {
+    tool-title: "Snippet browser";
+}
+
+export component MarkdownTool inherits TextTool {
+    tool-title: "Markdown notes";
+}
+
+export component EnvironmentTool inherits FormTool {
+    tool-title: "Environment form";
+}
+
+export component HistoryTool inherits ListTool {
+    tool-title: "History list";
+}
+
+export component MainWindow inherits Window {
+    title: "LazyCat Slint native risk prototype";
+    width: 1180px;
+    height: 760px;
+    background: #f3f5f7;
+
+    in property <[ToolInfo]> tools;
+    in property <[TabInfo]> tabs;
+    in property <int> active-tab: -1;
+    in property <component-factory> active-tool <=> host.component-factory;
+    in property <string> status;
+
+    callback open-tool(int);
+    callback select-tab(int);
+    callback close-tab(int);
+    callback focus-active-probe();
+    callback set-active-probe();
+    callback active-probe-matches() -> bool;
+
+    VerticalLayout {
+        spacing: 0px;
+        HorizontalLayout {
+            spacing: 0px;
+            Rectangle {
+                width: 210px;
+                background: #20242a;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 4px;
+                    Text { text: "TOOLS"; color: #aeb4bd; font-size: 12px; }
+                    for tool in root.tools: Button {
+                        text: tool.title;
+                        clicked => { root.open-tool(tool.index); }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 0px;
+                Rectangle {
+                    height: 44px;
+                    background: #e8eaed;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        for tab in root.tabs: Rectangle {
+                            width: 154px;
+                            background: tab.active ? #ffffff : #dde1e6;
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                Text {
+                                    text: tab.title;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    TouchArea { clicked => { root.select-tab(tab.index); } }
+                                }
+                                Button { text: "x"; width: 30px; clicked => { root.close-tab(tab.index); } }
+                            }
+                        }
+                    }
+                }
+                content-host := Rectangle {
+                    background: #ffffff;
+                    host := ComponentContainer {
+                        width: content-host.width;
+                        height: content-host.height;
+                    }
+                    if !host.has-component: Text {
+                        text: "No tool open";
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        color: #5f6368;
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 30px;
+            background: #20242a;
+            Text { text: root.status; color: #d7dbe0; x: 10px; vertical-alignment: center; }
+        }
+    }
+}
